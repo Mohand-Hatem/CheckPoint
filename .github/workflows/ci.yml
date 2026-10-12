@@ -1,0 +1,48 @@
+name: CI Quality Gate
+
+on:
+  push:
+    branches:
+      - main
+      - 'feat/**'
+      - 'feature/**'
+  pull_request:
+    branches:
+      - main
+
+jobs:
+  api-verification:
+    name: Backend API (Build, Typecheck & Unit Tests)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: apps/api
+
+    steps:
+      - name: Checkout Code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js 22
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: 'npm'
+          cache-dependency-path: apps/api/package-lock.json
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Validate & Generate Prisma Client
+        run: npx prisma generate
+        env:
+          DATABASE_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+          DIRECT_URL: "postgresql://dummy:dummy@localhost:5432/dummy"
+
+      - name: Typecheck TypeScript
+        run: npx tsc --noEmit
+
+      - name: Build NestJS API
+        run: npm run build
+
+      - name: Run Unit Tests
+        run: npm run test:unit

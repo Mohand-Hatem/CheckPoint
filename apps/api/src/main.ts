@@ -1,10 +1,13 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
 
 async function bootstrap() {
-  const logger = new Logger('Bootstrap');
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+
+  const logger = app.get(Logger);
+  app.useLogger(logger);
 
   app.setGlobalPrefix('api');
   app.enableCors();
@@ -18,7 +21,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 4000;
   await app.listen(port);
-  logger.log(`🚀 CheckPoint API is running on: http://localhost:${port}/api`);
+  logger.log(`🚀 CheckPoint API is running on: http://localhost:${port}/api`, 'Bootstrap');
 }
 
 bootstrap();
