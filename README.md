@@ -6,6 +6,50 @@ CheckPoint is a production-grade full-stack platform that modernizes workplace a
 
 ---
 
+## 🗺️ Project Roadmap & Current Progress Dashboard
+
+The full project is structured across **9 Phases** consisting of **47 Granular Engineering Steps**:
+
+```mermaid
+flowchart LR
+  P0["Phase 0: Setup ✅"] --> P1["Phase 1: Foundation 🟡"]
+  P1 --> P2["Phase 2: Schedules ⏳"]
+  P2 --> P3["Phase 3: Attendance ⏳"]
+  P3 --> P4["Phase 4: Points ⏳"]
+  P4 --> P5["Phase 5: Leaves ⏳"]
+  P5 --> P6["Phase 6: Payroll ⏳"]
+  P6 --> P7["Phase 7: Payouts ⏳"]
+  P7 --> P8["Phase 8: Deploy ⏳"]
+```
+
+### Milestone Status: Phase 0 & Phase 1 (Steps 1.1–1.4) 100% COMPLETE 🎉
+
+| Phase | Steps | Focus & Scope | Owner | Status |
+| :--- | :---: | :--- | :--- | :---: |
+| **Phase 0: Business Decisions & Workspace** | **4 steps** | Multi-client monorepo structure, legal decisions, security policies, and seed data. | Lead Dev (User) | **COMPLETED ✅** |
+| ↳ *Step 0.1* | - | NestJS expert skill and monorepo scaffolding (`apps/api`, `web`, `mobile`) | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 0.2* | - | Root `.gitignore` and `.env` credentials setup | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 0.3* | - | Security policies (Argon2id, 15m JWT, 30d refresh family rotation, throttling) | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 0.4* | - | System rules & seed data specifications | Lead Dev | **COMPLETED ✅** |
+| **Phase 1: Foundation (Backend, Web & Mobile)** | **8 steps** | Modular monolith foundation, database schema, secure authentication, and RBAC. | Lead Dev / Team | **IN PROGRESS 🟡** |
+| ↳ *Step 1.1* | - | Prisma schema, Neon PostgreSQL sync & initial database seeding | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 1.2* | - | `AuthService`: Login, JWT signing, refresh rotation & real-time reuse theft detection | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 1.3* | - | Global `JwtAuthGuard` (default-deny), `@RequirePermission` RBAC & 429 login throttling | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 1.4* | - | Users CRUD, 1st-of-month versioned salaries & deactivation session purging | Lead Dev | **COMPLETED ✅** |
+| ↳ *Step 1.5* | - | Audit interceptor, system settings service & injectable clock provider | Lead Dev / TM 2 | **UPCOMING ⏳** |
+| ↳ *Step 1.6* | - | Dockerfile, Docker Compose & local multi-container orchestration | Teammate 3 (Asmaa) | **UPCOMING ⏳** |
+| ↳ *Step 1.7* | - | Next.js 15 Admin Web Shell, token refresh interceptor & layout | Frontend Web | **UPCOMING ⏳** |
+| ↳ *Step 1.8* | - | React Native Mobile App Shell, login screen & SecureStore tokens | Frontend Mobile | **UPCOMING ⏳** |
+| **Phase 2: Schedules, Calendar & Locations** | **6 steps** | Geofence locations, shifts, Cairo/UTC timezone calendar & kiosk rotating QR tokens. | Teammate 2 | **UPCOMING ⏳** |
+| **Phase 3: Attendance, GPS & Rotating QR** | **6 steps** | 2-step verification (GPS accuracy + kiosk camera scan), overtime units & auto-expiry. | Teammate 2 | **UPCOMING ⏳** |
+| **Phase 4: Points & Offset Engine** | **6 steps** | Append-only point transactions, offset engine (Green/Red/Black), and absence sweeper. | Teammate 2 | **UPCOMING ⏳** |
+| **Phase 5: Leave, Early Leave & Corrections** | **5 steps** | Leave requests, absence exemptions, admin corrections & in-app notifications. | Teammate 2 | **UPCOMING ⏳** |
+| **Phase 6: Payroll Fund & Month Settlement** | **5 steps** | Month close transaction, USD/EGP exchange rate, profit-sharing fund distribution. | Teammate 2 | **UPCOMING ⏳** |
+| **Phase 7: Paymob Integration & Fund Payouts** | **4 steps** | Paymob payout gateway, encrypted account storage, webhook callbacks & idempotency. | Lead Dev / TM 2 | **UPCOMING ⏳** |
+| **Phase 8: Hardening, Security & Deployment** | **3 steps** | Concurrency regression, production Docker deployment, security audit & live company pilot. | Full Team | **UPCOMING ⏳** |
+
+---
+
 ## 🏗️ Architecture & Multi-Client Topology
 
 CheckPoint is structured as a scalable monorepo comprising three specialized client and service tiers:
@@ -26,6 +70,7 @@ CheckPoint/
 | :--- | :--- | :--- |
 | **Backend API** | NestJS 11, TypeScript, Express | Modular monolith service layer with DI and validation pipes. |
 | **Database & ORM** | PostgreSQL 16 (Neon Cloud), Prisma 6 | Serverless relational storage with connection pooling & direct migrations. |
+| **Logging & Metrics** | Pino (`nestjs-pino`, `pino-pretty`) | High-performance asynchronous structured logging with sensitive field redaction. |
 | **Cache & Queue** | Redis, BullMQ | Asynchronous event processing, job workers, and rate limiting. |
 | **Security & Auth** | Argon2id, Passport-JWT, Crypto SHA-256 | Single-use rotating refresh tokens with family theft detection. |
 | **Admin & Kiosk Web** | Next.js 15 (App Router), Tailwind CSS | Administrative control panel and high-contrast rotating QR kiosk. |
@@ -49,6 +94,40 @@ To ensure clean engineering separation and avoid git merge collisions:
 - **Zero Plaintext Stored Tokens**: Refresh tokens are stored strictly as SHA-256 hashes in Neon DB.
 - **Fine-Grained RBAC**: Route handlers declare granular permissions (e.g. `@RequirePermission('users.write')`), validated by global guards adhering to a **default-deny** architecture.
 - **Immediate Session Purge**: Deactivating an employee (`active: false`) instantly invalidates all active sessions.
+
+---
+
+## 🧪 Testing & CI/CD Quality Gates
+
+CheckPoint enforces automated testing across three complementary layers:
+
+### 1. Unit Tests (`npm run test:unit`)
+Fast, isolated Jest unit tests mocking all external dependencies (Prisma, JwtService):
+```bash
+npm run test:unit
+```
+- Covers password hashing, user creation edge cases, 1st-of-month salary rules, and refresh token theft detection branching.
+
+### 2. End-to-End Tests (`npm run test:e2e`)
+Formal Jest + Supertest E2E tests verifying real HTTP requests against the NestJS application instance:
+```bash
+npm run test:e2e
+```
+- Tests live login authentication, `@CurrentUser` profile extraction, token rotation, family theft detection rejection, user creation, and 1st-of-month salary enforcement.
+
+### 3. Comprehensive Verification Scripts (`npm run test:all`)
+Runs the full suite of end-to-end regression scripts:
+```bash
+npm run test:all
+```
+
+### 4. GitHub Actions CI Pipeline (`.github/workflows/ci.yml`)
+Every push and pull request to `main` runs an automated quality gate:
+1. `npm ci` (clean dependency installation)
+2. `npx prisma generate` (Prisma client generation)
+3. `npx tsc --noEmit` (strict TypeScript typechecking)
+4. `npm run build` (NestJS production compilation)
+5. `npm run test:unit` (Jest unit test suite)
 
 ---
 
@@ -97,15 +176,6 @@ Default credentials seeded:
 npm run start:dev
 ```
 API runs on `http://localhost:4000/api`.
-
-### 5. Running Automated Verification Tests
-```bash
-npm run test:all
-```
-Runs 17 end-to-end assertions verifying:
-1. `test:auth` — Password verification, token rotation, theft detection, logout.
-2. `test:rbac` — Unauthenticated rejection, `@CurrentUser`, 403 Forbidden, 429 login throttling.
-3. `test:users` — User creation, paginated search, 1st-of-month salary rules, deactivation session purge.
 
 ---
 
