@@ -1,0 +1,116 @@
+datasource db {
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+model Role {
+  id          String           @id @default(uuid()) @db.Uuid
+  code        String           @unique
+  name        String
+  permissions RolePermission[]
+  users       User[]
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@map("roles")
+}
+
+model RolePermission {
+  roleId     String   @map("role_id") @db.Uuid
+  permission String
+  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@id([roleId, permission])
+  @@map("role_permissions")
+}
+
+model User {
+  id                 String           @id @default(uuid()) @db.Uuid
+  employeeCode       String?          @unique @map("employee_code")
+  fullName           String           @map("full_name")
+  email              String           @unique
+  phone              String?
+  passwordHash       String           @map("password_hash")
+  mustChangePassword Boolean          @default(false) @map("must_change_password")
+  roleId             String           @map("role_id") @db.Uuid
+  role               Role             @relation(fields: [roleId], references: [id])
+  active             Boolean          @default(true)
+  activeFrom         DateTime         @default(now()) @map("active_from") @db.Date
+  disabledAt         DateTime?        @map("disabled_at") @db.Timestamptz()
+  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz()
+  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz()
+
+  refreshTokens      RefreshToken[]
+  salaries           EmployeeSalary[]
+  createdSalaries    EmployeeSalary[] @relation("SalaryCreatedBy")
+  auditLogs          AuditLog[]       @relation("UserAuditLogs")
+
+  @@map("users")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  familyId   String    @map("family_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash")
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz()
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz()
+  replacedBy String?   @map("replaced_by") @db.Uuid
+  userAgent  String?   @map("user_agent")
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([userId])
+  @@index([familyId])
+  @@index([expiresAt])
+  @@map("refresh_tokens")
+}
+
+model EmployeeSalary {
+  id            String   @id @default(uuid()) @db.Uuid
+  userId        String   @map("user_id") @db.Uuid
+  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  amount        Decimal  @db.Decimal(14, 2)
+  currency      String   @default("EGP") @db.Char(3)
+  effectiveFrom DateTime @map("effective_from") @db.Date
+  createdBy     String?  @map("created_by") @db.Uuid
+  creator       User?    @relation("SalaryCreatedBy", fields: [createdBy], references: [id])
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@unique([userId, effectiveFrom])
+  @@map("employee_salaries")
+}
+
+model AuditLog {
+  id         BigInt   @id @default(autoincrement())
+  actorId    String?  @map("actor_id") @db.Uuid
+  actor      User?    @relation("UserAuditLogs", fields: [actorId], references: [id])
+  actorType  String   @map("actor_type")
+  action     String
+  entityType String   @map("entity_type")
+  entityId   String   @map("entity_id")
+  before     Json?
+  after      Json?
+  requestId  String?  @map("request_id")
+  ip         String?
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+
+  @@index([entityType, entityId])
+  @@index([actorId, createdAt])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
+
+model Setting {
+  key       String   @id
+  value     Json
+  updatedBy String?  @map("updated_by") @db.Uuid
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+
+  @@map("settings")
+}
