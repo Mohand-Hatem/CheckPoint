@@ -7,7 +7,13 @@ node_modules/
 .env
 .env.local
 .env.*.local
+*.env
 *.pem
+
+# Skills & Agent Artifacts
+.agent/
+skills/
+*.zip
 
 # Build outputs
 dist/
