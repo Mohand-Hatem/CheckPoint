@@ -18,7 +18,8 @@
     "prisma:seed": "ts-node prisma/seed.ts",
     "test:auth": "ts-node test/verify-auth.ts",
     "test:rbac": "ts-node test/verify-rbac.ts",
-    "test:all": "ts-node test/verify-auth.ts && ts-node test/verify-rbac.ts"
+    "test:users": "ts-node test/verify-users.ts",
+    "test:all": "ts-node test/verify-auth.ts && ts-node test/verify-rbac.ts && ts-node test/verify-users.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.11",
