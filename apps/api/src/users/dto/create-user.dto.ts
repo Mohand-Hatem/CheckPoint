@@ -11,15 +11,15 @@ import {
 export class CreateUserDto {
   @IsEmail({}, { message: 'Must be a valid email' })
   @IsNotEmpty()
-  email: string;
+  email!: string;
 
   @IsString()
   @IsNotEmpty()
-  fullName: string;
+  fullName!: string;
 
   @IsString()
   @MinLength(6, { message: 'Password must be at least 6 characters' })
-  password: string;
+  password!: string;
 
   @IsString()
   @IsOptional()
@@ -31,7 +31,7 @@ export class CreateUserDto {
 
   @IsString()
   @IsNotEmpty({ message: 'Role code is required (e.g. ADMIN or EMPLOYEE)' })
-  roleCode: string;
+  roleCode!: string;
 
   @IsNumber()
   @IsPositive({ message: 'Initial salary must be greater than 0' })
