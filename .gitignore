@@ -15,6 +15,12 @@ node_modules/
 skills/
 *.zip
 
+# Local learning & planning workspace (kept on our machines, not pushed)
+planning/
+.claude/
+CLAUDE.md
+graphify-out/
+
 # Build outputs
 dist/
 build/

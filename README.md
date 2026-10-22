@@ -44,7 +44,7 @@ flowchart LR
 | **Phase 3: Attendance, GPS & Rotating QR** | **6 steps** | 2-step verification (GPS accuracy + kiosk camera scan), overtime units & auto-expiry. | Teammate 2 | **UPCOMING ⏳** |
 | **Phase 4: Points & Offset Engine** | **6 steps** | Append-only point transactions, offset engine (Green/Red/Black), and absence sweeper. | Teammate 2 | **UPCOMING ⏳** |
 | **Phase 5: Leave, Early Leave & Corrections** | **5 steps** | Leave requests, absence exemptions, admin corrections & in-app notifications. | Teammate 2 | **UPCOMING ⏳** |
-| **Phase 6: Payroll Fund & Month Settlement** | **5 steps** | Month close transaction, USD/EGP exchange rate, profit-sharing fund distribution. | Teammate 2 | **UPCOMING ⏳** |
+| **Phase 6: Payroll Fund & Month Settlement** | **5 steps** | Month close transaction (EGP only), off-day-work pay, profit-sharing fund distribution. | Teammate 2 | **UPCOMING ⏳** |
 | **Phase 7: Paymob Integration & Fund Payouts** | **4 steps** | Paymob payout gateway, encrypted account storage, webhook callbacks & idempotency. | Lead Dev / TM 2 | **UPCOMING ⏳** |
 | **Phase 8: Hardening, Security & Deployment** | **3 steps** | Concurrency regression, production Docker deployment, security audit & live company pilot. | Full Team | **UPCOMING ⏳** |
 
@@ -168,9 +168,9 @@ npx prisma db push
 npx prisma db seed
 ```
 
-The schema supports company-owned accounts and employee invitations. The API registration/invitation flows and removal of the legacy seeded administrator are not implemented yet. Do not use the development seed account in production.
+> **Reconciliation notice (2026-10-22):** the MVP is **one company per deployment, EGP only**, on a **tenancy-ready** data model (exactly one company row; see `docs/09-DECISION_LOG.md`). `apps/api/prisma/schema.prisma` is the base model; `docs/08-DATABASE_SCHEMA.md` lists the additive changes still to make (marked **[ADD]**, e.g. refresh tokens and settings). Until they land, the auth and users code does not compile against the schema.
 
-For an existing database, do not run `db push` until existing records have been assigned to a company, every employee has a current shift, and a migration/backfill has been prepared.
+Do not use the development seed account in production. For an existing database, do not run `db push` until the schema reconciliation is done and a migration has been prepared.
 
 ### 4. Running the API
 ```bash
@@ -191,6 +191,7 @@ The repository contains complete specifications for the entire system lifecycle:
 - [`06-ROADMAP.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/06-ROADMAP.md) — 9 phases and 47 granular engineering steps.
 - [`07-SEQUENCE_DIAGRAMS.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/07-SEQUENCE_DIAGRAMS.md) — Sequence diagrams for Auth, QR check-in, and Payroll.
 - [`08-DATABASE_SCHEMA.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/08-DATABASE_SCHEMA.md) — Complete relational schema & indexing strategy.
+- [`09-DECISION_LOG.md`](docs/09-DECISION_LOG.md) — Reconciliation of the planning spec and these docs: confirmed decisions, conflicts, REQ-to-FR traceability, open questions.
 - [`AGENTS.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/AGENTS.md) — Guidelines for AI agents and engineering contributors.
 
 ---

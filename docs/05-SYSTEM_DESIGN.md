@@ -49,7 +49,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /early-leaves` `{date,requestedCheckoutTime,reason}` · `GET /early-leaves/mine` · `POST /early-leaves/{id}/cancel` | Early leave |
 | `GET /me/fund` · `GET /me/fund/transactions` | Balance (derived) and ledger |
 | `PUT /me/payout-method` `{type,issuer,account,holderName}` | Creates a new immutable method row, deactivates the old one |
-| `POST /me/fund/withdrawals` `{amountUsd}` + `Idempotency-Key` | Withdrawal (returns payout `PENDING`, HTTP 202) |
+| `POST /me/fund/withdrawals` `{amountEgp}` + `Idempotency-Key` | Withdrawal (requested amount; the employee bears the Paymob fee; returns payout `PENDING`, HTTP 202) |
 | `GET /me/payouts` | Payout history/status |
 | `GET /me/notifications` · `PATCH /me/notifications/{id}/read` | In-app notifications |
 
@@ -64,8 +64,8 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
 | Leave | `GET /admin/leaves?status=` · `POST /admin/leaves/{id}/{approve, reject, cancel-approval}` `{note}` |
 | Early leave | `GET /admin/early-leaves?status=` · `POST /admin/early-leaves/{id}/{approve, reject}` `{note}` |
-| Payroll | `GET /admin/payroll/months/{month}/preview` · `POST /admin/payroll/months/{month}/close` `{usdEgpRate}` · `GET /admin/payroll/months/{month}/records` · `POST /admin/payroll/adjustments` |
-| Fund | `GET /admin/fund/users/{id}` · `POST /admin/fund/adjustments` `{userId,amountUsd,reason}` + `Idempotency-Key` |
+| Payroll | `GET /admin/payroll/months/{month}/preview` · `POST /admin/payroll/months/{month}/close` (no body; EGP only) · `GET /admin/payroll/months/{month}/records` · `POST /admin/payroll/adjustments` |
+| Fund | `GET /admin/fund/users/{id}` · `POST /admin/fund/adjustments` `{userId,amountEgp,reason}` + `Idempotency-Key` |
 | Payouts | `GET /admin/payouts?status=&userId=` · `POST /admin/payouts/{id}/inquire` · `POST /admin/payouts/{id}/resend` · `POST /admin/payouts/{id}/mark-paid` · `POST /admin/payouts/{id}/mark-failed` |
 | Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-logs?entity=&actor=&from=&to=` |
 
@@ -76,7 +76,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 
 ## 3. Authentication
 
-1. **Login** — normalize email; check throttle (Redis counter `email+IP`, e.g., 5 failures/15 min ⇒ `429`); load active user; argon2id verify; issue access JWT (15 min; claims `sub`, `role`) and a refresh token (random 256-bit; **SHA-256 hash** stored in `refresh_tokens` with `family_id`, `expires_at` e.g. 30 days).
+1. **Login** — normalize email; check throttle (Redis counter `email+IP`, e.g., 5 failures/15 min ⇒ `429`); load active user; argon2id verify; issue access JWT (15 min; claims `sub`, `role`) and a refresh token (random 256-bit; **SHA-256 hash** stored in `refresh_tokens` with `family_id`, `expires_at` 30 days by default — DN-22).
 2. **Refresh** — look up hash; if valid & unrevoked: revoke it (`replaced_by`), issue new pair in the same family. If an **already-rotated** token is presented ⇒ revoke the whole family (theft signal) and return `401`. Re-check `users.active`.
 3. **Logout** — revoke the family.
 4. **Disable user** — revoke all families in the disabling transaction.
@@ -86,15 +86,16 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 ## 4. Attendance
 
 ### 4.1 Effective schedule and windows
-- `ScheduleResolver.forDate(userId, date)` returns the `schedule_assignments` row covering `date` (`effective_from ≤ date ≤ effective_to or null`). None ⇒ employee is **not scheduled**: no check-in, no Black.
+- `ScheduleResolver.forDate(employeeId, date)` returns the `shift_assignments` row covering `date` and its effective `shift_versions` row (`effective_from ≤ date ≤ effective_to or null`). None ⇒ employee is **not scheduled**: no check-in, no Black.
 - Window instants (all computed in Cairo local time, then stored as UTC):
 
 ```text
-start         = date + work_start
-early_end     = start + early_minutes           (default +60)
-normal_end    = early_end + normal_minutes      (default +60)
-late_end      = normal_end + late_minutes       (default +120)   ← absence threshold (12:00)
-shift_end     = date + work_end
+start         = date + start_time
+early_end     = start + early_minutes           (default +60,  09:00)
+normal_end    = start + grace_minutes           (default +120, 10:00)
+late_end      = start + red_period_minutes      (default +240, 12:00)   ← absence threshold
+shift_end     = date + end_time
+(snapshotted on attendance_days as early_end_at / grace_end_at / red_period_end_at)
 ```
 
 - `classifyCheckIn(t)` (pure): `t < start` → `NOT_OPEN`; `[start, early_end)` → `EARLY/GREEN`; `[early_end, normal_end)` → `NORMAL/WHITE`; `[normal_end, late_end)` → `LATE/RED`; `t ≥ late_end` → `CLOSED`.
@@ -103,8 +104,8 @@ shift_end     = date + work_end
 1. Authenticated employee; compute `now` and `work_date` (Cairo).
 2. If an `attendance` row exists for the date: `CONFIRMED` ⇒ `409 ALREADY_CHECKED_IN`; `ABSENT`/`EXEMPT` ⇒ `422 ATTENDANCE_CLOSED`/`LEAVE_APPROVED`.
 3. If a `PENDING` verification exists with `expires_at > now` ⇒ return it (idempotent `200`).
-4. Date must be attendance-expected: working day (or active off-day-work exception, DN-12); no `APPROVED` leave covering the date (`LEAVE_APPROVED`); effective schedule exists.
-5. `classifyCheckIn(now)`: `NOT_OPEN` ⇒ `CHECKIN_NOT_OPEN` (DN-04); `CLOSED` ⇒ `ATTENDANCE_CLOSED`.
+4. Date must be attendance-expected: working day (or active off-day-work exception, FR-CAL-3); no `APPROVED` leave covering the date (`LEAVE_APPROVED`); effective schedule exists.
+5. `classifyCheckIn(now)`: `NOT_OPEN` ⇒ `CHECKIN_NOT_OPEN` (DN-04); `CLOSED` ⇒ `ATTENDANCE_CLOSED`. **Skipped on an active off-day-work exception day:** the day is classified `GREEN` regardless of time (FR-CAL-3; accepted time bounds DN-20) and the QR/step-2 flow is unchanged.
 6. `accuracy ≤ settings.gps_max_accuracy_m` (DN-14) else `GPS_ACCURACY_TOO_LOW`.
 7. Haversine distance to each assigned location; choose the nearest location whose `radius_m` contains the point; none ⇒ `OUTSIDE_GEOFENCE`.
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).
@@ -223,7 +224,7 @@ Admin may add any of GREEN/WHITE/RED/BLACK (reason mandatory) or reverse an `ADM
 ## 8. Payroll
 
 ### 8.1 Calculator (pure function `calculatePayroll(input) → record`)
-Inputs per employee and month `M`: salary version(s), working days (from calendar), approved leave days by type, point counts/values, adjustments, settings (`deduction_policy`, `leave_pay_policy`), `usd_egp_rate`.
+Inputs per employee and month `M`: salary version(s), working days (from calendar), approved leave days by type, point counts/values, adjustments, settings (`deduction_policy`, `leave_pay_policy`), off-day-work days worked. EGP only: no exchange rate.
 
 ```text
 working_days        = count of days in M that are not weekly-off and not holidays
@@ -239,9 +240,10 @@ applied_red         = deduction_policy.red_enabled   ? potential_red   : 0
 applied_black       = deduction_policy.black_enabled ? potential_black : 0
 (cap)               = if cap_percent_of_base set: min(applied_red+applied_black, cap% × base)
 adjustments         = Σ payroll_adjustments applying to M
-net_payroll_egp     = base_salary − leave_deduction − applied_red − applied_black + adjustments
-fund_credit_usd     = greens_remaining × value(GREEN)          (1 USD default)
-fund_credit_egp_eq  = fund_credit_usd × usd_egp_rate           (information only)
+off_day_days        = granted off-day-work exceptions in M with CONFIRMED attendance
+off_day_pay         = Σ ROUND_HALF_UP( salary_version_effective(day) / 30 , 2 )   (divisor always 30, 1× rate; FR-CAL-3)
+net_payroll_egp     = base_salary − leave_deduction − applied_red − applied_black + off_day_pay + adjustments
+fund_credit_egp     = greens_remaining × value(GREEN)          (configured, initial 1000 EGP; value at Month Close, DN-21)
 ```
 
 WHITE points never enter any formula. Greens consumed by offsets are never in `greens_remaining` (no double pay). Deductions are **off by default** (DN-01).
@@ -249,15 +251,15 @@ WHITE points never enter any formula. Greens consumed by offsets are never in `g
 ### 8.2 Preview
 `GET …/preview` runs the calculator for all employees with a salary/assignment in the month without writing anything; lists blocking issues (§8.3) and warnings (`partial_month`). The employee `payroll-estimate` calls the same function for one employee.
 
-### 8.3 Month Close (`POST …/close {usdEgpRate}`)
-Pre-checks (DN-17): month fully ended in Cairo; every earlier month with data is `LOCKED`; absence sweeper caught up for the last day; no `PENDING` leave/early-leave overlapping the month; `usdEgpRate > 0` (**required, no default**).
+### 8.3 Month Close (`POST …/close`)
+Pre-checks (DN-17): month fully ended in Cairo; every earlier month with data is `LOCKED`; absence sweeper caught up for the last day; no `PENDING` leave/early-leave overlapping the month; a GREEN value `> 0` is configured (FR-PTS-7). There is no exchange-rate input (EGP only).
 **One DB transaction:**
 1. Lock the `payroll_months` row (insert `OPEN` if absent) `FOR UPDATE`; refuse if `LOCKED`.
 2. Lock all affected `users` rows **in ascending id order**.
 3. For each employee: run `OffsetEngine.run` (month still open).
 4. Compute the record with the calculator; insert `payroll_records` (snapshot incl. counts, values, flags, JSON detail).
-5. If `fund_credit_usd > 0`: insert `fund_transactions` `MONTH_CLOSE_CREDIT` (`payroll_month` unique per user).
-6. Set `payroll_months`: `LOCKED`, `usd_egp_rate`, `locked_at`, `locked_by` (**last step**; from now on triggers reject writes for the month).
+5. If `fund_credit_egp > 0`: insert `fund_transactions` `MONTH_CLOSE_CREDIT` (`payroll_month` unique per user).
+6. Set `payroll_months`: `LOCKED`, `locked_at`, `locked_by` (**last step**; from now on triggers reject writes for the month).
 7. Audit; notifications to employees inserted.
 Commit. Failure at any step rolls back everything; rerun is safe.
 
@@ -267,9 +269,9 @@ Commit. Failure at any step rolls back everything; rerun is safe.
 - Salary-change/join proration: DN-11 (provisional flags, see PRD §6.9).
 
 ## 9. Money Rules
-- DB types: `NUMERIC(14,2)` amounts; `NUMERIC(12,6)` FX rate.
-- Point money values are integers × config (250, 1000, 1) ⇒ exact. The only division is leave deduction, rounded **once** half-up to 2 decimals.
-- Fund is held in **USD** (SoT: 1 Green = 1 USD). EGP equivalents use the rate frozen at Month Close for display; payout conversion rate: DN-03.
+- DB types: `NUMERIC(14,2)` EGP amounts (DN-23). No FX columns exist.
+- Point money values are integers × config (250, 1000, 1000) ⇒ exact. The divisions are the leave deduction (÷ working days) and the off-day pay (÷ 30), each rounded **once** half-up to 2 decimals.
+- Everything, including the fund and payouts, is in **EGP** (CONFIRMED); the Green value is the Admin-configured EGP amount.
 - Never read money from Redis or from the client.
 
 ## 10. Fund
@@ -279,9 +281,9 @@ Commit. Failure at any step rolls back everything; rerun is safe.
 - **Withdrawal** — single DB transaction:
   1. Lock user row (`FOR UPDATE`).
   2. Idempotency: look up `payouts(user_id, idempotency_key)`; found ⇒ return it (payload must match).
-  3. Validate: employee active (DN-13), active payout method and cooldown elapsed, `amount ≥ min`, daily/monthly caps (sums of non-failed payouts), `balance ≥ amount` else `INSUFFICIENT_FUND`.
-  4. Insert `payouts` (`PENDING`, generated unique `client_reference`, FX snapshot, method id).
-  5. Insert `fund_transactions` (`WITHDRAWAL`, `−amount`, `payout_id`).
+  3. Validate: employee active (DN-13), active payout method and cooldown elapsed, `amount ≥ min` and `amount > fee`, daily/monthly caps (sums of non-failed payouts), `balance ≥ amount` else `INSUFFICIENT_FUND`.
+  4. Insert `payouts` (`PENDING`, generated unique `client_reference`, `amount_egp` requested, `fee_egp` and `net_egp = amount_egp − fee_egp` from the effective fee configuration, method id). The employee bears the fee.
+  5. Insert `fund_transactions` (`WITHDRAWAL`, `−amount_egp`, `payout_id`).
   6. Insert `outbox_events` (`PAYOUT_SEND`, payout id).
   7. Commit → return `202` with payout.
 - **Admin adjustment:** user lock; a negative adjustment may not make the balance negative; reason mandatory; idempotency key; audited.
@@ -340,7 +342,7 @@ Immutable rows (`type WALLET|BANK`, issuer, `account_encrypted` AES-256-GCM, `ac
 | `housekeeping` | daily | purge expired refresh tokens; alert on stuck payouts |
 
 **Absence sweep** — for each date `d` from `max(today − absence_lookback_days, first open month start)` to `today`, and each employee eligible on `d`:
-- eligible = active on `d` (`d ≥ users.active_from` and not disabled before `d`), schedule assignment covers `d`, `d` is a working day, **no** off-day-work exception handling needed (exception ⇒ no Black), no approved leave covering `d`, no `attendance` row, **no unexpired `PENDING` verification**, month of `d` open, and `now ≥ late_end(d)` (`now` past the threshold for today; always true for past days).
+- eligible = active on `d` (`d ≥ employees.active_from` and not deactivated before `d`), schedule assignment covers `d`, `d` is a working day, **no** off-day-work exception handling needed (exception ⇒ no Black), no approved leave covering `d`, no `attendance` row, **no unexpired `PENDING` verification**, month of `d` open, and `now ≥ late_end(d)` (`now` past the threshold for today; always true for past days).
 - Per employee, one short **transaction** with user lock: insert `attendance (ABSENT, BLACK, rev 1)` `ON CONFLICT DO NOTHING`; if inserted ⇒ award Black (`dedupe_key = ATT:{userId}:{d}:1`); run engine; notify. Rerun/parallel run ⇒ conflict ⇒ no-op.
 - Month Close is **not** a scheduled job (admin-triggered).
 
@@ -399,7 +401,7 @@ Check-in (happy path both steps) · duplicate check-in · GPS outside/accuracy �
 Two simultaneous check-ins (one verification/attendance) · two simultaneous confirms (one point) · two simultaneous withdrawals (second sees reduced balance; never negative) · repeated/parallel absence sweeps (one Black) · double point reversal (one reversal row) · simultaneous admin reverse + offset engine run · duplicate outbox relay (single job per `jobId`).
 
 ### 15.4 Golden cases
-Assumptions: Greens ≥ penalties at each engine run unless stated; Red = 250 EGP, Black = 1000 EGP, Green = 1 USD; **no exchange rate assumed** (EGP equivalent = USD × frozen rate `R`). "Policy ON" = both deductions enabled, no cap.
+Assumptions: Greens ≥ penalties at each engine run unless stated; Red = 250 EGP, Black = 1000 EGP, Green = 1000 EGP (initial configured value; EGP only, no conversion). "Policy ON" = both deductions enabled, no cap.
 
 **G1 — SoT example (order-insensitive because Greens suffice).** 30 working days: 20 Early, 5 Normal, 3 Late, 2 Absent, 10 overtime Greens.
 
@@ -409,7 +411,7 @@ Assumptions: Greens ≥ penalties at each engine run unless stated; Red = 250 EG
 | Red pass | 3 Greens cancel 3 Reds (oldest first) → Greens left 27 |
 | Black pass | 2 × 5 = 10 Greens cancel 2 Blacks → Greens left **17** |
 | Consumed Greens | 3 + 10 = **13** |
-| Remaining Greens | **17** → Fund credit **17 USD** (≈ 17·R EGP, display only) |
+| Remaining Greens | **17** → Fund credit **17,000 EGP** |
 | Active Reds / Blacks | 0 / 0 → potential deductions **0** |
 | Would-have-been potential (no offsets) | 3×250 + 2×1000 = 2,750 EGP |
 | Net payroll (base **B**) | **B** (policy ON or OFF) |
@@ -419,18 +421,22 @@ Greens 2 → cancel 2 oldest Reds; Greens left 0; Blacks need 5 ⇒ none cancell
 Consumed **2**, remaining **0** → Fund **0**. Active Reds **2** (500 EGP), Blacks **2** (2,000 EGP) → potential **2,500 EGP**.
 Net with B = 20,000: policy OFF → **20,000**; policy ON → **17,500**.
 
-**G3 — SoT §10 example.** 22 working days: 10 Early, 10 Normal, 2 Late. Greens 10, Reds 2 → 2 consumed, **8 remain → Fund 8 USD (not 10)**. Potential 0. Net = B.
+**G3 — SoT §10 example.** 22 working days: 10 Early, 10 Normal, 2 Late. Greens 10, Reds 2 → 2 consumed, **8 remain → Fund 8,000 EGP (not 10,000)**. Potential 0. Net = B.
 
 **G4 — Eager path dependence (documented behavior).** Five Early days (5 Greens).
 - *Order A:* Absent (Black) next, then Late (Red): the Black is cancelled with 5 Greens (Greens 0); the later Red stays ACTIVE → potential **250 EGP**.
 - *Order B:* Late (Red) first: 1 Green cancels it (4 left); a later Absent (Black) cannot be cancelled (needs 5) → potential **1,000 EGP**.
 Outcome follows chronological order; tests lock this behavior (DN-09).
 
-**G5 — Red-then-Black boundary.** 7 Greens, 1 Red, 1 Black (any order): Red uses 1 Green; Black uses 5; **1 Green remains → Fund 1 USD**; potential 0.
+**G5 — Red-then-Black boundary.** 7 Greens, 1 Red, 1 Black (any order): Red uses 1 Green; Black uses 5; **1 Green remains → Fund 1,000 EGP**; potential 0.
 
 **G6 — Unpaid leave.** Base 22,000 EGP, 22 working days, 2 `UNPAID` approved leave days, 20 Normal days (20 White): leave deduction = 22,000 × 2 / 22 = **2,000**; no Red/Black/Green; Fund 0; Net (UNPAID deducts) **20,000**; with `UNPAID` marked paid in policy → 22,000.
 
 **G7 — Admin reversal.** G1 plus admin reverses one Early Green that was consumed by a Black group: the group is undone (5 Greens freed), engine re-runs and re-matches; totals recomputed deterministically; reversal row and UNDO rows exist; nothing deleted.
+
+**G8 — Reds before Blacks (CONFIRMED).** One Black and one Red are outstanding and 5 Greens are available in one engine run: the Red is cancelled using 1 Green first; 4 Greens remain; the Black stays ACTIVE (4 < 5). Fund credit at close = 4 × Green value.
+
+**G9 — Off-day work (CONFIRMED).** Base salary 10,000 EGP; an exception day is worked and checked in at 14:10: classification **GREEN** (time ignored); day's pay = ROUND_HALF_UP(10,000 ÷ 30, 2) = **333.33 EGP** (divisor always 30); net payroll = B + 333.33; no overtime Greens that day (DN-20).
 
 ## 16. Invariant Enforcement Map
 Defined in `08-DATABASE_SCHEMA.md` §4; each is enforced by a DB constraint/trigger **and** covered by a test above.

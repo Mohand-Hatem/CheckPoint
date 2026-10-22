@@ -111,6 +111,7 @@ describe('CheckPoint End-to-End Tests (e2e)', () => {
         .send({
           email,
           fullName: 'E2E Test Employee',
+          employeeCode: `E2E-${Date.now()}`,
           password: 'Password123!',
           roleCode: 'EMPLOYEE',
           initialSalary: 11000,

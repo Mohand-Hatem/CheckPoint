@@ -75,12 +75,12 @@ Rules
 | Module | Responsibility | Owns tables | Depends on |
 |---|---|---|---|
 | `auth` | Login, refresh rotation, logout, throttling, guards, RBAC foundation | `roles`, `role_permissions`, `refresh_tokens` | users, settings |
-| `users` | Employees, salary versions, disable/reactivate, payout-method owner link | `users`, `employee_salaries`, `user_locations` | auth(roles), audit |
-| `schedules` | WorkSchedule + ScheduleAssignment, effective-schedule resolver | `work_schedules`, `schedule_assignments` | users, audit |
-| `calendar` | Weekly off days, holidays, off-day-work exceptions, `isWorkingDay` | `holidays`, `off_day_work_exceptions` | settings, audit |
+| `users` | Employees, salary versions, disable/reactivate, payout-method owner link | `users`, `employee_compensation_versions`, `user_locations` | auth(roles), audit |
+| `schedules` | Shift + versioned ShiftVersion + ShiftAssignment, effective-schedule resolver | `shifts`, `shift_versions`, `shift_version_weekdays`, `shift_assignments` | users, audit |
+| `calendar` | Weekly off days, holidays, off-day-work exceptions, `isWorkingDay` | `holidays`, `work_offers` (type `OFF_DAY_WORK`) | settings, audit |
 | `locations` | Geofences, QR token generation/validation | `locations` | audit |
 | `attendance` | Check-in (GPS+QR), check-out, absence handling, corrections, verification expiry | `attendance`, `attendance_verifications` | schedules, calendar, locations, leaves, points, audit |
-| `points` | Point ledger, offset engine, reversals, derived point state | `point_transactions`, `point_offsets`, `point_values` | settings, payroll(lock check), audit |
+| `points` | Point ledger, offset engine, reversals, derived point state | `point_transactions`, `point_offsets`, `point_value_versions` | settings, payroll(lock check), audit |
 | `leaves` | Leave + early-leave requests and decisions | `leave_requests`, `early_leave_requests` | calendar, attendance, points, notifications, audit |
 | `payroll` | Calculator, preview, Month Close, adjustments, month lock | `payroll_months`, `payroll_records`, `payroll_adjustments` | points, fund, leaves, calendar, users, settings, audit |
 | `fund` | Fund ledger, balance, withdrawal use case | `fund_transactions` | payments(payouts), users(lock), audit |
@@ -158,7 +158,7 @@ Failure behavior: see `02-PRD.md` Edge Case 19.
 | Abuse | Login throttling; per-user withdrawal limits (DN-13); admin alert on large withdrawals |
 
 ## 11. RBAC Foundation (without over-engineering)
-- Tables: `roles(code)`, `role_permissions(role_id, permission)`; `users.role_id`.
+- Tables: `roles(name)`, `permissions(code)`, `role_permissions(role_id, permission_id)`, `user_roles(user_id, role_id)`; exactly one role per user in the MVP.
 - Permission strings are constants in code; seed inserts `ADMIN` (all) and `EMPLOYEE` (`*.own` set). Adding `MANAGER`/`HR`/`FINANCE` later = new `roles` rows + permission rows + (Future) a team-scope policy; no controller rewrite because controllers declare `@RequirePermission('leave.approve.any')`.
 - Not built now: hierarchy, per-user overrides, permission admin UI.
 

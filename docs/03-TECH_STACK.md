@@ -30,7 +30,7 @@ Selection rule: a technology is here only if it solves a problem this system act
 - **Supporting libs:** Expo Router, `expo-location`, `expo-camera`, `expo-secure-store`, `@tanstack/react-query`, auto-generated OpenAPI client.
 
 ## Database — PostgreSQL 16
-- **Choice:** Single PostgreSQL instance (managed or Docker volume with backups).
+- **Choice:** Single PostgreSQL 16 instance (managed or Docker volume with backups). Environments: local development uses the `postgres:16-alpine` service in `docker-compose.yml` (`DATABASE_URL` → `localhost:5432`); shared dev/staging may use Neon (managed PostgreSQL 16, pooled `DATABASE_URL` + direct `DIRECT_URL` for migrations); production hosting is DN-19. `DATABASE_URL` and `DIRECT_URL` must point at the **same** database in any one environment.
 - **Why:** ACID transactions, `SELECT … FOR UPDATE`, partial unique indexes, exclusion constraints, triggers, `NUMERIC`, `JSONB`.
 - **Problem solved:** Source of truth for points, fund, payroll; DB-level invariants (one attendance/day, one reversal per point, unique payout key, locked-month trigger).
 - **Alternatives not needed now:** MongoDB/DynamoDB (weak relational constraints for money); a separate ledger DB (premature).
@@ -73,7 +73,7 @@ Selection rule: a technology is here only if it solves a problem this system act
 - **Alternatives not needed now:** date-fns-tz/dayjs (less explicit zone handling), `Date` (error-prone).
 
 ## Money Handling — PostgreSQL `NUMERIC(14,2)` + `decimal.js` (Prisma `Decimal`)
-- **Choice:** All amounts `NUMERIC`; arithmetic via Decimal; rounding `ROUND_HALF_UP` to 2 decimals applied once per line at defined points (documented in System Design §9). FX rate `NUMERIC(12,6)`.
+- **Choice:** All amounts `NUMERIC`; arithmetic via Decimal; rounding `ROUND_HALF_UP` to 2 decimals applied once per line at defined points (documented in System Design §9). EGP only: no FX rate, no currency conversion (CONFIRMED). Integer-piaster storage was proposed by the planning spec and is not adopted (DN-23).
 - **Why:** Floats are unsafe for money.
 - **Problem solved:** Exact payroll and fund totals; golden cases reproducible to the piaster/cent.
 - **Alternatives not needed now:** Integer minor units (also valid; NUMERIC is simpler to read/audit here).

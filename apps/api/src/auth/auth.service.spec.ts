@@ -15,14 +15,21 @@ describe('AuthService (Unit)', () => {
   const mockUser = {
     id: 'user-uuid-1',
     email: 'admin@checkpoint.local',
-    fullName: 'System Admin',
     passwordHash: '',
-    active: true,
+    isActive: true,
     mustChangePassword: false,
-    role: {
-      code: 'ADMIN',
-      permissions: [{ permission: 'users.read' }, { permission: 'users.write' }],
-    },
+    employee: { fullName: 'System Admin' },
+    roles: [
+      {
+        role: {
+          name: 'ADMIN',
+          permissions: [
+            { permission: { code: 'users.read' } },
+            { permission: { code: 'users.write' } },
+          ],
+        },
+      },
+    ],
   };
 
   beforeAll(async () => {
@@ -81,7 +88,19 @@ describe('AuthService (Unit)', () => {
       expect(result.refreshToken).toBeDefined();
       expect(result.user.email).toBe('admin@checkpoint.local');
       expect(result.user.role).toBe('ADMIN');
+      expect(result.user.fullName).toBe('System Admin');
+      expect(jwtService.signAsync).toHaveBeenCalledWith(
+        expect.objectContaining({ role: 'ADMIN', permissions: ['users.read', 'users.write'] }),
+      );
       expect(prisma.refreshToken.create).toHaveBeenCalled();
+    });
+
+    it('should reject a user with no role assigned', async () => {
+      prisma.user.findUnique.mockResolvedValue({ ...mockUser, roles: [] });
+
+      await expect(
+        service.login({ email: 'admin@checkpoint.local', password: 'Secret123!' }),
+      ).rejects.toThrow(UnauthorizedException);
     });
 
     it('should throw UnauthorizedException for unknown email', async () => {
@@ -93,7 +112,7 @@ describe('AuthService (Unit)', () => {
     });
 
     it('should throw UnauthorizedException for deactivated user', async () => {
-      prisma.user.findUnique.mockResolvedValue({ ...mockUser, active: false });
+      prisma.user.findUnique.mockResolvedValue({ ...mockUser, isActive: false });
 
       await expect(
         service.login({ email: 'admin@checkpoint.local', password: 'Secret123!' }),

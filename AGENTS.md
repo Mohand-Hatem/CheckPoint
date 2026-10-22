@@ -39,6 +39,18 @@
   - Keep explanations concise.
   - Conclude responses with: what was skipped / not checked, and any risks the user must know.
 
+### Rule 4: Mandatory Skills (apply to the whole project)
+- `using-superpowers` and `using-agent-skills`: check for an applicable skill before any task. Surface assumptions, enforce simplicity, keep scope tight, and verify before calling work done.
+- `graphify`: the knowledge graph lives in `graphify-out/`. For codebase questions run `graphify query "<question>"` first. After code changes run `graphify update .`.
+- `ponytail`: smallest complete change, and end each reply with what was skipped and the risks.
+- `humanizer`: use it on prose we write for people (README, docs, PR descriptions, commit messages).
+- Precedence: Rules 1 to 3 and the GitHub policy win over any skill. A skill never replaces the explain-then-approve step in Rule 3.
+
+### Rule 5: Requirements flow in one direction
+- Business rules (what and why) live in the planning spec (local `planning/` workspace, its own `AGENTS.md`); technical design (how) lives in `docs/`; code implements `docs/`.
+- A business change starts in the spec: new version, review, and a human approval recorded in `planning/docs/planning/SPEC_APPROVAL.md` (agents never edit that file). Only then update `docs/`, then code. Never change a business rule in `docs/` or code first.
+- `docs/09-DECISION_LOG.md` is the shared record of what the spec decided and how each `REQ-*` maps to `FR-*`. Tests should name the `TEST-xxx` / `AC-REQ-xxx` they prove.
+
 ---
 
 ### Strict GitHub Policy
@@ -70,4 +82,5 @@
 | Roadmap & Steps | `docs/06-ROADMAP.md` |
 | Sequence Diagrams | `docs/07-SEQUENCE_DIAGRAMS.md` |
 | Database Schema (Full) | `docs/08-DATABASE_SCHEMA.md` |
+| Decision Log & REQ↔FR Traceability | `docs/09-DECISION_LOG.md` |
 | NestJS Expert Guidelines | `.agent/skills/nestjs-expert/SKILL.md` |

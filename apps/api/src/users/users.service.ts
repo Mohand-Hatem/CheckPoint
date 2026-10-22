@@ -4,37 +4,111 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
+import { CompanyContextService } from '../company/company-context.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { CreateUserDto } from './dto/create-user.dto';
 
+const USER_VIEW_SELECT = Prisma.validator<Prisma.UserSelect>()({
+  id: true,
+  email: true,
+  isActive: true,
+  mustChangePassword: true,
+  createdAt: true,
+  updatedAt: true,
+  roles: { select: { role: { select: { name: true, description: true } } } },
+  employee: {
+    select: {
+      fullName: true,
+      employeeNumber: true,
+      phone: true,
+      activeFrom: true,
+      deactivatedAt: true,
+      compensationVersions: {
+        orderBy: { effectiveFrom: 'desc' },
+        select: {
+          id: true,
+          salary: true,
+          effectiveFrom: true,
+          createdAt: true,
+          createdBy: { select: { id: true, email: true } },
+        },
+      },
+    },
+  },
+});
+
+type UserView = Prisma.UserGetPayload<{ select: typeof USER_VIEW_SELECT }>;
+
+// Keeps the Step 1.4 response shape while storage follows the users/employees schema.
+function toUserResponse(user: UserView) {
+  const role = user.roles[0]?.role;
+  const salaries = (user.employee?.compensationVersions ?? []).map((s) => ({
+    id: s.id,
+    amount: s.salary,
+    currency: 'EGP',
+    effectiveFrom: s.effectiveFrom,
+    createdAt: s.createdAt,
+    creator: s.createdBy,
+  }));
+
+  return {
+    id: user.id,
+    email: user.email,
+    fullName: user.employee?.fullName ?? null,
+    employeeCode: user.employee?.employeeNumber ?? null,
+    phone: user.employee?.phone ?? null,
+    active: user.isActive,
+    mustChangePassword: user.mustChangePassword,
+    activeFrom: user.employee?.activeFrom ?? null,
+    disabledAt: user.employee?.deactivatedAt ?? null,
+    createdAt: user.createdAt,
+    updatedAt: user.updatedAt,
+    role: role ? { code: role.name, name: role.description } : null,
+    currentSalary: salaries[0] ?? null,
+    salaries,
+  };
+}
+
 @Injectable()
 export class UsersService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly companyContext: CompanyContextService,
+  ) {}
 
   async createUser(dto: CreateUserDto, creatorId?: string) {
-    const existingEmail = await this.prisma.user.findUnique({
-      where: { email: dto.email.toLowerCase() },
-    });
+    const companyId = await this.companyContext.getCompanyId();
+    const email = dto.email.toLowerCase();
+
+    const existingEmail = await this.prisma.user.findUnique({ where: { email } });
     if (existingEmail) {
       throw new ConflictException('Email is already registered');
     }
 
-    if (dto.employeeCode) {
-      const existingCode = await this.prisma.user.findUnique({
-        where: { employeeCode: dto.employeeCode },
-      });
-      if (existingCode) {
-        throw new ConflictException('Employee code is already in use');
-      }
+    const existingCode = await this.prisma.employee.findUnique({
+      where: { companyId_employeeNumber: { companyId, employeeNumber: dto.employeeCode } },
+    });
+    if (existingCode) {
+      throw new ConflictException('Employee code is already in use');
     }
 
     const role = await this.prisma.role.findUnique({
-      where: { code: dto.roleCode.toUpperCase() },
+      where: { name: dto.roleCode.toUpperCase() },
     });
     if (!role) {
       throw new NotFoundException(`Role '${dto.roleCode}' not found`);
+    }
+
+    // shortcut: every new employee starts on the company's first active shift; per-employee assignment comes with Phase 2 (TASK-006).
+    const shift = await this.prisma.shift.findFirst({
+      where: { companyId, isActive: true },
+      orderBy: { createdAt: 'asc' },
+    });
+    if (!shift) {
+      throw new BadRequestException('No active shift is configured. Run the database seed.');
     }
 
     const passwordHash = await argon2.hash(dto.password, {
@@ -46,44 +120,40 @@ export class UsersService {
 
     const user = await this.prisma.$transaction(async (tx) => {
       const newUser = await tx.user.create({
+        data: { companyId, email, passwordHash, isActive: true, mustChangePassword: true },
+      });
+
+      await tx.userRole.create({
+        data: { userId: newUser.id, roleId: role.id, assignedByUserId: creatorId || null },
+      });
+
+      const employee = await tx.employee.create({
         data: {
-          email: dto.email.toLowerCase(),
+          companyId,
+          userId: newUser.id,
+          employeeNumber: dto.employeeCode,
           fullName: dto.fullName,
-          employeeCode: dto.employeeCode || null,
           phone: dto.phone || null,
-          passwordHash,
-          roleId: role.id,
-          active: true,
-          mustChangePassword: true,
-        },
-        include: {
-          role: {
-            select: {
-              code: true,
-              name: true,
-            },
-          },
+          currentShiftId: shift.id,
         },
       });
 
       if (dto.initialSalary) {
-        await tx.employeeSalary.create({
+        await tx.employeeSalaryVersion.create({
           data: {
-            userId: newUser.id,
-            amount: dto.initialSalary,
-            currency: dto.currency || 'EGP',
+            companyId,
+            employeeId: employee.id,
+            salary: dto.initialSalary,
             effectiveFrom,
-            createdBy: creatorId || null,
+            createdByUserId: creatorId || null,
           },
         });
       }
 
-      return newUser;
+      return tx.user.findUniqueOrThrow({ where: { id: newUser.id }, select: USER_VIEW_SELECT });
     });
 
-    // Exclude passwordHash from output
-    const { passwordHash: _, ...result } = user;
-    return result;
+    return toUserResponse(user);
   }
 
   async getUsers(
@@ -94,23 +164,22 @@ export class UsersService {
     active?: boolean,
   ) {
     const skip = (page - 1) * limit;
-
-    const where: any = {};
+    const where: Prisma.UserWhereInput = { companyId: await this.companyContext.getCompanyId() };
 
     if (search) {
       where.OR = [
-        { fullName: { contains: search, mode: 'insensitive' } },
         { email: { contains: search, mode: 'insensitive' } },
-        { employeeCode: { contains: search, mode: 'insensitive' } },
+        { employee: { is: { fullName: { contains: search, mode: 'insensitive' } } } },
+        { employee: { is: { employeeNumber: { contains: search, mode: 'insensitive' } } } },
       ];
     }
 
     if (roleCode) {
-      where.role = { code: roleCode.toUpperCase() };
+      where.roles = { some: { role: { name: roleCode.toUpperCase() } } };
     }
 
     if (typeof active === 'boolean') {
-      where.active = active;
+      where.isActive = active;
     }
 
     const [total, users] = await Promise.all([
@@ -120,40 +189,12 @@ export class UsersService {
         skip,
         take: limit,
         orderBy: { createdAt: 'desc' },
-        select: {
-          id: true,
-          email: true,
-          fullName: true,
-          employeeCode: true,
-          phone: true,
-          active: true,
-          activeFrom: true,
-          disabledAt: true,
-          createdAt: true,
-          role: {
-            select: {
-              code: true,
-              name: true,
-            },
-          },
-          salaries: {
-            orderBy: { effectiveFrom: 'desc' },
-            take: 1,
-            select: {
-              amount: true,
-              currency: true,
-              effectiveFrom: true,
-            },
-          },
-        },
+        select: USER_VIEW_SELECT,
       }),
     ]);
 
     return {
-      data: users.map((u) => ({
-        ...u,
-        currentSalary: u.salaries[0] || null,
-      })),
+      data: users.map(toUserResponse),
       total,
       page,
       limit,
@@ -162,89 +203,60 @@ export class UsersService {
   }
 
   async getUserById(id: string) {
-    const user = await this.prisma.user.findUnique({
-      where: { id },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        employeeCode: true,
-        phone: true,
-        active: true,
-        activeFrom: true,
-        disabledAt: true,
-        createdAt: true,
-        updatedAt: true,
-        role: {
-          select: {
-            code: true,
-            name: true,
-          },
-        },
-        salaries: {
-          orderBy: { effectiveFrom: 'desc' },
-          select: {
-            id: true,
-            amount: true,
-            currency: true,
-            effectiveFrom: true,
-            createdAt: true,
-            creator: {
-              select: {
-                id: true,
-                fullName: true,
-                email: true,
-              },
-            },
-          },
-        },
-      },
+    const user = await this.prisma.user.findFirst({
+      where: { id, companyId: await this.companyContext.getCompanyId() },
+      select: USER_VIEW_SELECT,
     });
 
     if (!user) {
       throw new NotFoundException(`User with ID '${id}' not found`);
     }
 
-    return user;
+    return toUserResponse(user);
   }
 
   async updateUserStatus(id: string, active: boolean) {
-    const user = await this.prisma.user.findUnique({ where: { id } });
+    const user = await this.prisma.user.findFirst({
+      where: { id, companyId: await this.companyContext.getCompanyId() },
+      select: { id: true, employee: { select: { id: true } } },
+    });
     if (!user) {
       throw new NotFoundException(`User with ID '${id}' not found`);
     }
 
-    if (!active) {
-      // Deactivating: revoke all active refresh tokens for immediate session termination
-      await this.prisma.refreshToken.updateMany({
-        where: { userId: id, revokedAt: null },
-        data: { revokedAt: new Date() },
-      });
-    }
+    const updated = await this.prisma.$transaction(async (tx) => {
+      if (!active) {
+        // Deactivating: revoke all active refresh tokens for immediate session termination
+        await tx.refreshToken.updateMany({
+          where: { userId: id, revokedAt: null },
+          data: { revokedAt: new Date() },
+        });
+      }
 
-    const updated = await this.prisma.user.update({
-      where: { id },
-      data: {
-        active,
-        disabledAt: active ? null : new Date(),
-      },
-      select: {
-        id: true,
-        email: true,
-        fullName: true,
-        active: true,
-        disabledAt: true,
-        updatedAt: true,
-      },
+      await tx.user.update({ where: { id }, data: { isActive: active } });
+
+      if (user.employee) {
+        // Reactivation restarts the absence window (employees.active_from); deactivation stops new BLACKs.
+        await tx.employee.update({
+          where: { id: user.employee.id },
+          data: active ? { deactivatedAt: null, activeFrom: new Date() } : { deactivatedAt: new Date() },
+        });
+      }
+
+      return tx.user.findUniqueOrThrow({ where: { id }, select: USER_VIEW_SELECT });
     });
 
-    return updated;
+    return toUserResponse(updated);
   }
 
   async createSalary(userId: string, dto: CreateSalaryDto, creatorId?: string) {
-    const user = await this.prisma.user.findUnique({ where: { id: userId } });
-    if (!user) {
-      throw new NotFoundException(`User with ID '${userId}' not found`);
+    const companyId = await this.companyContext.getCompanyId();
+    const employee = await this.prisma.employee.findFirst({
+      where: { userId, companyId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new NotFoundException(`Employee for user '${userId}' not found`);
     }
 
     const date = new Date(dto.effectiveFrom);
@@ -263,27 +275,32 @@ export class UsersService {
       Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1),
     );
 
-    const salary = await this.prisma.employeeSalary.upsert({
+    const salary = await this.prisma.employeeSalaryVersion.upsert({
       where: {
-        userId_effectiveFrom: {
-          userId,
+        employeeId_effectiveFrom: {
+          employeeId: employee.id,
           effectiveFrom: normalizedDate,
         },
       },
       update: {
-        amount: dto.amount,
-        currency: dto.currency || 'EGP',
-        createdBy: creatorId || null,
+        salary: dto.amount,
+        createdByUserId: creatorId || null,
       },
       create: {
-        userId,
-        amount: dto.amount,
-        currency: dto.currency || 'EGP',
+        companyId,
+        employeeId: employee.id,
+        salary: dto.amount,
         effectiveFrom: normalizedDate,
-        createdBy: creatorId || null,
+        createdByUserId: creatorId || null,
       },
     });
 
-    return salary;
+    return {
+      id: salary.id,
+      amount: salary.salary,
+      currency: 'EGP',
+      effectiveFrom: salary.effectiveFrom,
+      createdAt: salary.createdAt,
+    };
   }
 }
