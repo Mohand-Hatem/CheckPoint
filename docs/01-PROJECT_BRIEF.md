@@ -36,6 +36,7 @@ Priority order (SoT §41): **Correctness > Money Integrity > Attendance Integrit
 ## 5. Scope
 
 ### MVP scope
+- Company registration with the registering user as company owner/admin, plus employee invitations and company-scoped data.
 - Auth (JWT + rotating refresh), two active roles `ADMIN`, `EMPLOYEE`, on a small RBAC foundation.
 - Client apps: React Native mobile app (Employee attendance, GPS geofencing, QR scanner, points, leaves, withdrawals) + Next.js web app (Admin dashboard/management, review queues, and `/kiosk` rotating QR display).
 - Employees, salaries (versioned), locations/geofences, work schedules + assignments, weekly off days, holidays, off-day-work exceptions (admin-granted).
@@ -50,11 +51,11 @@ Priority order (SoT §41): **Correctness > Money Integrity > Attendance Integrit
 - Employee-initiated off-day-work requests; push notifications (FCM); self-service password reset; reports/exports; multiple payout methods; salary payouts through Paymob; Sentry/metrics dashboards.
 
 ### Future
-- `MANAGER`, `HR`, `FINANCE` roles; rotating/split shifts; half-day leave; multi-company (tenancy).
+- `MANAGER`, `HR`, `FINANCE` roles; rotating/split shifts; half-day leave.
 
 ## 6. Explicit Out of Scope (current version)
 
-Microservices, Kafka/RabbitMQ, distributed event architecture, multi-tenant SaaS, complex RBAC matrix, full accounting/ERP, leave accrual/carry-over engine, complex scheduling engine, NFC / Wi-Fi / biometrics / Play Integrity / AI fraud detection, social insurance & income tax computation, cursor pagination (unless proven necessary), audit-log partitioning (unless volume requires).
+Microservices, Kafka/RabbitMQ, distributed event architecture, complex RBAC matrix, full accounting/ERP, leave accrual/carry-over engine, complex scheduling engine, NFC / Wi-Fi / biometrics / Play Integrity / AI fraud detection, social insurance & income tax computation, cursor pagination (unless proven necessary), audit-log partitioning (unless volume requires).
 
 ## 7. System Boundaries
 

@@ -87,13 +87,49 @@ erDiagram
             text idempotency_key }
 ```
 
-Tables not drawn (no FK of interest): `holidays`, `point_values`, `settings`, `outbox_events`, `work_schedules` (shown), `payroll_months` (shown).
+Tables not drawn (no FK of interest): `holidays`, `settings`, `outbox_events`, `payroll_months` (shown).
 
 ## 3. Tables
 
 > `NN` = NOT NULL. All tables also have `created_at timestamptz NN default now()` unless noted; `updated_at` only where state is mutable.
 
+### 3.0 Company tenancy and onboarding
+
+- `companies` is the tenant root. The registering account is stored as `owner_user_id` and must be assigned the `ADMIN` role during the same registration transaction.
+- `owner_user_id` may be null only while the registration transaction is creating the company and user; it must be populated before that transaction commits.
+- Every user belongs to one company; email addresses are globally unique. Normalize email addresses to lowercase before writes and lookups.
+- Company-owned records carry `company_id`; queries and authorization checks must always scope these records to the authenticated user's company.
+- `company_invitations` stores the employee's email, name, employee number, inviter, expiry, status, and a unique token hash. Never store the raw invitation token. On acceptance, create the employee account and employee record in the invitation's company and mark the invitation accepted in one transaction.
+- Invites should be single-use, time-limited, and revocable. The API must verify the token hash, pending status, expiry, and company before accepting, and prevent multiple pending invitations to the same company/email.
+- Existing rows need a company assignment and backfill before applying the required `company_id` columns to a populated database; do not apply this schema with a blind push against production data.
+
 ### 3.1 Identity & access
+
+#### `companies`
+Purpose: tenant and registration owner.
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| owner_user_id | uuid UNIQUE FK → users | Set to the registering admin in the registration transaction. |
+| name | text NN | |
+| slug | text NN UNIQUE | Normalize before writes. |
+| is_active | bool NN default true | Supports company suspension without deleting tenant data. |
+
+#### `company_invitations`
+Purpose: one-time employee onboarding into a company.
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| company_id | uuid NN FK → companies | |
+| invited_by_user_id | uuid NN FK → users | Must belong to the same company. |
+| email | text NN | Normalize to lowercase. |
+| full_name | text NN | |
+| employee_number | text NN | Used when creating the employee; `employees` enforces uniqueness within the company. |
+| token_hash | text NN UNIQUE | Store only a hash of the random invitation token. |
+| status | enum NN default `PENDING` | `PENDING`, `ACCEPTED`, `REVOKED`, `EXPIRED`. |
+| expires_at | timestamptz NN | Acceptance must reject expired invitations. |
+| accepted_at | timestamptz | |
+| revoked_at | timestamptz | |
 
 #### `roles`
 Purpose: RBAC foundation. Seeded: `ADMIN`, `EMPLOYEE` only.
@@ -107,24 +143,30 @@ Purpose: RBAC foundation. Seeded: `ADMIN`, `EMPLOYEE` only.
 Purpose: permission strings per role. PK `(role_id, permission)`; `role_id` FK → roles.
 
 #### `users`
-Purpose: employees and admins.
+Purpose: company accounts. Roles are assigned through `user_roles`.
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| employee_code | text | UNIQUE nullable |
-| full_name | text NN | |
-| email | text NN | UNIQUE index on `lower(email)` |
-| phone | text | |
+| company_id | uuid NN FK → companies | One company per account. |
+| email | text NN UNIQUE | Globally unique; normalize to lowercase. |
 | password_hash | text NN | argon2id |
-| must_change_password | bool NN default false | set by admin reset |
-| role_id | uuid NN FK → roles | |
-| active | bool NN default true | |
-| active_from | date NN | first date Blacks may be created (hire/reactivation date) |
-| disabled_at | timestamptz | `CHECK (active = (disabled_at IS NULL))` |
+| is_active | bool NN default true | |
+| created_at | timestamptz NN | |
 | updated_at | timestamptz NN | |
 
-Indexes: `(role_id)`. Also used as the **per-user lock row** (`SELECT … FOR UPDATE`).
-Absence eligibility for date `d`: `d >= active_from AND (disabled_at IS NULL OR d < date(disabled_at at Cairo))`.
+Indexes: `(company_id)`. The registering user receives the `ADMIN` role through `user_roles`.
+
+#### `employee_compensation_versions`
+Purpose: versioned monthly salary for an employee, denominated in EGP.
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| company_id | uuid NN FK → companies | |
+| employee_id | uuid NN FK → employees | |
+| salary | numeric(14,2) NN | Monthly amount in EGP. |
+| effective_from | date NN | First date this salary applies. |
+| effective_to | date | Last date this salary applies, when superseded. |
+| created_by_user_id | uuid FK → users | |
 
 #### `refresh_tokens`
 | Column | Type | Notes |
@@ -155,32 +197,44 @@ Constraints: `UNIQUE (user_id, effective_from)`.
 
 ### 3.2 Scheduling, calendar, locations
 
-#### `work_schedules`
+#### `shifts`
+Purpose: company-owned named shift definitions.
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| name | text NN UNIQUE | e.g., "Default 08-16" |
-| work_start | time NN | 08:00 |
-| work_end | time NN | 16:00; `CHECK (work_end > work_start)` |
-| early_minutes | int NN default 60 | `CHECK > 0` |
-| normal_minutes | int NN default 60 | `CHECK > 0` |
-| late_minutes | int NN default 120 | `CHECK > 0` |
-| active | bool NN default true | |
-| updated_at | timestamptz NN | |
+| company_id | uuid NN FK → companies | |
+| name | text NN | Unique within the company. |
+| is_active | bool NN default true | |
 
-Service rule: `work_start + early + normal + late < work_end`.
-
-#### `schedule_assignments`
+#### `shift_versions`
+Purpose: effective-dated hours and attendance thresholds for a shift.
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| user_id | uuid NN FK | |
-| schedule_id | uuid NN FK | |
+| company_id | uuid NN FK → companies | |
+| shift_id | uuid NN FK → shifts | |
+| start_time / end_time | time NN | |
+| grace_minutes / red_period_minutes | int NN | |
+| effective_from | date NN | First date this version applies. |
+| effective_to | date | Last date this version applies. |
+| created_by_user_id | uuid FK → users | |
+
+`shift_version_weekdays` associates a version with its working weekdays. The current version model uses one start/end time for all listed weekdays.
+
+#### `employees.current_shift_id`
+Every employee must have one current shift. `current_shift_id` is required and references a shift in the same company as the employee.
+
+#### `shift_assignments`
+Purpose: dated employee shift assignment history. When an employee changes shifts, update `employees.current_shift_id` and close/create the corresponding assignment history rows in the same transaction.
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | |
+| company_id | uuid NN FK → companies | |
+| employee_id | uuid NN FK → employees | |
+| shift_id | uuid NN FK → shifts | |
 | effective_from | date NN | |
-| effective_to | date | null = open-ended; `CHECK (effective_to >= effective_from)` |
-| created_by | uuid NN FK | |
-
-Constraints: **exclusion** `EXCLUDE USING gist (user_id WITH =, daterange(effective_from, effective_to, '[]') WITH &&)` (no overlaps). Index `(user_id, effective_from)`.
+| effective_to | date | null = open-ended. |
+| assigned_by_user_id | uuid FK → users | |
 
 #### `locations`
 | Column | Type | Notes |
@@ -276,18 +330,19 @@ Indexes: `(status, expires_at)` (sweeper), `(user_id, work_date)`.
 
 ### 3.4 Points
 
-#### `point_values`
-Purpose: versioned money values. Seeds: GREEN 1.00 USD, RED 250.00 EGP, BLACK 1000.00 EGP. WHITE has no row.
+#### `point_value_versions`
+Purpose: versioned point values for each company, denominated in Egyptian pounds (EGP).
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| point_type | point_type NN | `CHECK IN ('GREEN','RED','BLACK')` |
-| currency | char(3) NN | USD for GREEN, EGP for RED/BLACK (`CHECK`) |
-| amount | numeric(14,2) NN | `CHECK >= 0` |
+| company_id | uuid NN FK → companies | |
+| point_type | text NN | Point category (for example GREEN, RED, BLACK). |
+| value | numeric(14,2) NN | EGP per point. |
 | effective_from | date NN | |
-| created_by | uuid FK | |
+| effective_to | date | |
+| created_by_user_id | uuid FK → users | |
 
-Constraint: `UNIQUE (point_type, effective_from)`. Value for a point = latest row with `effective_from <= work_date`.
+Value for a point = the company's version effective on the work date. Store and return the value directly in EGP. The ledger's `value_per_point_piasters` remains a historical snapshot in piastres.
 
 #### `point_transactions`  — **append-only ledger**
 Purpose: one row = one point awarded (+1) or one reversal (−1).
@@ -619,7 +674,7 @@ Never inside a transaction: Redis calls, Paymob calls, any external network call
 
 ## 7. Seed Data
 - `roles`: ADMIN, EMPLOYEE; `role_permissions` for both (EMPLOYEE: `*.own` set).
-- `point_values`: GREEN 1.00 USD, RED 250.00 EGP, BLACK 1000.00 EGP (effective from go-live month start).
+- `point_value_versions`: point values are company-specific and stored in EGP; seed initial values per registered company.
 - `work_schedules`: "Default 08-16" (08:00, 16:00, 60/60/120).
 - `settings`: defaults above.
-- First `ADMIN` user created by a one-time bootstrap command with forced password change.
+- Do not seed a global administrator account. Company registration creates the company and its owner/admin atomically; the owner then invites employees.

@@ -161,15 +161,16 @@ JWT_EXPIRES_IN="15m"
 REFRESH_TOKEN_EXPIRES_DAYS=30
 ```
 
-### 3. Database Migration & Seeding
-Synchronize models with Neon PostgreSQL and seed initial roles and settings:
+### 3. Database Schema & Seeding
+For a fresh development database, synchronize the Prisma schema and seed:
 ```bash
 npx prisma db push
 npx prisma db seed
 ```
-Default credentials seeded:
-- **Email**: `admin@checkpoint.local`
-- **Password**: `AdminPassword123!`
+
+The schema supports company-owned accounts and employee invitations. The API registration/invitation flows and removal of the legacy seeded administrator are not implemented yet. Do not use the development seed account in production.
+
+For an existing database, do not run `db push` until existing records have been assigned to a company, every employee has a current shift, and a migration/backfill has been prepared.
 
 ### 4. Running the API
 ```bash

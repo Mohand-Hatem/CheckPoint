@@ -1,116 +1,442 @@
-datasource db {
-  provider  = "postgresql"
-  url       = env("DATABASE_URL")
-  directUrl = env("DIRECT_URL")
-}
-
 generator client {
   provider = "prisma-client-js"
 }
 
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CompanyInvitationStatus {
+  PENDING
+  ACCEPTED
+  REVOKED
+  EXPIRED
+}
+
+model Company {
+  id                         String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  ownerUserId                String?                     @unique(map: "companies_owner_user_id_key") @map("owner_user_id") @db.Uuid
+  name                       String                      @db.Text
+  slug                       String                      @unique(map: "companies_slug_key") @db.Text
+  isActive                   Boolean                     @default(true) @map("is_active")
+  createdAt                  DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                  DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  owner                      User?                       @relation("CompanyOwner", fields: [ownerUserId], references: [id], onDelete: Restrict)
+  users                      User[]
+  invitations                CompanyInvitation[]
+  employees                  Employee[]
+  companyPolicyVersions      CompanyPolicyVersion[]
+  compensationVersions       EmployeeSalaryVersion[]
+  shifts                     Shift[]
+  shiftVersions              ShiftVersion[]
+  shiftVersionWeekdays       ShiftVersionWeekday[]
+  shiftAssignments           ShiftAssignment[]
+  attendanceDays             AttendanceDay[]
+  attendanceExcuses          AttendanceExcuse[]
+  workOffers                 WorkOffer[]
+  pointValueVersions         PointValueVersion[]
+  pointLedgerEntries         PointLedgerEntry[]
+  pointOffsetAllocations     PointOffsetAllocation[]
+  additionalWorkCalculations AdditionalWorkCalculation[]
+  auditEvents                AuditEvent[]
+
+  @@map("companies")
+}
+
+model User {
+  id                        String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId                 String                      @map("company_id") @db.Uuid
+  email                     String                      @unique(map: "users_email_key") @db.Text
+  passwordHash              String                      @map("password_hash") @db.Text
+  isActive                  Boolean                     @default(true) @map("is_active")
+  createdAt                 DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt                 DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  company                   Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  ownedCompany              Company?                    @relation("CompanyOwner")
+  employee                  Employee?
+  roles                     UserRole[]
+  assignedRoles             UserRole[]                  @relation("UserRoleAssignedBy")
+  sentInvitations           CompanyInvitation[]         @relation("InvitationSender")
+  createdCompanyPolicies    CompanyPolicyVersion[]      @relation("CompanyPolicyCreatedBy")
+  createdCompensations      EmployeeSalaryVersion[]     @relation("CompensationCreatedBy")
+  createdShiftVersions      ShiftVersion[]              @relation("ShiftVersionCreatedBy")
+  assignedShiftSchedules    ShiftAssignment[]           @relation("ShiftAssignmentAssignedBy")
+  submittedExcuses          AttendanceExcuse[]          @relation("ExcuseSubmitter")
+  decidedExcuses            AttendanceExcuse[]          @relation("ExcuseDecider")
+  createdWorkOffers         WorkOffer[]                 @relation("OfferCreator")
+  cancelledWorkOffers       WorkOffer[]                 @relation("OfferCanceller")
+  createdPointValueVersions PointValueVersion[]         @relation("PointValueCreatedBy")
+  pointLedgerEntries        PointLedgerEntry[]          @relation("LedgerActor")
+  createdWorkCalculations   AdditionalWorkCalculation[] @relation("CalculationActor")
+  auditEvents               AuditEvent[]                @relation("AuditActor")
+
+  @@index([companyId], map: "users_company_idx")
+  @@map("users")
+}
+
+model CompanyInvitation {
+  id              String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String                  @map("company_id") @db.Uuid
+  invitedByUserId String                  @map("invited_by_user_id") @db.Uuid
+  email           String                  @db.Text
+  fullName        String                  @map("full_name") @db.Text
+  employeeNumber  String                  @map("employee_number") @db.Text
+  tokenHash       String                  @unique(map: "company_invitations_token_hash_key") @map("token_hash") @db.Text
+  status          CompanyInvitationStatus @default(PENDING)
+  expiresAt       DateTime                @map("expires_at") @db.Timestamptz(6)
+  acceptedAt      DateTime?               @map("accepted_at") @db.Timestamptz(6)
+  revokedAt       DateTime?               @map("revoked_at") @db.Timestamptz(6)
+  createdAt       DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  company         Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  invitedBy       User                    @relation("InvitationSender", fields: [invitedByUserId], references: [id], onDelete: Restrict)
+
+  @@index([companyId, email, status], map: "company_invitations_company_email_status_idx")
+  @@index([expiresAt], map: "company_invitations_expires_at_idx")
+  @@map("company_invitations")
+}
+
 model Role {
-  id          String           @id @default(uuid()) @db.Uuid
-  code        String           @unique
-  name        String
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  name        String           @unique(map: "roles_name_key") @db.Text
+  description String           @default("") @db.Text
+  isSystem    Boolean          @default(false) @map("is_system")
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  users       UserRole[]
   permissions RolePermission[]
-  users       User[]
-  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz()
 
   @@map("roles")
 }
 
-model RolePermission {
-  roleId     String   @map("role_id") @db.Uuid
-  permission String
-  role       Role     @relation(fields: [roleId], references: [id], onDelete: Cascade)
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+model Permission {
+  id          String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  code        String           @unique(map: "permissions_code_key") @db.Text
+  description String           @default("") @db.Text
+  createdAt   DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  roles       RolePermission[]
 
-  @@id([roleId, permission])
+  @@map("permissions")
+}
+
+model RolePermission {
+  roleId       String     @map("role_id") @db.Uuid
+  permissionId String     @map("permission_id") @db.Uuid
+  role         Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission   Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@id([roleId, permissionId])
+  @@index([permissionId], map: "role_permissions_permission_idx")
   @@map("role_permissions")
 }
 
-model User {
-  id                 String           @id @default(uuid()) @db.Uuid
-  employeeCode       String?          @unique @map("employee_code")
-  fullName           String           @map("full_name")
-  email              String           @unique
-  phone              String?
-  passwordHash       String           @map("password_hash")
-  mustChangePassword Boolean          @default(false) @map("must_change_password")
-  roleId             String           @map("role_id") @db.Uuid
-  role               Role             @relation(fields: [roleId], references: [id])
-  active             Boolean          @default(true)
-  activeFrom         DateTime         @default(now()) @map("active_from") @db.Date
-  disabledAt         DateTime?        @map("disabled_at") @db.Timestamptz()
-  createdAt          DateTime         @default(now()) @map("created_at") @db.Timestamptz()
-  updatedAt          DateTime         @updatedAt @map("updated_at") @db.Timestamptz()
+model UserRole {
+  userId           String   @map("user_id") @db.Uuid
+  roleId           String   @map("role_id") @db.Uuid
+  assignedByUserId String?  @map("assigned_by_user_id") @db.Uuid
+  assignedAt       DateTime @default(now()) @map("assigned_at") @db.Timestamptz(6)
+  user             User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role             Role     @relation(fields: [roleId], references: [id], onDelete: Restrict)
+  assignedBy       User?    @relation("UserRoleAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
-  refreshTokens      RefreshToken[]
-  salaries           EmployeeSalary[]
-  createdSalaries    EmployeeSalary[] @relation("SalaryCreatedBy")
-  auditLogs          AuditLog[]       @relation("UserAuditLogs")
-
-  @@map("users")
+  @@id([userId, roleId])
+  @@index([roleId], map: "user_roles_role_idx")
+  @@map("user_roles")
 }
 
-model RefreshToken {
-  id         String    @id @default(uuid()) @db.Uuid
-  userId     String    @map("user_id") @db.Uuid
-  user       User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-  familyId   String    @map("family_id") @db.Uuid
-  tokenHash  String    @unique @map("token_hash")
-  expiresAt  DateTime  @map("expires_at") @db.Timestamptz()
-  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz()
-  replacedBy String?   @map("replaced_by") @db.Uuid
-  userAgent  String?   @map("user_agent")
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz()
+model Employee {
+  id                   String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId            String                  @map("company_id") @db.Uuid
+  currentShiftId       String                  @map("current_shift_id") @db.Uuid
+  userId               String?                 @unique(map: "employees_user_id_key") @map("user_id") @db.Uuid
+  employeeNumber       String                  @map("employee_number") @db.Text
+  fullName             String                  @map("full_name") @db.Text
+  isActive             Boolean                 @default(true) @map("is_active")
+  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt            DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  company              Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  currentShift         Shift                   @relation("EmployeeCurrentShift", fields: [companyId, currentShiftId], references: [companyId, id], onDelete: Restrict)
+  user                 User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
+  compensationVersions EmployeeSalaryVersion[]
+  shiftAssignments     ShiftAssignment[]
+  attendanceDays       AttendanceDay[]
+  workOffers           WorkOffer[]
+  pointLedgerEntries   PointLedgerEntry[]
 
-  @@index([userId])
-  @@index([familyId])
-  @@index([expiresAt])
-  @@map("refresh_tokens")
+  @@unique([companyId, employeeNumber], map: "employees_company_employee_number_key")
+  @@index([companyId], map: "employees_company_idx")
+  @@map("employees")
 }
 
-model EmployeeSalary {
-  id            String   @id @default(uuid()) @db.Uuid
-  userId        String   @map("user_id") @db.Uuid
-  user          User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  amount        Decimal  @db.Decimal(14, 2)
-  currency      String   @default("EGP") @db.Char(3)
-  effectiveFrom DateTime @map("effective_from") @db.Date
-  createdBy     String?  @map("created_by") @db.Uuid
-  creator       User?    @relation("SalaryCreatedBy", fields: [createdBy], references: [id])
-  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz()
+model CompanyPolicyVersion {
+  id                  String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId           String    @map("company_id") @db.Uuid
+  timezone            String    @db.Text
+  monthlyHoursDivisor Int       @map("monthly_hours_divisor")
+  effectiveFrom       DateTime  @map("effective_from") @db.Date
+  effectiveTo         DateTime? @map("effective_to") @db.Date
+  createdByUserId     String?   @map("created_by_user_id") @db.Uuid
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  company             Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy           User?     @relation("CompanyPolicyCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  @@unique([userId, effectiveFrom])
-  @@map("employee_salaries")
+  @@index([companyId], map: "company_policy_versions_company_idx")
+  @@map("company_policy_versions")
 }
 
-model AuditLog {
-  id         BigInt   @id @default(autoincrement())
-  actorId    String?  @map("actor_id") @db.Uuid
-  actor      User?    @relation("UserAuditLogs", fields: [actorId], references: [id])
-  actorType  String   @map("actor_type")
-  action     String
-  entityType String   @map("entity_type")
-  entityId   String   @map("entity_id")
-  before     Json?
-  after      Json?
-  requestId  String?  @map("request_id")
-  ip         String?
-  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz()
+model EmployeeSalaryVersion {
+  id              String    @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String    @map("company_id") @db.Uuid
+  employeeId      String    @map("employee_id") @db.Uuid
+  salary          Decimal   @db.Decimal(14, 2)
+  effectiveFrom   DateTime  @map("effective_from") @db.Date
+  effectiveTo     DateTime? @map("effective_to") @db.Date
+  createdByUserId String?   @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  company         Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee        Employee  @relation(fields: [employeeId], references: [id])
+  createdBy       User?     @relation("CompensationCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
-  @@index([entityType, entityId])
-  @@index([actorId, createdAt])
-  @@index([createdAt])
-  @@map("audit_logs")
+  @@index([companyId, employeeId], map: "employee_compensation_employee_idx")
+  @@map("employee_compensation_versions")
 }
 
-model Setting {
-  key       String   @id
-  value     Json
-  updatedBy String?  @map("updated_by") @db.Uuid
-  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz()
+model Shift {
+  id          String            @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String            @map("company_id") @db.Uuid
+  name        String            @db.Text
+  isActive    Boolean           @default(true) @map("is_active")
+  createdAt   DateTime          @default(now()) @map("created_at") @db.Timestamptz(6)
+  company     Company           @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employees   Employee[]        @relation("EmployeeCurrentShift")
+  versions    ShiftVersion[]
+  assignments ShiftAssignment[]
 
-  @@map("settings")
+  @@unique([companyId, name], map: "shifts_company_name_key")
+  @@unique([companyId, id], map: "shifts_company_id_key")
+  @@index([companyId], map: "shifts_company_idx")
+  @@map("shifts")
+}
+
+model ShiftVersion {
+  id               String                @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String                @map("company_id") @db.Uuid
+  shiftId          String                @map("shift_id") @db.Uuid
+  startTime        DateTime              @map("start_time") @db.Time(6)
+  endTime          DateTime              @map("end_time") @db.Time(6)
+  graceMinutes     Int                   @map("grace_minutes")
+  redPeriodMinutes Int                   @map("red_period_minutes")
+  effectiveFrom    DateTime              @map("effective_from") @db.Date
+  effectiveTo      DateTime?             @map("effective_to") @db.Date
+  createdByUserId  String?               @map("created_by_user_id") @db.Uuid
+  createdAt        DateTime              @default(now()) @map("created_at") @db.Timestamptz(6)
+  company          Company               @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  shift            Shift                 @relation(fields: [shiftId], references: [id])
+  createdBy        User?                 @relation("ShiftVersionCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  weekdays         ShiftVersionWeekday[]
+
+  @@index([companyId, shiftId], map: "shift_versions_shift_idx")
+  @@map("shift_versions")
+}
+
+model ShiftVersionWeekday {
+  shiftVersionId String       @map("shift_version_id") @db.Uuid
+  companyId      String       @map("company_id") @db.Uuid
+  weekday        Int          @db.SmallInt
+  company        Company      @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  shiftVersion   ShiftVersion @relation(fields: [shiftVersionId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, shiftVersionId, weekday])
+  @@map("shift_version_weekdays")
+}
+
+model ShiftAssignment {
+  id               String          @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId        String          @map("company_id") @db.Uuid
+  employeeId       String          @map("employee_id") @db.Uuid
+  shiftId          String          @map("shift_id") @db.Uuid
+  effectiveFrom    DateTime        @map("effective_from") @db.Date
+  effectiveTo      DateTime?       @map("effective_to") @db.Date
+  assignedByUserId String?         @map("assigned_by_user_id") @db.Uuid
+  createdAt        DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  company          Company         @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee         Employee        @relation(fields: [employeeId], references: [id])
+  shift            Shift           @relation(fields: [shiftId], references: [id])
+  assignedBy       User?           @relation("ShiftAssignmentAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
+  attendanceDays   AttendanceDay[]
+
+  @@index([companyId, employeeId], map: "shift_assignments_employee_idx")
+  @@index([companyId, shiftId], map: "shift_assignments_shift_idx")
+  @@map("shift_assignments")
+}
+
+model AttendanceDay {
+  id                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String                      @map("company_id") @db.Uuid
+  employeeId        String                      @map("employee_id") @db.Uuid
+  shiftAssignmentId String?                     @map("shift_assignment_id") @db.Uuid
+  workDate          DateTime                    @map("work_date") @db.Date
+  timezone          String                      @db.Text
+  scheduledStartAt  DateTime                    @map("scheduled_start_at") @db.Timestamptz(6)
+  graceEndAt        DateTime                    @map("grace_end_at") @db.Timestamptz(6)
+  redPeriodEndAt    DateTime                    @map("red_period_end_at") @db.Timestamptz(6)
+  scheduledEndAt    DateTime                    @map("scheduled_end_at") @db.Timestamptz(6)
+  checkInAt         DateTime?                   @map("check_in_at") @db.Timestamptz(6)
+  checkOutAt        DateTime?                   @map("check_out_at") @db.Timestamptz(6)
+  checkInResult     String                      @default("SCHEDULED") @map("check_in_result") @db.Text
+  createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt         DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee                    @relation(fields: [employeeId], references: [id])
+  shiftAssignment   ShiftAssignment?            @relation(fields: [shiftAssignmentId], references: [id], onDelete: SetNull)
+  excuse            AttendanceExcuse?
+  workCalculations  AdditionalWorkCalculation[]
+
+  @@unique([companyId, employeeId, workDate], map: "attendance_days_employee_id_work_date_key")
+  @@map("attendance_days")
+}
+
+model AttendanceExcuse {
+  id                String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String        @map("company_id") @db.Uuid
+  attendanceDayId   String        @unique(map: "attendance_excuses_attendance_day_id_key") @map("attendance_day_id") @db.Uuid
+  submittedByUserId String        @map("submitted_by_user_id") @db.Uuid
+  employeeReason    String        @map("employee_reason") @db.Text
+  status            String        @default("PENDING") @db.Text
+  decidedByUserId   String?       @map("decided_by_user_id") @db.Uuid
+  decisionReason    String?       @map("decision_reason") @db.Text
+  decidedAt         DateTime?     @map("decided_at") @db.Timestamptz(6)
+  createdAt         DateTime      @default(now()) @map("created_at") @db.Timestamptz(6)
+  company           Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  attendanceDay     AttendanceDay @relation(fields: [attendanceDayId], references: [id])
+  submittedBy       User          @relation("ExcuseSubmitter", fields: [submittedByUserId], references: [id])
+  decidedBy         User?         @relation("ExcuseDecider", fields: [decidedByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId], map: "attendance_excuses_company_idx")
+  @@map("attendance_excuses")
+}
+
+model WorkOffer {
+  id                String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String                     @map("company_id") @db.Uuid
+  employeeId        String                     @map("employee_id") @db.Uuid
+  offerType         String                     @map("offer_type") @db.Text
+  startsAt          DateTime                   @map("starts_at") @db.Timestamptz(6)
+  endsAt            DateTime                   @map("ends_at") @db.Timestamptz(6)
+  status            String                     @default("ACTIVE") @db.Text
+  description       String                     @db.Text
+  createdByUserId   String                     @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledByUserId String?                    @map("cancelled_by_user_id") @db.Uuid
+  cancelledAt       DateTime?                  @map("cancelled_at") @db.Timestamptz(6)
+  company           Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee                   @relation(fields: [employeeId], references: [id])
+  createdBy         User                       @relation("OfferCreator", fields: [createdByUserId], references: [id])
+  cancelledBy       User?                      @relation("OfferCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  calculation       AdditionalWorkCalculation?
+
+  @@index([companyId, employeeId, startsAt], map: "work_offers_employee_start_idx")
+  @@map("work_offers")
+}
+
+model PointValueVersion {
+  id              String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String             @map("company_id") @db.Uuid
+  pointType       String             @map("point_type") @db.Text
+  value           Decimal            @db.Decimal(14, 2)
+  effectiveFrom   DateTime           @map("effective_from") @db.Date
+  effectiveTo     DateTime?          @map("effective_to") @db.Date
+  createdByUserId String?            @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
+  company         Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy       User?              @relation("PointValueCreatedBy", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  ledgerEntries   PointLedgerEntry[]
+
+  @@index([companyId], map: "point_value_versions_company_idx")
+  @@map("point_value_versions")
+}
+
+model PointLedgerEntry {
+  id                    String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId             String                  @map("company_id") @db.Uuid
+  employeeId            String                  @map("employee_id") @db.Uuid
+  pointType             String                  @map("point_type") @db.Text
+  entryKind             String                  @map("entry_kind") @db.Text
+  direction             Int                     @db.SmallInt
+  quantity              Int
+  pointValueVersionId   String?                 @map("point_value_version_id") @db.Uuid
+  valuePerPointPiasters BigInt                  @map("value_per_point_piasters")
+  sourceType            String                  @map("source_type") @db.Text
+  sourceId              String?                 @map("source_id") @db.Uuid
+  idempotencyKey        String                  @unique(map: "point_ledger_entries_idempotency_key_key") @map("idempotency_key") @db.Text
+  reversesEntryId       String?                 @map("reverses_entry_id") @db.Uuid
+  reason                String?                 @db.Text
+  createdByUserId       String?                 @map("created_by_user_id") @db.Uuid
+  createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
+  company               Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee              Employee                @relation(fields: [employeeId], references: [id])
+  pointValueVersion     PointValueVersion?      @relation(fields: [pointValueVersionId], references: [id], onDelete: SetNull)
+  createdBy             User?                   @relation("LedgerActor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+  reversesEntry         PointLedgerEntry?       @relation("PointReversals", fields: [reversesEntryId], references: [id])
+  reversalEntries       PointLedgerEntry[]      @relation("PointReversals")
+  greenAllocations      PointOffsetAllocation[] @relation("GreenOffset")
+  penaltyAllocations    PointOffsetAllocation[] @relation("PenaltyOffset")
+
+  @@index([companyId, employeeId, createdAt(sort: Desc)], map: "point_ledger_employee_history_idx")
+  @@index([companyId, sourceType, sourceId], map: "point_ledger_source_idx")
+  @@map("point_ledger_entries")
+}
+
+model PointOffsetAllocation {
+  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId      String           @map("company_id") @db.Uuid
+  greenEntryId   String           @map("green_entry_id") @db.Uuid
+  penaltyEntryId String           @map("penalty_entry_id") @db.Uuid
+  quantity       Int
+  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
+  company        Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  greenEntry     PointLedgerEntry @relation("GreenOffset", fields: [greenEntryId], references: [id])
+  penaltyEntry   PointLedgerEntry @relation("PenaltyOffset", fields: [penaltyEntryId], references: [id])
+
+  @@unique([greenEntryId, penaltyEntryId], map: "point_offset_allocations_green_entry_id_penalty_entry_id_key")
+  @@index([companyId, greenEntryId])
+  @@index([companyId, penaltyEntryId])
+  @@map("point_offset_allocations")
+}
+
+model AdditionalWorkCalculation {
+  id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId           String        @map("company_id") @db.Uuid
+  workOfferId         String        @unique(map: "additional_work_calculations_work_offer_id_key") @map("work_offer_id") @db.Uuid
+  attendanceDayId     String        @map("attendance_day_id") @db.Uuid
+  eligibleMinutes     Int           @map("eligible_minutes")
+  greenPointsAwarded  Int           @map("green_points_awarded")
+  salary              Decimal       @db.Decimal(14, 2)
+  monthlyHoursDivisor Int           @map("monthly_hours_divisor")
+  payInPounds         Decimal       @map("pay_pounds") @db.Decimal(14, 2)
+  calculatedAt        DateTime      @default(now()) @map("calculated_at") @db.Timestamptz(6)
+  createdByUserId     String?       @map("created_by_user_id") @db.Uuid
+  company             Company       @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  workOffer           WorkOffer     @relation(fields: [workOfferId], references: [id])
+  attendanceDay       AttendanceDay @relation(fields: [attendanceDayId], references: [id])
+  createdBy           User?         @relation("CalculationActor", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, attendanceDayId], map: "additional_work_attendance_idx")
+  @@map("additional_work_calculations")
+}
+
+model AuditEvent {
+  id          String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String   @map("company_id") @db.Uuid
+  actorUserId String?  @map("actor_user_id") @db.Uuid
+  action      String   @db.Text
+  targetType  String   @map("target_type") @db.Text
+  targetId    String?  @map("target_id") @db.Uuid
+  reason      String?  @db.Text
+  changes     Json     @default("{}") @db.JsonB
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  company     Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  actor       User?    @relation("AuditActor", fields: [actorUserId], references: [id], onDelete: SetNull)
+
+  @@index([companyId, targetType, targetId, createdAt(sort: Desc)], map: "audit_events_target_idx")
+  @@map("audit_events")
 }
