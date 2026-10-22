@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 3.0 |
-| **Status** | Final draft — implementation-ready |
-| **Last Updated** | 2026-10-08 |
+| **Version** | 3.1 |
+| **Status** | Final draft. Sections 2 to 3.4 describe `apps/api/prisma/schema.prisma` (the 2026-10-22 model) plus additive **[ADD]** changes; §3.5 onward are later-phase tables. Reconciled with planning spec v0.3.0 (single-company behaviour, tenancy-ready data, EGP only); decisions in `09-DECISION_LOG.md`. |
+| **Last Updated** | 2026-10-22 |
 | **Source of Truth** | The finalization prompt ("SoT") overrides older documents. PostgreSQL is the single source of truth (SoT §20, §25). Only tables with real value are included. |
 
 ---
@@ -12,398 +12,259 @@
 ## 1. Conventions
 - PKs: `uuid` (`gen_random_uuid()`), except `audit_logs`/`outbox_events` (`bigserial`) and `settings` (`key`), `payroll_months` (`month`).
 - Times: `timestamptz` (UTC). Business dates: `date` (Africa/Cairo calendar date). Months: `date` = first day of month.
-- Money: `NUMERIC(14,2)`; FX rate `NUMERIC(12,6)`. EGP unless the column says `usd`.
+- Money: `NUMERIC(14,2)`, always EGP (CONFIRMED). There is no USD column, no FX rate and no conversion anywhere (DN-23: integer piasters were proposed, not adopted).
 - Enums (PostgreSQL `ENUM` or `text + CHECK`): `point_type` {GREEN, WHITE, RED, BLACK} · `entry_kind` {AWARD, REVERSAL} · `point_source` {ATTENDANCE, OVERTIME, ADMIN} · `attendance_status` {CONFIRMED, ABSENT, EXEMPT} · `verification_status` {PENDING, CONFIRMED, EXPIRED} · `leave_type` {ANNUAL, SICK, UNPAID} · `request_status` {PENDING, APPROVED, REJECTED, CANCELLED} · `offset_kind` {APPLY, UNDO} · `fund_tx_type` {MONTH_CLOSE_CREDIT, WITHDRAWAL, WITHDRAWAL_REFUND, ADJUSTMENT} · `payout_status` {PENDING, PROCESSING, PAID, FAILED} · `payout_provider` {PAYMOB, MANUAL} · `method_type` {WALLET, BANK} · `month_status` {OPEN, LOCKED}.
-- Prisma note: partial unique indexes, exclusion constraints, triggers and the `point_state` view are created by raw SQL migrations.
+- Prisma note: partial unique indexes, exclusion constraints, triggers and the `point_state` view are created by raw SQL migrations. While the schema is applied with `db push`, those rules are enforced in the service layer.
+- **Name map** (older names still used in `02`, `05`, `07` → schema names): `users` (employee fields) → `employees`; `attendance` → `attendance_days`; `point_transactions` → `point_ledger_entries`; `point_offsets` → `point_offset_allocations`; `audit_logs` → `audit_events`; `work_schedules` / `schedule_assignments` → `shift_versions` / `shift_assignments`; `off_day_work_exceptions` → `work_offers`; `employee_salaries` → `employee_compensation_versions`.
 - Extensions: `pgcrypto` (UUID), `btree_gist` (exclusion constraints).
 
-## 2. ERD
+## 2. ERD (models that exist in `apps/api/prisma/schema.prisma`)
 
 ```mermaid
 erDiagram
-  ROLES ||--o{ USERS : "has role"
+  COMPANIES ||--o{ USERS : "owns (one row in MVP)"
+  COMPANIES ||--o{ EMPLOYEES : owns
+  USERS ||--o| EMPLOYEES : "login of"
+  USERS ||--o{ USER_ROLES : has
+  ROLES ||--o{ USER_ROLES : "assigned via"
   ROLES ||--o{ ROLE_PERMISSIONS : grants
-  USERS ||--o{ REFRESH_TOKENS : owns
-  USERS ||--o{ EMPLOYEE_SALARIES : "salary versions"
-  USERS ||--o{ SCHEDULE_ASSIGNMENTS : assigned
-  WORK_SCHEDULES ||--o{ SCHEDULE_ASSIGNMENTS : used_by
-  USERS ||--o{ USER_LOCATIONS : allowed
-  LOCATIONS ||--o{ USER_LOCATIONS : includes
-  USERS ||--o{ OFF_DAY_WORK_EXCEPTIONS : granted
-  USERS ||--o{ ATTENDANCE : records
-  USERS ||--o{ ATTENDANCE_VERIFICATIONS : starts
-  LOCATIONS ||--o{ ATTENDANCE_VERIFICATIONS : at
-  ATTENDANCE ||--o{ POINT_TRANSACTIONS : awards
-  USERS ||--o{ POINT_TRANSACTIONS : earns
-  POINT_TRANSACTIONS ||--o| POINT_TRANSACTIONS : "reversed by"
-  POINT_TRANSACTIONS ||--o{ POINT_OFFSETS : "target or source"
-  USERS ||--o{ LEAVE_REQUESTS : requests
-  USERS ||--o{ EARLY_LEAVE_REQUESTS : requests
-  EARLY_LEAVE_REQUESTS ||--o| ATTENDANCE : "linked to"
-  PAYROLL_MONTHS ||--o{ PAYROLL_RECORDS : contains
-  USERS ||--o{ PAYROLL_RECORDS : paid
-  USERS ||--o{ PAYROLL_ADJUSTMENTS : adjusted
-  USERS ||--o{ FUND_TRANSACTIONS : ledger
-  USERS ||--o{ PAYOUT_METHODS : registers
-  PAYOUT_METHODS ||--o{ PAYOUTS : used_for
-  PAYOUTS ||--o{ FUND_TRANSACTIONS : "debit and refund"
-  PAYOUTS ||--o{ PAYMENT_WEBHOOK_EVENTS : notified_by
-  USERS ||--o{ NOTIFICATIONS : receives
-  USERS ||--o{ AUDIT_LOGS : acts
-
-  USERS { uuid id PK
-          text email
-          uuid role_id FK
-          bool active
-          date active_from }
-  ATTENDANCE { uuid id PK
-               uuid user_id FK
-               date work_date
-               attendance_status status
-               point_type classification
-               smallint classification_rev }
-  POINT_TRANSACTIONS { uuid id PK
-                       uuid user_id FK
-                       date work_date
-                       date payroll_month
-                       point_type point_type
-                       entry_kind entry_kind
-                       smallint delta
-                       uuid reverses_id FK
-                       text dedupe_key }
-  POINT_OFFSETS { uuid id PK
-                  uuid group_id
-                  offset_kind kind
-                  uuid target_point_id FK
-                  uuid source_point_id FK }
-  FUND_TRANSACTIONS { uuid id PK
-                      uuid user_id FK
-                      fund_tx_type type
-                      numeric amount
-                      uuid payout_id FK }
-  PAYOUTS { uuid id PK
-            payout_status status
-            text client_reference
-            text idempotency_key }
+  PERMISSIONS ||--o{ ROLE_PERMISSIONS : "granted by"
+  USERS ||--o{ REFRESH_TOKENS : "owns [ADD]"
+  EMPLOYEES ||--o{ EMPLOYEE_COMPENSATION_VERSIONS : "salary versions"
+  SHIFTS ||--o{ SHIFT_VERSIONS : versions
+  SHIFT_VERSIONS ||--o{ SHIFT_VERSION_WEEKDAYS : "works on"
+  EMPLOYEES ||--o{ SHIFT_ASSIGNMENTS : assigned
+  SHIFTS ||--o{ SHIFT_ASSIGNMENTS : used_by
+  EMPLOYEES ||--o{ ATTENDANCE_DAYS : records
+  ATTENDANCE_DAYS ||--o| ATTENDANCE_EXCUSES : "excuse (unused in MVP)"
+  EMPLOYEES ||--o{ WORK_OFFERS : "off-day exceptions"
+  WORK_OFFERS ||--o| ADDITIONAL_WORK_CALCULATIONS : "off-day pay"
+  EMPLOYEES ||--o{ POINT_LEDGER_ENTRIES : earns
+  POINT_VALUE_VERSIONS ||--o{ POINT_LEDGER_ENTRIES : "value snapshot"
+  POINT_LEDGER_ENTRIES ||--o{ POINT_OFFSET_ALLOCATIONS : "green or penalty"
+  COMPANIES ||--o{ AUDIT_EVENTS : records
 ```
 
-Tables not drawn (no FK of interest): `holidays`, `settings`, `outbox_events`, `payroll_months` (shown).
+Later-phase tables (§3.5 onward) are not in the schema yet; they follow the rule at the top of §3.5.
 
 ## 3. Tables
 
-> `NN` = NOT NULL. All tables also have `created_at timestamptz NN default now()` unless noted; `updated_at` only where state is mutable.
+> `NN` = NOT NULL. **[ADD]** marks a change to make in `schema.prisma` (additive only; nothing is removed). Every company-owned table carries `company_id uuid NN FK → companies` (REQ-NFR-008); it is omitted from the column lists below to keep them short.
 
-### 3.0 Company tenancy and onboarding
+### 3.0 Deployment scope: one company, tenancy-ready data (spec REQ-NFR-008, v0.3.0)
 
-- `companies` is the tenant root. The registering account is stored as `owner_user_id` and must be assigned the `ADMIN` role during the same registration transaction.
-- `owner_user_id` may be null only while the registration transaction is creating the company and user; it must be populated before that transaction commits.
-- Every user belongs to one company; email addresses are globally unique. Normalize email addresses to lowercase before writes and lookups.
-- Company-owned records carry `company_id`; queries and authorization checks must always scope these records to the authenticated user's company.
-- `company_invitations` stores the employee's email, name, employee number, inviter, expiry, status, and a unique token hash. Never store the raw invitation token. On acceptance, create the employee account and employee record in the invitation's company and mark the invitation accepted in one transaction.
-- Invites should be single-use, time-limited, and revocable. The API must verify the token hash, pending status, expiry, and company before accepting, and prevent multiple pending invitations to the same company/email.
-- Existing rows need a company assignment and backfill before applying the required `company_id` columns to a populated database; do not apply this schema with a blind push against production data.
+- The MVP behaves as **one company per deployment**. `companies` holds **exactly one row**, created by the seed (TASK-041). Every company-owned record references it, so multi-company can be added later without restructuring data.
+- The company of a request is resolved **on the server** by one company-context service from that single row; it is **never** read from client input (AC-REQ-NFR-008-03).
+- No MVP endpoint creates a company, self-registers, or invites users (AC-REQ-NFR-008-02). `company_invitations` and `companies.owner_user_id` exist for the future flow and stay unused.
+- Email addresses are globally unique; normalize to lowercase before writes and lookups.
 
 ### 3.1 Identity & access
 
 #### `companies`
-Purpose: tenant and registration owner.
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| owner_user_id | uuid UNIQUE FK → users | Set to the registering admin in the registration transaction. |
+| owner_user_id | uuid UNIQUE FK → users | nullable; unused in MVP |
 | name | text NN | |
-| slug | text NN UNIQUE | Normalize before writes. |
-| is_active | bool NN default true | Supports company suspension without deleting tenant data. |
-
-#### `company_invitations`
-Purpose: one-time employee onboarding into a company.
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| company_id | uuid NN FK → companies | |
-| invited_by_user_id | uuid NN FK → users | Must belong to the same company. |
-| email | text NN | Normalize to lowercase. |
-| full_name | text NN | |
-| employee_number | text NN | Used when creating the employee; `employees` enforces uniqueness within the company. |
-| token_hash | text NN UNIQUE | Store only a hash of the random invitation token. |
-| status | enum NN default `PENDING` | `PENDING`, `ACCEPTED`, `REVOKED`, `EXPIRED`. |
-| expires_at | timestamptz NN | Acceptance must reject expired invitations. |
-| accepted_at | timestamptz | |
-| revoked_at | timestamptz | |
-
-#### `roles`
-Purpose: RBAC foundation. Seeded: `ADMIN`, `EMPLOYEE` only.
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| code | text NN | UNIQUE |
-| name | text NN | |
-
-#### `role_permissions`
-Purpose: permission strings per role. PK `(role_id, permission)`; `role_id` FK → roles.
-
-#### `users`
-Purpose: company accounts. Roles are assigned through `user_roles`.
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| company_id | uuid NN FK → companies | One company per account. |
-| email | text NN UNIQUE | Globally unique; normalize to lowercase. |
-| password_hash | text NN | argon2id |
+| slug | text NN UNIQUE | |
 | is_active | bool NN default true | |
-| created_at | timestamptz NN | |
-| updated_at | timestamptz NN | |
 
-Indexes: `(company_id)`. The registering user receives the `ADMIN` role through `user_roles`.
+#### `company_invitations` (unused in MVP)
+Future onboarding flow: email, full_name, employee_number, `token_hash` UNIQUE (never the raw token), status enum `PENDING/ACCEPTED/REVOKED/EXPIRED`, `expires_at`, `accepted_at`, `revoked_at`, `invited_by_user_id`. No MVP endpoint may write it.
 
-#### `employee_compensation_versions`
-Purpose: versioned monthly salary for an employee, denominated in EGP.
+#### `users` (login accounts)
+| Column | Type | Notes |
+|---|---|---|
+| id | uuid PK | Also the **per-user lock row** (`SELECT … FOR UPDATE`). |
+| email | text NN UNIQUE | lowercase |
+| password_hash | text NN | argon2id |
+| is_active | bool NN default true | disabled users cannot log in or refresh |
+| must_change_password | bool NN default false | **[ADD]** set by admin reset (FR-AUTH-5) |
+| created_at / updated_at | timestamptz NN | |
+
+#### `employees` (the person who works; 0..1 per user)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| company_id | uuid NN FK → companies | |
-| employee_id | uuid NN FK → employees | |
-| salary | numeric(14,2) NN | Monthly amount in EGP. |
-| effective_from | date NN | First date this salary applies. |
-| effective_to | date | Last date this salary applies, when superseded. |
-| created_by_user_id | uuid FK → users | |
+| user_id | uuid UNIQUE FK → users | nullable (an Admin may have no employee record) |
+| employee_number | text NN | UNIQUE per company |
+| full_name | text NN | |
+| current_shift_id | uuid NN | FK `(company_id, current_shift_id)` → `shifts(company_id, id)` |
+| is_active | bool NN default true | |
+| phone | text | optional contact (kept from the Step 1.4 API) |
+| active_from | date NN | **[ADD]** first date a BLACK may be created (join/reactivation date) |
+| deactivated_at | timestamptz | **[ADD]** no BLACK from this Cairo date on |
 
-#### `refresh_tokens`
+Absence eligibility for date `d`: `d >= active_from AND (deactivated_at IS NULL OR d < date(deactivated_at at Cairo))`.
+
+#### `roles`, `permissions`, `role_permissions`, `user_roles`
+- `roles(id, name UNIQUE, description, is_system)`. Seeded: `ADMIN`, `EMPLOYEE` only.
+- `permissions(id, code UNIQUE, description)`; codes follow `resource.action.scope` (e.g. `points.reverse.any`).
+- `role_permissions(role_id, permission_id)` PK both.
+- `user_roles(user_id, role_id)` PK both, `assigned_by_user_id`, `assigned_at`. **MVP rule: exactly one role per user**, enforced by the users service (FR-AUTH-3); the many-to-many shape is kept for future roles.
+
+#### `refresh_tokens` **[ADD]**
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| user_id | uuid NN FK | |
+| user_id | uuid NN FK → users | |
 | family_id | uuid NN | rotation family |
-| token_hash | text NN | UNIQUE (SHA-256) |
-| expires_at | timestamptz NN | |
+| token_hash | text NN UNIQUE | SHA-256; raw token never stored |
+| expires_at | timestamptz NN | 30 days by default (DN-22) |
 | revoked_at | timestamptz | |
 | replaced_by | uuid | next token in chain |
 | user_agent | text | |
 
-Indexes: `(user_id)`, `(family_id)`, `(expires_at)`.
+Indexes: `(user_id)`, `(family_id)`, `(expires_at)`. User-owned, so no `company_id`.
 
-#### `employee_salaries`
-Purpose: versioned base salary (replaces `users.base_salary`).
+#### `settings` **[ADD]**
+`company_id` + `key` text (PK both) · `value` jsonb NN · `updated_by` uuid FK · `updated_at` timestamptz NN. Keys and defaults: §3.8.
+
+#### `company_policy_versions`
+`id`, `timezone` text NN (MVP: `Africa/Cairo`), `monthly_hours_divisor` int NN, `effective_from` date NN, `effective_to` date, `created_by_user_id`. **`monthly_hours_divisor` is not used for any pay in the MVP**: off-day pay always divides by 30 (FR-CAL-3).
+
+#### `employee_compensation_versions` (Prisma model `EmployeeSalaryVersion`)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| user_id | uuid NN FK | |
-| amount | numeric(14,2) NN | `CHECK > 0` |
-| currency | char(3) NN default 'EGP' | `CHECK = 'EGP'` |
-| effective_from | date NN | `CHECK (EXTRACT(day FROM effective_from) = 1)` (provisional, DN-11) |
-| created_by | uuid NN FK users | |
+| employee_id | uuid NN FK → employees | |
+| salary | numeric(14,2) NN | monthly EGP; must be > 0 (service rule) |
+| effective_from | date NN | provisional: 1st of month (DN-11), as the Step 1.4 API enforces |
+| effective_to | date | null = current |
+| created_by_user_id | uuid FK → users | |
 
-Constraints: `UNIQUE (user_id, effective_from)`.
+Constraint **[ADD]**: `UNIQUE (employee_id, effective_from)`. Rows are never edited; locked months stay reproducible. Payroll resolves one version per employee per month; off-day pay uses the version effective that day.
 
 ### 3.2 Scheduling, calendar, locations
 
 #### `shifts`
-Purpose: company-owned named shift definitions.
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| company_id | uuid NN FK → companies | |
-| name | text NN | Unique within the company. |
-| is_active | bool NN default true | |
+`id`, `name` (UNIQUE per company), `is_active`; `UNIQUE (company_id, id)` for composite FKs.
 
-#### `shift_versions`
-Purpose: effective-dated hours and attendance thresholds for a shift.
+#### `shift_versions` (effective-dated hours and the CONFIRMED check-in windows)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| company_id | uuid NN FK → companies | |
 | shift_id | uuid NN FK → shifts | |
-| start_time / end_time | time NN | |
-| grace_minutes / red_period_minutes | int NN | |
-| effective_from | date NN | First date this version applies. |
-| effective_to | date | Last date this version applies. |
+| start_time / end_time | time NN | default 08:00 / 16:00 |
+| early_minutes | int NN default 60 | **[ADD]** end of the GREEN window, minutes after `start_time` |
+| grace_minutes | int NN | end of the WHITE window (default **120**); later check-ins are RED |
+| red_period_minutes | int NN | end of the RED window = absence threshold (default **240**); from then on BLACK |
+| effective_from / effective_to | date | |
 | created_by_user_id | uuid FK → users | |
 
-`shift_version_weekdays` associates a version with its working weekdays. The current version model uses one start/end time for all listed weekdays.
+Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_period < end`. With the defaults: GREEN 08:00–08:59, WHITE 09:00–09:59, RED 10:00–11:59, BLACK from 12:00 (spec REQ-012). *Reading `grace_minutes` and `red_period_minutes` as WHITE-end and RED-end is the reconciliation's interpretation of the 2026-10-22 model (see `09-DECISION_LOG.md`).*
 
-#### `employees.current_shift_id`
-Every employee must have one current shift. `current_shift_id` is required and references a shift in the same company as the employee.
+`shift_version_weekdays(company_id, shift_version_id, weekday smallint)` PK all three: the working weekdays of a version (one start/end for all listed days).
 
 #### `shift_assignments`
-Purpose: dated employee shift assignment history. When an employee changes shifts, update `employees.current_shift_id` and close/create the corresponding assignment history rows in the same transaction.
+`id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. No overlapping assignments per employee (service rule; exclusion constraint once migrations replace `db push`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction.
+
+#### `locations`, `employee_locations`, `holidays` (Phase 2, not in the schema yet)
+- `locations(id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea, active)`.
+- `employee_locations(employee_id, location_id)` PK both.
+- `holidays(id, holiday_date UNIQUE per company, name, created_by)`. Weekly off days live in `settings.weekly_off_days`.
+
+#### `work_offers` (the off-day-work exception record, FR-CAL-3)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| company_id | uuid NN FK → companies | |
 | employee_id | uuid NN FK → employees | |
-| shift_id | uuid NN FK → shifts | |
-| effective_from | date NN | |
-| effective_to | date | null = open-ended. |
-| assigned_by_user_id | uuid FK → users | |
+| offer_type | text NN | MVP value: `OFF_DAY_WORK` only |
+| starts_at / ends_at | timestamptz NN | the Cairo off day granted |
+| status | text NN default `ACTIVE` | `ACTIVE` / `CANCELLED` |
+| description | text NN | admin reason (audited) |
+| created_by_user_id | uuid NN FK → users | admin who granted it |
+| cancelled_by_user_id / cancelled_at | uuid / timestamptz | |
 
-#### `locations`
+Rule: at most one `ACTIVE` offer per employee per Cairo date (service rule). A worked offer day yields **exactly 1 GREEN regardless of check-in time** and the day's pay below.
+
+#### `additional_work_calculations` (the off-day pay record)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| name | text NN | |
-| latitude / longitude | numeric(9,6) NN | range checks |
-| radius_m | int NN | `CHECK > 0` |
-| qr_secret | bytea NN | random; never exposed by API |
-| active | bool NN default true | |
-| updated_at | timestamptz NN | |
+| work_offer_id | uuid NN UNIQUE FK → work_offers | one calculation per offer |
+| attendance_day_id | uuid NN FK → attendance_days | |
+| eligible_minutes | int NN | informational only |
+| green_points_awarded | int NN | always **1** (FR-CAL-3) |
+| salary | numeric(14,2) NN | snapshot of the version effective that day |
+| monthly_hours_divisor | int NN | MVP stores **30**, the confirmed day divisor; the column name is historical |
+| pay_pounds | numeric(14,2) NN | `ROUND_HALF_UP(salary ÷ 30, 2)` |
 
-#### `user_locations`
-PK `(user_id, location_id)`, both FK. Index `(location_id)`.
-
-#### `holidays`
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| holiday_date | date NN | UNIQUE |
-| name | text NN | |
-| created_by | uuid FK | |
-
-Weekly off days live in `settings.weekly_off_days`.
-
-#### `off_day_work_exceptions`
-Purpose: admin-granted permission to work on an off day (no Black, check-in allowed).
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| user_id | uuid NN FK | |
-| work_date | date NN | |
-| reason | text NN | |
-| status | text NN default 'ACTIVE' | `CHECK IN ('ACTIVE','CANCELLED')` |
-| granted_by | uuid NN FK | |
-| cancelled_at | timestamptz | |
-
-Constraint: partial `UNIQUE (user_id, work_date) WHERE status = 'ACTIVE'`.
+Payroll sums `pay_pounds` into `payroll_records.off_day_pay`.
 
 ### 3.3 Attendance
 
-#### `attendance`
-Purpose: one row per employee per date; holds the single classification.
+#### `attendance_days` (one row per employee per Cairo date)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| user_id | uuid NN FK | |
+| employee_id | uuid NN FK → employees | |
+| shift_assignment_id | uuid FK | |
 | work_date | date NN | Cairo date |
-| status | attendance_status NN | |
-| classification | point_type | GREEN/WHITE/RED/BLACK or NULL (EXEMPT) |
-| classification_rev | smallint NN default 1 | +1 on each correction |
-| check_in_at | timestamptz | = verification `started_at` (classified instant); admin entry otherwise |
-| confirmed_at | timestamptz | QR success time |
-| check_in_location_id | uuid FK | |
-| check_in_lat, check_in_lng | numeric(9,6) | |
-| check_in_accuracy_m | numeric(7,2) | |
-| check_out_at | timestamptz | |
-| check_out_location_id | uuid FK | |
-| check_out_lat, check_out_lng | numeric(9,6) | |
-| check_out_accuracy_m | numeric(7,2) | |
-| overtime_greens | smallint NN default 0 | units awarded |
-| left_early | bool NN default false | checkout before shift end without approved early leave (DN-08) |
-| early_leave_request_id | uuid FK | |
-| entry_source | text NN | `CHECK IN ('SELF','ADMIN')` |
-| schedule_id | uuid FK | |
-| schedule_snapshot | jsonb NN | work_start/end + windows as applied that day |
-| created_by | uuid FK | admin id for manual rows |
-| updated_at | timestamptz NN | |
+| timezone | text NN | snapshot |
+| scheduled_start_at | timestamptz NN | snapshot of the window instants for that day |
+| early_end_at | timestamptz NN | **[ADD]** start + early_minutes |
+| grace_end_at | timestamptz NN | start + grace_minutes |
+| red_period_end_at | timestamptz NN | start + red_period_minutes (absence threshold) |
+| scheduled_end_at | timestamptz NN | |
+| check_in_at / check_out_at | timestamptz | server time only |
+| check_in_result | text NN default `SCHEDULED` | |
+| classification | `PointType` | **[ADD]** the single point of the day (GREEN/WHITE/RED/BLACK); null while undecided or exempt |
 
-Constraints:
-- `UNIQUE (user_id, work_date)`.
-- `CHECK ((status='CONFIRMED' AND classification IN ('GREEN','WHITE','RED') AND check_in_at IS NOT NULL AND confirmed_at IS NOT NULL) OR (status='ABSENT' AND classification='BLACK') OR (status='EXEMPT' AND classification IS NULL))`.
-- `CHECK (check_out_at IS NULL OR (check_in_at IS NOT NULL AND check_out_at > check_in_at))`, `CHECK (overtime_greens >= 0)`.
-Indexes: `(work_date)`, `(user_id, work_date)` (covered by unique).
+Constraint: `UNIQUE (company_id, employee_id, work_date)`. The snapshot columns mean a later shift change never re-classifies a past day.
+Phase 3 adds the remaining check-in evidence columns from the earlier design: check-in/out location, latitude/longitude, accuracy, `confirmed_at`, `overtime_greens`, `left_early`, `early_leave_request_id`, `entry_source`, `classification_rev`.
 
-#### `attendance_verifications`
-Purpose: GPS-validated check-in attempts awaiting QR (needed: attendance must not exist before QR success).
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| user_id | uuid NN FK | |
-| work_date | date NN | |
-| location_id | uuid NN FK | location matched by geofence |
-| status | verification_status NN default 'PENDING' | |
-| started_at | timestamptz NN | server time |
-| expires_at | timestamptz NN | `started_at + qr_verification_window_minutes` (15); `CHECK (expires_at > started_at)` |
-| confirmed_at | timestamptz | |
-| latitude, longitude | numeric(9,6) NN | |
-| accuracy_m | numeric(7,2) NN | |
+#### `attendance_verifications` (Phase 3, not in the schema yet)
+GPS-validated attempts awaiting QR: `employee_id`, `work_date`, `location_id`, status `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min`, `confirmed_at`, coordinates, `accuracy_m`. Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'`.
 
-Constraints: partial `UNIQUE (user_id, work_date) WHERE status='PENDING'`.
-Indexes: `(status, expires_at)` (sweeper), `(user_id, work_date)`.
+#### `attendance_excuses` (unused in MVP)
+`attendance_day_id` UNIQUE, `submitted_by_user_id`, `employee_reason`, status (`PENDING`), `decided_by_user_id`, `decision_reason`, `decided_at`. No spec requirement defines an employee excuse flow (**DN-26**); no MVP endpoint writes it.
 
 ### 3.4 Points
 
 #### `point_value_versions`
-Purpose: versioned point values for each company, denominated in Egyptian pounds (EGP).
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| company_id | uuid NN FK → companies | |
-| point_type | text NN | Point category (for example GREEN, RED, BLACK). |
-| value | numeric(14,2) NN | EGP per point. |
-| effective_from | date NN | |
-| effective_to | date | |
+| point_type | `PointType` NN | only GREEN, RED, BLACK (WHITE has no money value); enforced in the service layer while the schema is applied with `db push` |
+| value | numeric(14,2) NN | EGP per point; must be > 0 |
+| effective_from / effective_to | date | |
 | created_by_user_id | uuid FK → users | |
 
-Value for a point = the company's version effective on the work date. Store and return the value directly in EGP. The ledger's `value_per_point_piasters` remains a historical snapshot in piastres.
+Constraint **[ADD]**: `UNIQUE (company_id, point_type, effective_from)`. Seeds: GREEN **1000.00**, RED 250.00, BLACK 1000.00 EGP. The GREEN value is Admin-configurable and audited. RED/BLACK potentials use the version effective on the work date; the GREEN version that feeds the Fund credit is **DN-21** (provisional: value at Month Close).
 
-#### `point_transactions`  — **append-only ledger**
-Purpose: one row = one point awarded (+1) or one reversal (−1).
+#### `point_ledger_entries` (**append-only ledger**)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| user_id | uuid NN FK | |
-| work_date | date NN | |
-| payroll_month | date NN | `CHECK (payroll_month = date_trunc('month', work_date)::date)` |
-| point_type | point_type NN | |
-| entry_kind | entry_kind NN | |
-| delta | smallint NN | +1 award / −1 reversal |
-| source | point_source NN | |
-| reverses_id | uuid FK self | target of a reversal |
-| reason_code | text | e.g., ADMIN_REVERSE, ADMIN_VOID, LEAVE_APPROVED, ATTENDANCE_CORRECTION |
-| reason | text | mandatory for ADMIN and REVERSAL |
-| attendance_id | uuid FK | ATTENDANCE/OVERTIME sources |
-| classification_rev | smallint | ATTENDANCE source |
-| dedupe_key | text | `ATT:{user}:{date}:{rev}` · `OT:{attendance}:{i}` · `ADM:{key}:{i}` |
-| actor_type | text NN | `CHECK IN ('SYSTEM','ADMIN')` |
-| actor_id | uuid FK | null for SYSTEM |
-| batch_id | uuid | admin multi-unit add |
+| employee_id | uuid NN FK → employees | |
+| point_type | `PointType` NN | |
+| entry_kind | text NN | `AWARD` / `REVERSAL` (enum recommended) |
+| direction | smallint NN | `+1` award, `−1` reversal |
+| quantity | int NN | `> 0`; one row may carry N points of one source |
+| point_value_version_id | uuid FK | |
+| value_per_point_piasters | bigint NN | snapshot (DN-23: the only piaster column) |
+| source_type / source_id | text NN / uuid | `ATTENDANCE`, `OVERTIME`, `OFF_DAY_WORK`, `ADMIN` |
+| idempotency_key | text NN UNIQUE | replaces the earlier `dedupe_key` |
+| reverses_entry_id | uuid FK self | a reversal references the entry it reverses |
+| reason | text | mandatory for `ADMIN` and `REVERSAL` |
+| created_by_user_id | uuid FK | null = system |
+| created_at | timestamptz NN | |
 
-Constraints:
-- `CHECK ((entry_kind='AWARD' AND delta=1 AND reverses_id IS NULL) OR (entry_kind='REVERSAL' AND delta=-1 AND reverses_id IS NOT NULL AND reason IS NOT NULL AND actor_type IS NOT NULL))`.
-- `UNIQUE (reverses_id)` — a point can be reversed once.
-- Partial `UNIQUE (dedupe_key) WHERE dedupe_key IS NOT NULL`.
-- `CHECK (source <> 'ADMIN' OR (actor_id IS NOT NULL AND reason IS NOT NULL))`.
-- Triggers (see §5): append-only; reversal must match target's user/type/month and target must be an AWARD; locked-month guard; one active ATTENDANCE award per `(user, work_date)`.
-Indexes: `(user_id, payroll_month, point_type)`, `(user_id, work_date)`, `(attendance_id)`, `(created_at)`.
+Rules: never UPDATE/DELETE (trigger with the Phase 4 migrations); an entry is reversed at most once; the net points of an entry are `direction × quantity`. The offset engine treats each unit of `quantity` as one point.
 
-#### `point_offsets` — **append-only**
-Purpose: allocation of Greens to cancel Reds/Blacks; UNDO rows release them.
-| Column | Type | Notes |
-|---|---|---|
-| id | uuid PK | |
-| user_id | uuid NN FK | |
-| group_id | uuid NN | one group = 1 Green→1 Red, or 5 Greens→1 Black |
-| position | smallint NN | 1..5 within a group |
-| kind | offset_kind NN | APPLY / UNDO |
-| target_point_id | uuid NN FK point_transactions | RED or BLACK |
-| source_point_id | uuid NN FK point_transactions | GREEN |
-| source_gen | smallint | APPLY: 1 + earlier APPLYs of this Green |
-| target_gen | smallint | APPLY: 1 + earlier APPLY groups of this target |
-| reverses_offset_id | uuid FK self | UNDO → the APPLY row |
-| actor_type / actor_id | text / uuid | |
-| reason | text | UNDO reason |
+#### `point_offset_allocations`
+`green_entry_id` → GREEN entry, `penalty_entry_id` → RED or BLACK entry, `quantity` (Greens used), `created_at`; `UNIQUE (green_entry_id, penalty_entry_id)`. One RED needs 1 Green, one BLACK needs exactly 5 (no partial). How an offset is **undone** after a reversal (the earlier design used `APPLY`/`UNDO` rows) is open: **U-5**, to settle in Phase 4.
 
-Constraints:
-- `CHECK ((kind='APPLY' AND reverses_offset_id IS NULL AND source_gen >= 1 AND target_gen >= 1) OR (kind='UNDO' AND reverses_offset_id IS NOT NULL))`.
-- `UNIQUE (reverses_offset_id)` (an APPLY row is undone once).
-- Partial `UNIQUE (source_point_id, source_gen) WHERE kind='APPLY'` — **Green cannot be consumed twice** per generation.
-- Partial `UNIQUE (target_point_id, target_gen) WHERE kind='APPLY' AND position=1` — one active group per target per generation.
-- `UNIQUE (group_id, position)`.
-- Triggers: types (`target ∈ {RED,BLACK}`, `source = GREEN`, never WHITE); both months open; no APPLY on a Green/target that already has an active APPLY; **deferred constraint trigger**: each new APPLY group has exactly 1 row (Red target) or `offset_greens_per_black` rows (Black target) — no partial Black cancellation.
-Indexes: `(user_id)`, `(group_id)`, `(target_point_id)`, `(source_point_id)`.
+#### `point_state` (VIEW, Phase 4)
+Derives `AVAILABLE / CONSUMED / SETTLED_TO_FUND / REVERSED / CANCELLED / ACTIVE / RECORDED` from the immutable rows (`05-SYSTEM_DESIGN.md` §5.2).
 
-#### `point_state` (VIEW, not a table)
-Derives `REVERSED / CONSUMED / SETTLED_TO_FUND / AVAILABLE / CANCELLED / ACTIVE / RECORDED` from the immutable rows (definition in `05-SYSTEM_DESIGN.md` §5.2).
+#### `audit_events` (append-only; replaces the earlier `audit_logs`)
+`id`, `actor_user_id` (null = system), `action` (e.g. `point.reverse`), `target_type`, `target_id`, `reason`, `changes` jsonb (before/after), `created_at`; **[ADD]** `actor_type` (`ADMIN`/`EMPLOYEE`/`SYSTEM`/`PROVIDER`) and `request_id`. Index `(company_id, target_type, target_id, created_at DESC)`.
 
 ### 3.5 Leave
+
+> **Rule for §3.5 to §3.8 (later-phase tables, not in the schema yet):** when a table is added it gets `company_id` (REQ-NFR-008); employee-owned data references `employees.id` where the text says `user_id`; money stays `numeric(14,2)` EGP. Column lists below are otherwise the agreed design.
 
 #### `leave_requests`
 | Column | Type | Notes |
@@ -444,11 +305,10 @@ Constraint: partial `UNIQUE (user_id, work_date) WHERE status IN ('PENDING','APP
 |---|---|---|
 | month | date PK | first day; `CHECK (EXTRACT(day FROM month) = 1)` |
 | status | month_status NN default 'OPEN' | |
-| usd_egp_rate | numeric(12,6) | frozen at close; `CHECK (usd_egp_rate > 0)` |
 | locked_at | timestamptz | |
 | locked_by | uuid FK | |
 
-`CHECK (status='OPEN' OR (usd_egp_rate IS NOT NULL AND locked_at IS NOT NULL AND locked_by IS NOT NULL))`. A month with no row is OPEN. Once `LOCKED` the row can never change (trigger).
+`CHECK (status='OPEN' OR (locked_at IS NOT NULL AND locked_by IS NOT NULL))`. No exchange rate is stored (EGP only). A month with no row is OPEN. Once `LOCKED` the row can never change (trigger).
 
 #### `payroll_records`
 Purpose: immutable monthly snapshot per employee.
@@ -468,10 +328,11 @@ Purpose: immutable monthly snapshot per employee.
 | reds_cancelled / blacks_cancelled | int NN | informational |
 | potential_red / potential_black | numeric(14,2) NN | |
 | applied_red / applied_black | numeric(14,2) NN | per policy |
+| off_day_days | smallint NN default 0 | granted off-day-work days worked (FR-CAL-3) |
+| off_day_pay | numeric(14,2) NN default 0 | `Σ ROUND_HALF_UP(salary ÷ 30, 2)` per such day |
 | adjustments_total | numeric(14,2) NN | |
-| net_payroll_egp | numeric(14,2) NN | |
-| fund_credit_usd | numeric(14,2) NN | `= greens_remaining × GREEN value` |
-| fund_credit_egp_equivalent | numeric(14,2) NN | display only |
+| net_payroll_egp | numeric(14,2) NN | `= base − leave_deduction − applied_red − applied_black + off_day_pay + adjustments_total` |
+| fund_credit_egp | numeric(14,2) NN | `= greens_remaining × GREEN value` (EGP) |
 | policy_snapshot | jsonb NN | deduction/leave policies, point values used |
 
 Constraint: `UNIQUE (month, user_id)`. Index `(user_id, month)`. Trigger: no INSERT/UPDATE/DELETE once month is locked.
@@ -495,8 +356,8 @@ Index `(user_id, applies_to_month)`.
 | id | uuid PK | |
 | user_id | uuid NN FK | |
 | type | fund_tx_type NN | |
-| amount | numeric(14,2) NN | USD, signed |
-| currency | char(3) NN default 'USD' | |
+| amount | numeric(14,2) NN | EGP, signed. For `WITHDRAWAL` this is the requested amount (the employee bears the fee; see `payouts`). |
+| currency | char(3) NN default 'EGP' | `CHECK = 'EGP'` |
 | payroll_month | date | for MONTH_CLOSE_CREDIT |
 | payroll_record_id | uuid FK | |
 | payout_id | uuid FK payouts | WITHDRAWAL / WITHDRAWAL_REFUND |
@@ -537,9 +398,9 @@ Constraint: partial `UNIQUE (user_id) WHERE is_active` (one active method, MVP).
 | id | uuid PK | |
 | user_id | uuid NN FK | |
 | payout_method_id | uuid NN FK | |
-| amount_usd | numeric(14,2) NN | `CHECK > 0` |
-| fx_rate | numeric(12,6) NN | `CHECK > 0` snapshot (DN-03) |
-| amount_egp | numeric(14,2) NN | `CHECK > 0` |
+| amount_egp | numeric(14,2) NN | requested amount, debited from the fund. `CHECK > 0` |
+| fee_egp | numeric(14,2) NN default 0 | Paymob fee snapshot, borne by the employee (CONFIRMED). `CHECK >= 0` |
+| net_egp | numeric(14,2) NN | `= amount_egp − fee_egp`, paid to the employee. `CHECK > 0` |
 | status | payout_status NN default 'PENDING' | |
 | provider | payout_provider NN default 'PAYMOB' | MANUAL when resolved manually |
 | provider_reference | text | |
@@ -589,7 +450,7 @@ Index: `(id) WHERE status='PENDING'`.
 #### `notifications`
 `id`, `user_id` FK, `type` text, `title` text, `body` text, `data` jsonb, `read_at` timestamptz. Index `(user_id, read_at, created_at DESC)`. (Push delivery is Later.)
 
-#### `audit_logs` — append-only
+#### `audit_logs` — superseded by `audit_events` (§3.4); kept here only as the column reference for `changes` (before/after), `request_id`, `ip`
 | Column | Type | Notes |
 |---|---|---|
 | id | bigserial PK | |
@@ -605,7 +466,7 @@ Index: `(id) WHERE status='PENDING'`.
 Indexes: `(entity_type, entity_id)`, `(actor_id, created_at)`, `(created_at)`.
 
 #### `settings`
-`key` text PK · `value` jsonb NN · `updated_by` uuid FK · `updated_at` timestamptz NN.
+PK `(company_id, key)` · `value` jsonb NN · `updated_by` uuid FK · `updated_at` timestamptz NN (model defined in §3.1).
 | Key | Default | Notes |
 |---|---|---|
 | `timezone` | `"Africa/Cairo"` | read-only |
@@ -619,7 +480,8 @@ Indexes: `(entity_type, entity_id)`, `(actor_id, created_at)`, `(created_at)`.
 | `offset_greens_per_black` | 5 | SoT |
 | `deduction_policy` | `{red_enabled:false, black_enabled:false, cap_percent_of_base:null}` | DN-01 |
 | `leave_pay_policy` | `{ANNUAL:{unpaid:false}, SICK:{unpaid:false}, UNPAID:{unpaid:true}}` | DN-02 |
-| `withdrawal_limits` | `{min_usd:null, daily_max_usd:null, monthly_max_usd:null}` | DN-13 |
+| `withdrawal_limits` | `{min_egp:null, daily_max_egp:null, monthly_max_egp:null}` | DN-13; `min_egp` must exceed the fee |
+| `paymob_fee_schedule` | `null` (effective-dated; values are an accepted gap) | DN-13; withdrawals stay disabled in production until set |
 | `payout_method_cooldown_hours` | null | DN-13 |
 | `absence_lookback_days` | 7 | catch-up window |
 | `admin_point_max_quantity` | null | DN-18 |
@@ -673,8 +535,10 @@ Full table in `05-SYSTEM_DESIGN.md` §14. Core shapes:
 Never inside a transaction: Redis calls, Paymob calls, any external network call.
 
 ## 7. Seed Data
-- `roles`: ADMIN, EMPLOYEE; `role_permissions` for both (EMPLOYEE: `*.own` set).
-- `point_value_versions`: point values are company-specific and stored in EGP; seed initial values per registered company.
-- `work_schedules`: "Default 08-16" (08:00, 16:00, 60/60/120).
-- `settings`: defaults above.
-- Do not seed a global administrator account. Company registration creates the company and its owner/admin atomically; the owner then invites employees.
+- `companies`: the **one** company row (TASK-041); every other seeded row references it.
+- `roles`: ADMIN, EMPLOYEE; `permissions` + `role_permissions` for both (EMPLOYEE: `*.own` set).
+- `point_value_versions`: GREEN 1000.00 EGP, RED 250.00 EGP, BLACK 1000.00 EGP (effective from go-live month start); EGP only.
+- `shifts` + `shift_versions`: "Default 08-16" (08:00, 16:00, early 60, grace 120, red period 240), weekdays Sunday–Thursday.
+- `company_policy_versions`: not seeded until a feature reads it.
+- `settings`: defaults above; `weekly_off_days` = `["FRI","SAT"]` as a development default (DN-10). A re-run never overwrites a value an Admin changed.
+- First `ADMIN`: a `users` row + `user_roles` ADMIN, created by a one-time bootstrap command with forced password change (no self-registration; the development seed account must not exist in production).

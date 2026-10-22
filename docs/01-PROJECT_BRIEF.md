@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 3.0 (supersedes Design Document v2) |
+| **Version** | 3.1 (supersedes Design Document v2; reconciled with the planning spec v0.2.0 / brief v3.6, see `09-DECISION_LOG.md`) |
 | **Status** | Final draft — implementation-ready. Open items are marked `DECISION NEEDED (DN-xx)` and are resolved in Phase 0 (see `06-ROADMAP.md`). |
-| **Last Updated** | 2026-10-08 |
+| **Last Updated** | 2026-10-22 |
 | **Source of Truth** | The finalization prompt ("**SoT**") is the highest-priority source. Where this set conflicts with older files (`Design Document v2.md`, `attendance-system-design.html`, the PDF), **SoT wins**. Older files are reference only. |
 
 ---
@@ -36,7 +36,6 @@ Priority order (SoT §41): **Correctness > Money Integrity > Attendance Integrit
 ## 5. Scope
 
 ### MVP scope
-- Company registration with the registering user as company owner/admin, plus employee invitations and company-scoped data.
 - Auth (JWT + rotating refresh), two active roles `ADMIN`, `EMPLOYEE`, on a small RBAC foundation.
 - Client apps: React Native mobile app (Employee attendance, GPS geofencing, QR scanner, points, leaves, withdrawals) + Next.js web app (Admin dashboard/management, review queues, and `/kiosk` rotating QR display).
 - Employees, salaries (versioned), locations/geofences, work schedules + assignments, weekly off days, holidays, off-day-work exceptions (admin-granted).
@@ -51,11 +50,11 @@ Priority order (SoT §41): **Correctness > Money Integrity > Attendance Integrit
 - Employee-initiated off-day-work requests; push notifications (FCM); self-service password reset; reports/exports; multiple payout methods; salary payouts through Paymob; Sentry/metrics dashboards.
 
 ### Future
-- `MANAGER`, `HR`, `FINANCE` roles; rotating/split shifts; half-day leave.
+- `MANAGER`, `HR`, `FINANCE` roles; rotating/split shifts; half-day leave; multi-company (tenancy).
 
 ## 6. Explicit Out of Scope (current version)
 
-Microservices, Kafka/RabbitMQ, distributed event architecture, complex RBAC matrix, full accounting/ERP, leave accrual/carry-over engine, complex scheduling engine, NFC / Wi-Fi / biometrics / Play Integrity / AI fraud detection, social insurance & income tax computation, cursor pagination (unless proven necessary), audit-log partitioning (unless volume requires).
+Microservices, Kafka/RabbitMQ, distributed event architecture, multi-tenant SaaS, multi-currency support and currency conversion, complex RBAC matrix, full accounting/ERP, leave accrual/carry-over engine, complex scheduling engine, NFC / Wi-Fi / biometrics / Play Integrity / AI fraud detection, social insurance & income tax computation, cursor pagination (unless proven necessary), audit-log partitioning (unless volume requires).
 
 ## 7. System Boundaries
 
@@ -82,7 +81,7 @@ Paymob payout integration                 Paymob's own settlement and KYC
 
 ```text
 Check-in time (Cairo)         Point (exactly one per day)     Money meaning
-08:00–08:59  EARLY     ──►    GREEN   (+1)               ──►  1 unused Green = 1 USD (Fund)
+08:00–08:59  EARLY     ──►    GREEN   (+1)               ──►  1 unused Green = 1000 EGP by default, Admin-configurable (Fund)
 09:00–09:59  NORMAL    ──►    WHITE   (+1, visibility only)   none
 10:00–11:59  LATE      ──►    RED     (+1)               ──►  potential deduction 250 EGP
 12:00+ no attendance/leave ─► BLACK   (+1)               ──►  potential deduction 1000 EGP
@@ -93,5 +92,11 @@ GREEN lifecycle:   1 GREEN cancels 1 RED (oldest first)
                    5 GREEN cancel 1 BLACK (atomic, no partial)
                    remaining GREEN at Month Close → Fund credit (never paid twice)
 ```
+
+**Currency (CONFIRMED):** EGP is the only currency. There is no USD and no conversion anywhere in the system. The value of one unused Green is an Admin-configurable EGP amount (initial 1000 EGP, always > 0); it is never derived by converting 1 USD.
+
+**Off-day work (CONFIRMED):** when an Admin grants an off-day-work exception, the day yields exactly 1 GREEN regardless of check-in time, plus a day's pay of `monthly salary ÷ 30` (divisor always 30) at the normal rate.
+
+**Deployment scope (CONFIRMED):** one company per deployment. Multi-company tenancy is Future, not MVP. The data model is tenancy-ready (planning spec v0.3.0, REQ-NFR-008): it keeps exactly one company record that every company-owned row references, resolved on the server only.
 
 Deductions from salary are **configurable and OFF by default** until the company's legal review (DN-01).

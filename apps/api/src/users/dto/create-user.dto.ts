@@ -1,5 +1,6 @@
 import {
   IsEmail,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
@@ -22,8 +23,8 @@ export class CreateUserDto {
   password!: string;
 
   @IsString()
-  @IsOptional()
-  employeeCode?: string;
+  @IsNotEmpty({ message: 'Employee code is required' })
+  employeeCode!: string;
 
   @IsString()
   @IsOptional()
@@ -38,7 +39,7 @@ export class CreateUserDto {
   @IsOptional()
   initialSalary?: number;
 
-  @IsString()
+  @IsIn(['EGP'], { message: 'EGP is the only supported currency' })
   @IsOptional()
   currency?: string;
 }

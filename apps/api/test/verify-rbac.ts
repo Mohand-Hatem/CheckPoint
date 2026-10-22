@@ -11,19 +11,36 @@ async function runRbacVerification() {
   console.log('🧪 Starting RBAC, Guards & Throttling automated verification...');
 
   // 1. Ensure test employee user exists
-  const employeeRole = await prisma.role.findUnique({ where: { code: 'EMPLOYEE' } });
+  const company = await prisma.company.findFirstOrThrow();
+  const shift = await prisma.shift.findFirstOrThrow({ where: { companyId: company.id } });
+  const employeeRole = await prisma.role.findUnique({ where: { name: 'EMPLOYEE' } });
   assert.ok(employeeRole, 'EMPLOYEE role must exist');
 
   const employeePassword = await argon2.hash('EmployeePass123!', { type: argon2.argon2id });
-  await prisma.user.upsert({
+  const testUser = await prisma.user.upsert({
     where: { email: 'employee@checkpoint.local' },
-    update: { active: true },
+    update: { isActive: true },
     create: {
+      companyId: company.id,
       email: 'employee@checkpoint.local',
-      fullName: 'Test Employee',
       passwordHash: employeePassword,
-      roleId: employeeRole.id,
-      active: true,
+      isActive: true,
+    },
+  });
+  await prisma.userRole.upsert({
+    where: { userId_roleId: { userId: testUser.id, roleId: employeeRole.id } },
+    update: {},
+    create: { userId: testUser.id, roleId: employeeRole.id },
+  });
+  await prisma.employee.upsert({
+    where: { userId: testUser.id },
+    update: {},
+    create: {
+      companyId: company.id,
+      userId: testUser.id,
+      employeeNumber: 'RBAC-TEST-001',
+      fullName: 'Test Employee',
+      currentShiftId: shift.id,
     },
   });
 

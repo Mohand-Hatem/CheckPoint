@@ -26,6 +26,25 @@ flowchart LR
 
 ---
 
+## Traceability: phases → planning tasks and requirements
+
+Planning IDs come from the local `planning/` workspace (spec v0.3.0, `TASKS.json`). Business changes start there first; this roadmap stays the execution plan.
+
+| Phase | Planning tasks | Spec requirements |
+|---|---|---|
+| 0 Decisions | (none; resolves DN-xx / GAP-xxx) | REQ-020 legal gate (DN-01), open DNs |
+| 1 Foundation | TASK-001, 002, 003, 004, 025, 028, 030, 031, 032, 040, 041 | REQ-001–003, REQ-006–008, REQ-028, REQ-NFR-003, REQ-NFR-004, REQ-NFR-008 |
+| 2 Schedules / calendar / locations | TASK-005, 006 | REQ-009, REQ-010 |
+| 3 Attendance / GPS / QR | TASK-007, 008, 009, 010, 023 (attendance part) | REQ-011–015, REQ-030 (GREEN) |
+| 4 Points / offsets | TASK-012, 013, 014, 016 | REQ-017–019, REQ-029 |
+| 5 Leave / early leave / corrections | TASK-011, 017, 018, 024 | REQ-016, REQ-021, REQ-022, REQ-027 |
+| 6 Payroll / fund / lock | TASK-015, 019, 020, 021, 023 (pay part) | REQ-020, REQ-023–025, REQ-030 (pay) |
+| 7 Paymob | TASK-022, 029 | REQ-005, REQ-026 |
+| 8 Hardening / pilot | TASK-033–039 | REQ-NFR-001, 002, 005–007 |
+| All phases (UI per feature) | TASK-026 (employee), TASK-027 (admin) | REQ-001, REQ-002 |
+
+Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove (see `09-DECISION_LOG.md` §6 for REQ → FR).
+
 ## Phase 0 — Business Decisions / Legal / Multi-Client Setup
 
 **Goal:** Resolve every `DECISION NEEDED` that blocks money behavior, lock client framework choices, and start long-lead external approvals.
@@ -58,7 +77,7 @@ flowchart LR
 
 **Tasks**
 - **[BE]**: Repo, Docker Compose (api, PostgreSQL, Redis), CI (lint, unit, integration, migration check), config validation, Pino logging, request ID, health endpoints, Swagger, `/api/v1` prefix.
-- **[BE]**: Prisma + migrations; `roles`, `role_permissions`, `users`, `employee_salaries`, `refresh_tokens`, `settings`, `audit_logs`, `notifications`, `outbox_events` tables.
+- **[BE]**: Prisma + migrations; `companies` (one row), `roles`, `permissions`, `role_permissions`, `user_roles`, `users`, `employees`, `employee_compensation_versions`, `refresh_tokens`, `settings`, `audit_events`, `notifications`, `outbox_events` tables.
 - **[BE]**: Auth: login, refresh rotation + reuse detection, logout, password change, admin reset, throttling.
 - **[BE]**: `PermissionGuard` + seeds for `ADMIN`, `EMPLOYEE`.
 - **[BE]**: Users CRUD, disable/reactivate, salary versions (1st-of-month rule).
@@ -87,8 +106,8 @@ flowchart LR
 **Goal:** Everything needed to decide, for any employee and date, *where*, *when* and *whether* attendance is expected, plus admin management and branch kiosk UI.
 
 **Tasks**
-- **[BE]**: `work_schedules`, `schedule_assignments` (exclusion constraint, future-only changes), default 08:00–16:00 (60/60/120).
-- **[BE]**: `holidays`, weekly-off-days setting, `off_day_work_exceptions`; `isWorkingDay` / `isAttendanceExpected` services.
+- **[BE]**: `shifts`, `shift_versions`, `shift_assignments` (no overlaps, future-only changes), default 08:00–16:00 (early 60 / grace 120 / red period 240).
+- **[BE]**: `holidays`, weekly-off-days setting, `work_offers` (off-day-work exceptions); `isWorkingDay` / `isAttendanceExpected` services.
 - **[BE]**: `locations`, `user_locations`; QR secret generation; token generate/validate functions; `GET …/qr-token`.
 - **[BE]**: Pure `classifyCheckIn`, window computation with Luxon (Cairo/UTC).
 - **[WEB]**: Admin CRUD for locations (geofence coordinates and radius) and schedule assignments; `/kiosk` full-screen rotating HMAC QR display.
@@ -141,7 +160,7 @@ flowchart LR
 **Goal:** Real append-only point ledger, offset engine, absence job, admin point operations, and mobile/web point interfaces.
 
 **Tasks**
-- **[BE]**: `point_values`, `point_transactions`, `point_offsets`, `point_state` view, `payroll_months` (stub rows only, for lock checks), triggers (append-only, locked-month guard).
+- **[BE]**: `point_value_versions`, `point_transactions`, `point_offsets`, `point_state` view, `payroll_months` (stub rows only, for lock checks), triggers (append-only, locked-month guard).
 - **[BE]**: `PointsService` (award/reverse), `OffsetEngine`, replace `PointsPort` stub; wire confirm/check-out transactions with the user lock.
 - **[BE]**: `attendance-sweeper` absence sweep (lookback), Black award, pending-verification protection.
 - **[BE]**: Admin point operations (add, reverse, view history); employee point queries.
@@ -196,23 +215,23 @@ flowchart LR
 
 **Tasks**
 - **[BE]**: `payroll_months`, `payroll_records`, `payroll_adjustments`, `fund_transactions` (+ constraints, triggers).
-- **[BE]**: Pure `calculatePayroll`; preview endpoint; employee estimate; Month Close transaction with required `usdEgpRate`; adjustments; fund balance queries; admin fund adjustments.
+- **[BE]**: Pure `calculatePayroll`; preview endpoint; employee estimate; off-day-work pay (salary ÷ 30); Month Close transaction (EGP only, requires a configured Green value); adjustments; fund balance queries; admin fund adjustments.
 - **[BE]**: Pre-close checks (DN-17), `partial_month` flag, settings for `deduction_policy` and `leave_pay_policy`.
-- **[WEB]**: Admin payroll preview table, Month Close action modal (USD/EGP exchange rate input), historical payroll records archive, adjustments entry dialog.
-- **[MOB]**: Employee Fund Balance screen (USD balance + estimated EGP equivalent), Monthly payroll estimate card with potential deduction breakdown.
+- **[WEB]**: Admin payroll preview table, Month Close action modal (no exchange-rate input; shows the Green value being applied), historical payroll records archive, adjustments entry dialog.
+- **[MOB]**: Employee Fund Balance screen (EGP balance), Monthly payroll estimate card with potential deduction breakdown.
 
 **Dependencies:** Phase 4 (points), Phase 5 (leave), Phase 2 (working days).
 
 **Tests**
 - Unit: payroll formula for G1–G6 (all values in `05-SYSTEM_DESIGN.md` §15.4), rounding, policy on/off, cap.
-- Integration: Month Close writes records + one credit per user; second close refused; writes to locked month refused; close without `usdEgpRate` refused; failure mid-close rolls back everything.
+- Integration: Month Close writes records + one credit per user; second close refused; writes to locked month refused; close without a configured Green value refused; failure mid-close rolls back everything.
 - Concurrency: close racing an admin point add (point either fully in or rejected).
 
 **Definition of Done**
-- [ ] Golden cases G1–G6 pass exactly (EGP/USD values as documented).
+- [ ] Golden cases G1–G9 pass exactly (EGP values as documented).
 - [ ] `fund balance = SUM(ledger)` verified for users after close; Greens consumed by offsets are absent from the credit (test with G3: credit = 8, not 10).
 - [ ] Locked month rejects point, offset, record and adjustment inserts (DB-level test).
-- [ ] No exchange-rate literal exists in source (static check) and close fails without a supplied rate.
+- [ ] No USD or exchange-rate field/literal exists in source (static check); close fails without a configured Green value.
 
 ---
 

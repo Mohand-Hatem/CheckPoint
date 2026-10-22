@@ -1,11 +1,19 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
+import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
 import { RefreshTokenDto } from './dto/refresh-token.dto';
+
+const USER_AUTH_INCLUDE = Prisma.validator<Prisma.UserInclude>()({
+  employee: { select: { fullName: true } },
+  roles: { include: { role: { include: { permissions: { include: { permission: true } } } } } },
+});
+
+type UserWithRole = Prisma.UserGetPayload<{ include: typeof USER_AUTH_INCLUDE }>;
 
 @Injectable()
 export class AuthService {
@@ -33,23 +41,32 @@ export class AuthService {
     return expiry;
   }
 
+  private toClaims(user: UserWithRole) {
+    // MVP: exactly one role per user, stored in user_roles (docs/08 §3.1)
+    const role = user.roles[0]?.role;
+    if (!role) {
+      throw new UnauthorizedException('Account has no role assigned');
+    }
+
+    return {
+      sub: user.id,
+      email: user.email,
+      role: role.name,
+      permissions: role.permissions.map((rp) => rp.permission.code),
+    };
+  }
+
   async login(dto: LoginDto, userAgent?: string) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email.toLowerCase() },
-      include: {
-        role: {
-          include: {
-            permissions: true,
-          },
-        },
-      },
+      include: USER_AUTH_INCLUDE,
     });
 
     if (!user) {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    if (!user.active) {
+    if (!user.isActive) {
       throw new UnauthorizedException('Account has been deactivated');
     }
 
@@ -58,12 +75,7 @@ export class AuthService {
       throw new UnauthorizedException('Invalid email or password');
     }
 
-    const payload = {
-      sub: user.id,
-      email: user.email,
-      role: user.role.code,
-      permissions: user.role.permissions.map((p) => p.permission),
-    };
+    const payload = this.toClaims(user);
 
     const accessToken = await this.jwtService.signAsync(payload);
 
@@ -88,8 +100,8 @@ export class AuthService {
       user: {
         id: user.id,
         email: user.email,
-        fullName: user.fullName,
-        role: user.role.code,
+        fullName: user.employee?.fullName ?? null,
+        role: payload.role,
         mustChangePassword: user.mustChangePassword,
       },
     };
@@ -100,17 +112,7 @@ export class AuthService {
 
     const existingToken = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
-      include: {
-        user: {
-          include: {
-            role: {
-              include: {
-                permissions: true,
-              },
-            },
-          },
-        },
-      },
+      include: { user: { include: USER_AUTH_INCLUDE } },
     });
 
     if (!existingToken) {
@@ -132,7 +134,7 @@ export class AuthService {
       throw new UnauthorizedException('Refresh token has expired');
     }
 
-    if (!existingToken.user.active) {
+    if (!existingToken.user.isActive) {
       throw new UnauthorizedException('User account has been deactivated');
     }
 
@@ -164,12 +166,7 @@ export class AuthService {
       data: { replacedBy: newToken.id },
     });
 
-    const payload = {
-      sub: existingToken.user.id,
-      email: existingToken.user.email,
-      role: existingToken.user.role.code,
-      permissions: existingToken.user.role.permissions.map((p) => p.permission),
-    };
+    const payload = this.toClaims(existingToken.user);
 
     const accessToken = await this.jwtService.signAsync(payload);
 

@@ -53,7 +53,7 @@ sequenceDiagram
     API-->>FE: 409 ALREADY_CHECKED_IN
   else pending verification not expired
     API-->>FE: 200 same verificationId (idempotent)
-  else not eligible (off day, leave, closed, not open)
+  else not eligible (off day without exception, leave, closed, not open; on an exception day the windows are skipped and the day is GREEN)
     API-->>FE: 422 reason code
   else eligible
     API->>API: accuracy <= threshold, Haversine vs assigned locations
@@ -336,20 +336,20 @@ sequenceDiagram
   A->>FE: preview month
   FE->>API: GET /admin/payroll/months/{month}/preview
   API-->>FE: records (not stored), blockers, warnings
-  A->>FE: close month with usdEgpRate
-  FE->>API: POST /admin/payroll/months/{month}/close {usdEgpRate}
-  API->>DB: pre-checks (month ended, earlier months locked, no pending leaves)
+  A->>FE: close month (EGP only, no exchange rate)
+  FE->>API: POST /admin/payroll/months/{month}/close
+  API->>DB: pre-checks (month ended, earlier months locked, no pending leaves, Green value configured)
   Note over API,DB: BEGIN single Tx
   API->>DB: lock payroll_months row, lock all users ascending id
   loop each employee
     API->>DB: OffsetEngine.run
-    API->>API: calculatePayroll (pure)
+    API->>API: calculatePayroll (pure; includes off-day-work pay = salary / 30 per exception day worked)
     API->>DB: insert payroll_records snapshot
     opt greens_remaining > 0 (see diagram 15)
       API->>DB: insert fund MONTH_CLOSE_CREDIT
     end
   end
-  API->>DB: set month LOCKED (usd_egp_rate, locked_at, locked_by), audit, notifications
+  API->>DB: set month LOCKED (locked_at, locked_by), audit, notifications
   Note over API,DB: COMMIT, month now immutable (trigger)
   API-->>FE: 200 summary
 ```
@@ -365,7 +365,7 @@ sequenceDiagram
   API->>DB: greens_consumed (active offsets using those Greens)
   API->>API: remaining = earned - consumed
   Note over API: example 10 earned, 2 consumed gives 8 remaining, never 10
-  API->>API: fund_credit_usd = remaining x 1 USD (point_values)
+  API->>API: fund_credit_egp = remaining x configured Green value (point_value_versions, initial 1000 EGP)
   API->>DB: insert fund_transactions MONTH_CLOSE_CREDIT (amount +remaining, payroll_month M)
   Note over DB: unique (user, month) for credit rows, ledger is append-only
 ```
@@ -378,8 +378,8 @@ sequenceDiagram
   participant FE
   participant API
   participant DB
-  E->>FE: withdraw 8 USD
-  FE->>API: POST /me/fund/withdrawals {amountUsd} + Idempotency-Key
+  E->>FE: withdraw 8,000 EGP (sees fee and net amount first)
+  FE->>API: POST /me/fund/withdrawals {amountEgp} + Idempotency-Key
   Note over API,DB: BEGIN Tx
   API->>DB: SELECT user FOR UPDATE
   API->>DB: find payout by (user, idempotency key)

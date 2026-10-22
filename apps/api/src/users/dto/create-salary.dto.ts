@@ -1,10 +1,10 @@
 import {
   IsDateString,
+  IsIn,
   IsNotEmpty,
   IsNumber,
   IsOptional,
   IsPositive,
-  IsString,
 } from 'class-validator';
 
 export class CreateSalaryDto {
@@ -13,7 +13,7 @@ export class CreateSalaryDto {
   @IsNotEmpty()
   amount!: number;
 
-  @IsString()
+  @IsIn(['EGP'], { message: 'EGP is the only supported currency' })
   @IsOptional()
   currency?: string;
 
