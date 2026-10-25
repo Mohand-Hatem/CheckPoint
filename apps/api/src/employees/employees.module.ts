@@ -1,5 +1,5 @@
 import { Module } from '@nestjs/common';
-import { PrismaModule } from '../prisma/prisma.module'; // ASSUMPTION
+import { PrismaModule } from '../prisma/prisma.module'; 
 import { EmployeesController } from './employees.controller';
 import { EmployeesService } from './employees.service';
 
@@ -7,6 +7,6 @@ import { EmployeesService } from './employees.service';
   imports: [PrismaModule],
   controllers: [EmployeesController],
   providers: [EmployeesService],
-  exports: [EmployeesService], // الـ offers/shifts تستخدم eligibleEmployeesWhere
+  exports: [EmployeesService], 
 })
 export class EmployeesModule {}

@@ -1,5 +1,5 @@
 import { Transform } from 'class-transformer';
-import { IsEmail, IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEmail, IsNotEmpty, IsOptional, IsString, IsUUID, MaxLength } from 'class-validator';
 
 // companyId و isActive مش موجودين هنا عمداً: companyId بييجي من الـ JWT فقط.
 export class CreateEmployeeDto {
@@ -7,7 +7,7 @@ export class CreateEmployeeDto {
   @IsNotEmpty()
   @MaxLength(50)
   @Transform(({ value }) => (typeof value === 'string' ? value.trim() : value))
-  employeeCode!: string;
+  employeeNumber!: string;
 
   @IsString()
   @IsNotEmpty()
@@ -22,4 +22,7 @@ export class CreateEmployeeDto {
   @IsString()
   @MaxLength(30)
   phone?: string;
+
+  @IsUUID()
+  shiftId!: string;
 }

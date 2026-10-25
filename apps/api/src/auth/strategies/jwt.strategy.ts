@@ -9,6 +9,7 @@ interface JwtPayload {
   email: string;
   role: string;
   permissions: string[];
+  companyId: string;
 }
 
 @Injectable()
@@ -22,7 +23,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<AuthenticatedUser> {
-    if (!payload.sub || !payload.email) {
+    if (!payload.sub || !payload.email || !payload.companyId) {
       throw new UnauthorizedException('Invalid token payload');
     }
 
@@ -31,6 +32,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       email: payload.email,
       role: payload.role,
       permissions: payload.permissions || [],
+      companyId: payload.companyId,
     };
   }
 }
