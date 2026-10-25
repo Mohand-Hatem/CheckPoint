@@ -14,6 +14,7 @@ describe('AuthService (Unit)', () => {
 
   const mockUser = {
     id: 'user-uuid-1',
+    companyId: 'company-uuid-1',
     email: 'admin@checkpoint.local',
     passwordHash: '',
     isActive: true,
@@ -90,7 +91,11 @@ describe('AuthService (Unit)', () => {
       expect(result.user.role).toBe('ADMIN');
       expect(result.user.fullName).toBe('System Admin');
       expect(jwtService.signAsync).toHaveBeenCalledWith(
-        expect.objectContaining({ role: 'ADMIN', permissions: ['users.read', 'users.write'] }),
+        expect.objectContaining({
+          companyId: 'company-uuid-1',
+          role: 'ADMIN',
+          permissions: ['users.read', 'users.write'],
+        }),
       );
       expect(prisma.refreshToken.create).toHaveBeenCalled();
     });
@@ -147,7 +152,7 @@ describe('AuthService (Unit)', () => {
       ).rejects.toThrow(UnauthorizedException);
 
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
-        where: { familyId: 'family-100' },
+        where: { familyId: 'family-100', revokedAt: null },
         data: { revokedAt: expect.any(Date) },
       });
     });
@@ -163,14 +168,56 @@ describe('AuthService (Unit)', () => {
       };
 
       prisma.refreshToken.findUnique.mockResolvedValue(validToken);
-      prisma.$transaction.mockResolvedValue([{ id: 'new-token-id' }, {}]);
-      prisma.refreshToken.update.mockResolvedValue({});
+      const tx = {
+        refreshToken: {
+          updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+          create: jest.fn().mockResolvedValue({ id: 'new-token-id' }),
+          update: jest.fn().mockResolvedValue({}),
+        },
+      };
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx));
 
       const result = await service.refresh({ refreshToken: 'valid-token' });
 
       expect(result.accessToken).toBe('mock-access-token');
       expect(result.refreshToken).toBeDefined();
       expect(prisma.$transaction).toHaveBeenCalled();
+      // the old token is claimed atomically (only if still unrevoked) and linked to the new one
+      expect(tx.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { id: 'token-valid', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(tx.refreshToken.update).toHaveBeenCalledWith({
+        where: { id: 'token-valid' },
+        data: { replacedBy: 'new-token-id' },
+      });
+      // AC-REQ-006-08: the refreshed token carries the account's own company
+      expect(jwtService.signAsync).toHaveBeenCalledWith(expect.objectContaining({ companyId: 'company-uuid-1' }));
+    });
+  });
+
+  describe('refresh race', () => {
+    it('a concurrent refresh that loses the atomic claim is treated as reuse and burns the family', async () => {
+      prisma.refreshToken.findUnique.mockResolvedValue({
+        id: 'token-raced',
+        familyId: 'family-race',
+        userId: 'user-uuid-1',
+        revokedAt: null,
+        expiresAt: new Date(Date.now() + 1000000),
+        user: { ...mockUser },
+      });
+      const tx = { refreshToken: { updateMany: jest.fn().mockResolvedValue({ count: 0 }), create: jest.fn(), update: jest.fn() } };
+      prisma.$transaction.mockImplementation(async (cb: any) => cb(tx));
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+
+      await expect(service.refresh({ refreshToken: 'raced-token' })).rejects.toThrow(UnauthorizedException);
+
+      expect(tx.refreshToken.create).not.toHaveBeenCalled();
+      expect(jwtService.signAsync).not.toHaveBeenCalled();
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { familyId: 'family-race', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
     });
   });
 

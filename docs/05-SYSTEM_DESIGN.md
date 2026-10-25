@@ -32,8 +32,10 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /auth/login` | email + password → access + refresh |
 | `POST /auth/refresh` | rotate refresh token |
 | `POST /auth/logout` | revoke refresh family |
-| `PATCH /me/password` | change own password |
+| `POST /auth/invitations/accept` `{token,password}` | Public, rate-limited: the invitee redeems a one-time token and the account is created in the inviter's company (REQ-032) |
 | `GET /me` | profile, role, today's schedule summary |
+| `GET /me/profile` | Own profile only: the owner is the token, there is no id parameter |
+| `PATCH /me/password` `{currentPassword,newPassword}` | Change own password. Required first when `mustChangePassword` is true: until then every other route answers 403 `PASSWORD_CHANGE_REQUIRED`. Ends all sessions. |
 
 ### 2.2 Employee (`EMPLOYEE`; own data only)
 | Method & path | Purpose |
@@ -57,6 +59,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Group | Endpoints |
 |---|---|
 | Employees | `GET/POST /admin/users` · `GET/PATCH /admin/users/{id}` · `POST /admin/users/{id}/{disable, reactivate, reset-password}` · `PUT /admin/users/{id}/locations` · `POST /admin/users/{id}/salaries` |
+| Invitations | `POST/GET /admin/invitations` · `DELETE /admin/invitations/{id}` (revoke); the raw token is returned once on create (REQ-032) |
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
 | Calendar | CRUD `/admin/holidays` · `GET/PUT /admin/settings/weekly_off_days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
@@ -67,7 +70,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Payroll | `GET /admin/payroll/months/{month}/preview` · `POST /admin/payroll/months/{month}/close` (no body; EGP only) · `GET /admin/payroll/months/{month}/records` · `POST /admin/payroll/adjustments` |
 | Fund | `GET /admin/fund/users/{id}` · `POST /admin/fund/adjustments` `{userId,amountEgp,reason}` + `Idempotency-Key` |
 | Payouts | `GET /admin/payouts?status=&userId=` · `POST /admin/payouts/{id}/inquire` · `POST /admin/payouts/{id}/resend` · `POST /admin/payouts/{id}/mark-paid` · `POST /admin/payouts/{id}/mark-failed` |
-| Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-logs?entity=&actor=&from=&to=` |
+| Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-events?action=&targetType=&targetId=&actorUserId=&page=&limit=` (company-scoped, append-only log, no secrets) |
 
 ### 2.4 Webhooks
 | Path | Purpose |
@@ -76,7 +79,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 
 ## 3. Authentication
 
-1. **Login** — normalize email; check throttle (Redis counter `email+IP`, e.g., 5 failures/15 min ⇒ `429`); load active user; argon2id verify; issue access JWT (15 min; claims `sub`, `role`) and a refresh token (random 256-bit; **SHA-256 hash** stored in `refresh_tokens` with `family_id`, `expires_at` 30 days by default — DN-22).
+1. **Login** — normalize email; check throttle (Redis counter `email+IP`, e.g., 5 failures/15 min ⇒ `429`); load active user; argon2id verify; issue access JWT (15 min; claims `sub`, `companyId`, `email`, `role`, `permissions`) and a refresh token (random 256-bit; **SHA-256 hash** stored in `refresh_tokens` with `family_id`, `expires_at` 30 days by default — DN-22).
 2. **Refresh** — look up hash; if valid & unrevoked: revoke it (`replaced_by`), issue new pair in the same family. If an **already-rotated** token is presented ⇒ revoke the whole family (theft signal) and return `401`. Re-check `users.active`.
 3. **Logout** — revoke the family.
 4. **Disable user** — revoke all families in the disabling transaction.

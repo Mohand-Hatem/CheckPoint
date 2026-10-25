@@ -162,15 +162,16 @@ REFRESH_TOKEN_EXPIRES_DAYS=30
 ```
 
 ### 3. Database Schema & Seeding
-For a fresh development database, synchronize the Prisma schema and seed:
+Apply the migrations (they also create the database-level rules and the append-only audit log) and seed:
 ```bash
-npx prisma db push
+npx prisma migrate deploy
 npx prisma db seed
 ```
+Changing the schema? Edit `prisma/schema.prisma`, run `npx prisma migrate dev --name <change>`, and commit the new folder in `prisma/migrations/`. **Never use `db push` on a shared database** (it skips the migrations and their rules).
 
-> **Reconciliation notice (2026-10-22):** the MVP is **one company per deployment, EGP only**, on a **tenancy-ready** data model (exactly one company row; see `docs/09-DECISION_LOG.md`). `apps/api/prisma/schema.prisma` is the base model; `docs/08-DATABASE_SCHEMA.md` lists the additive changes still to make (marked **[ADD]**, e.g. refresh tokens and settings). Until they land, the auth and users code does not compile against the schema.
+> **Direction (2026-10-25):** the MVP is a **multi-company foundation, EGP only** (spec v0.4.0): companies are created by a provisioning command, employees join by invitation, and every company is isolated. Public self-service SaaS comes later. See `docs/09-DECISION_LOG.md`. To create a company and its first Admin, follow `docs/11-PROVISIONING_RUNBOOK.md`.
 
-Do not use the development seed account in production. For an existing database, do not run `db push` until the schema reconciliation is done and a migration has been prepared.
+Do not use the development seed account in production. **Existing database from the old `db push` days?** Either rebuild it (`npx prisma migrate reset`, run by you in your own terminal: it deletes the data), or, if it already matches the schema and holds no rule-breaking rows, keep it with `npx prisma migrate resolve --applied 20261025000000_init` and then `npx prisma migrate deploy`. If a migration fails with a duplicate key, remove the duplicates, run `npx prisma migrate resolve --rolled-back <migration-name>`, and deploy again.
 
 ### 4. Running the API
 ```bash
@@ -192,6 +193,7 @@ The repository contains complete specifications for the entire system lifecycle:
 - [`07-SEQUENCE_DIAGRAMS.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/07-SEQUENCE_DIAGRAMS.md) — Sequence diagrams for Auth, QR check-in, and Payroll.
 - [`08-DATABASE_SCHEMA.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/08-DATABASE_SCHEMA.md) — Complete relational schema & indexing strategy.
 - [`09-DECISION_LOG.md`](docs/09-DECISION_LOG.md) — Reconciliation of the planning spec and these docs: confirmed decisions, conflicts, REQ-to-FR traceability, open questions.
+- [`10-API_TESTING_GUIDE.md`](docs/10-API_TESTING_GUIDE.md) — End-to-end walkthrough of every route with real request and response bodies. Interactive docs at `/api/docs`; import `docs/api/openapi.json` into Apidog or Postman.
 - [`AGENTS.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/AGENTS.md) — Guidelines for AI agents and engineering contributors.
 
 ---

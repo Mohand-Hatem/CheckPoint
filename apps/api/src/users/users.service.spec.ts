@@ -1,12 +1,17 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
 import { Test, TestingModule } from '@nestjs/testing';
-import { CompanyContextService } from '../company/company-context.service';
+import * as argon2 from 'argon2';
+import { HttpException } from '@nestjs/common';
+import { AuditService } from '../audit/audit.service';
+import { LoginThrottleService } from '../auth/guards/login-throttle.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
 
 describe('UsersService (Unit)', () => {
   let service: UsersService;
   let prisma: any;
+  let throttle: { retryAfterSeconds: jest.Mock; recordFailure: jest.Mock; reset: jest.Mock };
+  let audit: { record: jest.Mock };
 
   const validDto = {
     email: 'valid@checkpoint.local',
@@ -35,6 +40,8 @@ describe('UsersService (Unit)', () => {
   };
 
   beforeEach(async () => {
+    throttle = { retryAfterSeconds: jest.fn().mockReturnValue(0), recordFailure: jest.fn(), reset: jest.fn() };
+    audit = { record: jest.fn().mockResolvedValue({}) };
     prisma = {
       user: {
         findUnique: jest.fn(),
@@ -74,7 +81,8 @@ describe('UsersService (Unit)', () => {
       providers: [
         UsersService,
         { provide: PrismaService, useValue: prisma },
-        { provide: CompanyContextService, useValue: { getCompanyId: jest.fn().mockResolvedValue('company-1') } },
+        { provide: LoginThrottleService, useValue: throttle },
+        { provide: AuditService, useValue: audit },
       ],
     }).compile();
 
@@ -89,7 +97,7 @@ describe('UsersService (Unit)', () => {
     it('should throw ConflictException if email is already in use', async () => {
       prisma.user.findUnique.mockResolvedValueOnce({ id: 'existing-id' });
 
-      await expect(service.createUser({ ...validDto, email: 'dup@checkpoint.local' })).rejects.toThrow(
+      await expect(service.createUser('company-1', { ...validDto, email: 'dup@checkpoint.local' })).rejects.toThrow(
         ConflictException,
       );
     });
@@ -98,7 +106,7 @@ describe('UsersService (Unit)', () => {
       prisma.user.findUnique.mockResolvedValue(null);
       prisma.employee.findUnique.mockResolvedValue({ id: 'emp-existing' });
 
-      await expect(service.createUser(validDto)).rejects.toThrow(ConflictException);
+      await expect(service.createUser('company-1', validDto)).rejects.toThrow(ConflictException);
     });
 
     it('should throw NotFoundException if role does not exist', async () => {
@@ -106,7 +114,7 @@ describe('UsersService (Unit)', () => {
       prisma.employee.findUnique.mockResolvedValue(null);
       prisma.role.findUnique.mockResolvedValue(null);
 
-      await expect(service.createUser({ ...validDto, roleCode: 'NONEXISTENT' })).rejects.toThrow(
+      await expect(service.createUser('company-1', { ...validDto, roleCode: 'NONEXISTENT' })).rejects.toThrow(
         NotFoundException,
       );
     });
@@ -117,7 +125,7 @@ describe('UsersService (Unit)', () => {
       prisma.role.findUnique.mockResolvedValue({ id: 'role-1', name: 'EMPLOYEE' });
       prisma.shift.findFirst.mockResolvedValue(null);
 
-      await expect(service.createUser(validDto)).rejects.toThrow(BadRequestException);
+      await expect(service.createUser('company-1', validDto)).rejects.toThrow(BadRequestException);
     });
 
     it('should create user, role link and employee without returning passwordHash', async () => {
@@ -129,7 +137,7 @@ describe('UsersService (Unit)', () => {
       prisma.employee.create.mockResolvedValue({ id: 'emp-1' });
       prisma.user.findUniqueOrThrow.mockResolvedValue(userView);
 
-      const result = await service.createUser({ ...validDto, initialSalary: 12000 });
+      const result = await service.createUser('company-1', { ...validDto, initialSalary: 12000 });
 
       expect(result.id).toBe('new-user-1');
       expect(result.role).toEqual({ code: 'EMPLOYEE', name: 'Employee' });
@@ -154,7 +162,7 @@ describe('UsersService (Unit)', () => {
       prisma.employee.findFirst.mockResolvedValue({ id: 'emp-1' });
 
       await expect(
-        service.createSalary('user-1', {
+        service.createSalary('company-1', 'user-1', {
           amount: 15000,
           effectiveFrom: '2026-11-15',
         }),
@@ -165,7 +173,7 @@ describe('UsersService (Unit)', () => {
       prisma.employee.findFirst.mockResolvedValue(null);
 
       await expect(
-        service.createSalary('user-1', { amount: 15000, effectiveFrom: '2026-11-01' }),
+        service.createSalary('company-1', 'user-1', { amount: 15000, effectiveFrom: '2026-11-01' }),
       ).rejects.toThrow(NotFoundException);
     });
 
@@ -178,7 +186,7 @@ describe('UsersService (Unit)', () => {
         createdAt: new Date(),
       });
 
-      const result = await service.createSalary('user-1', {
+      const result = await service.createSalary('company-1', 'user-1', {
         amount: 15000,
         effectiveFrom: '2026-11-01',
       });
@@ -203,7 +211,7 @@ describe('UsersService (Unit)', () => {
       prisma.refreshToken.updateMany.mockResolvedValue({ count: 3 });
       prisma.user.findUniqueOrThrow.mockResolvedValue({ ...userView, id: 'user-1', isActive: false });
 
-      const result = await service.updateUserStatus('user-1', false);
+      const result = await service.updateUserStatus('company-1', 'user-1', false);
 
       expect(result.active).toBe(false);
       expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
@@ -214,6 +222,122 @@ describe('UsersService (Unit)', () => {
         where: { id: 'emp-1' },
         data: { deactivatedAt: expect.any(Date) },
       });
+    });
+  });
+
+  describe('getMyProfile (own record only)', () => {
+    it('selects by the session user id and company, and returns no salary data', async () => {
+      prisma.user.findFirst.mockResolvedValue(userView);
+
+      const profile = await service.getMyProfile('company-1', 'new-user-1');
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'new-user-1', companyId: 'company-1' } }),
+      );
+      expect(profile).toEqual(
+        expect.objectContaining({ id: 'new-user-1', email: 'valid@checkpoint.local', role: 'EMPLOYEE', employeeCode: 'EMP-001' }),
+      );
+      expect(profile).not.toHaveProperty('salaries');
+      expect(profile).not.toHaveProperty('currentSalary');
+    });
+
+    it('answers 404 when the account is not in the session company', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+      await expect(service.getMyProfile('company-A', 'user-of-B')).rejects.toThrow(NotFoundException);
+    });
+  });
+
+
+  describe('changeMyPassword', () => {
+    const ACTOR = { userId: 'user-1', companyId: 'company-1', role: 'EMPLOYEE' };
+    let current: string;
+    beforeAll(async () => {
+      current = await argon2.hash('Current#Pass1', { type: argon2.argon2id });
+    });
+
+    beforeEach(() => {
+      prisma.user.findUnique.mockResolvedValue({ id: 'user-1', passwordHash: current });
+      prisma.user.update.mockResolvedValue({});
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 2 });
+    });
+
+    it('sets the new hash, clears mustChangePassword and ends every session in one transaction', async () => {
+      await service.changeMyPassword(ACTOR, { currentPassword: 'Current#Pass1', newPassword: 'Another#Pass2' });
+
+      const data = prisma.user.update.mock.calls[0][0].data;
+      expect(data.mustChangePassword).toBe(false);
+      expect(await argon2.verify(data.passwordHash, 'Another#Pass2')).toBe(true);
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-1', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(throttle.reset).toHaveBeenCalledWith('pwd:user-1');
+      expect(audit.record).toHaveBeenCalledWith(
+        expect.anything(),
+        expect.objectContaining({ companyId: 'company-1', actorUserId: 'user-1', actorType: 'EMPLOYEE', action: 'password.change', changes: { sessionsRevoked: 2 } }),
+      );
+    });
+
+    it('rejects a wrong current password, counts a failure and changes nothing', async () => {
+      audit.record.mockClear();
+      await expect(service.changeMyPassword(ACTOR, { currentPassword: 'wrong', newPassword: 'Another#Pass2' })).rejects.toThrow(BadRequestException);
+      expect(throttle.recordFailure).toHaveBeenCalledWith('pwd:user-1');
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('rejects a new password equal to the current one', async () => {
+      await expect(service.changeMyPassword(ACTOR, { currentPassword: 'Current#Pass1', newPassword: 'Current#Pass1' })).rejects.toThrow(BadRequestException);
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('answers 429 before checking anything while the user is over the failure limit', async () => {
+      throttle.retryAfterSeconds.mockReturnValue(42);
+      await expect(service.changeMyPassword(ACTOR, { currentPassword: 'Current#Pass1', newPassword: 'Another#Pass2' })).rejects.toThrow(HttpException);
+      expect(prisma.user.findUnique).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('company scope (spec REQ-033)', () => {
+    it('getUserById filters by the session company and answers 404 for a foreign record', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.getUserById('company-A', 'user-of-company-B')).rejects.toThrow(NotFoundException);
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'user-of-company-B', companyId: 'company-A' } }),
+      );
+    });
+
+    it('getUsers only lists the session company', async () => {
+      prisma.user.count.mockResolvedValue(0);
+      prisma.user.findMany.mockResolvedValue([]);
+
+      await service.getUsers('company-A');
+
+      expect(prisma.user.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expect.objectContaining({ companyId: 'company-A' }) }),
+      );
+    });
+
+    it('updateUserStatus answers 404 for a user of another company and changes nothing', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.updateUserStatus('company-A', 'user-of-company-B', false)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
+      expect(prisma.refreshToken.updateMany).not.toHaveBeenCalled();
+    });
+
+    it('createSalary answers 404 when the employee is not in the session company', async () => {
+      prisma.employee.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.createSalary('company-A', 'user-of-company-B', { amount: 1, effectiveFrom: '2026-11-01' }),
+      ).rejects.toThrow(NotFoundException);
+      expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: 'user-of-company-B', companyId: 'company-A' } }),
+      );
+      expect(prisma.employeeSalaryVersion.upsert).not.toHaveBeenCalled();
     });
   });
 });

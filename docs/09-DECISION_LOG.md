@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 1.1 |
-| **Date** | 2026-10-22 |
+| **Version** | 1.2 |
+| **Date** | 2026-10-25 |
 | **Scope** | Reconciles `docs/01` to `docs/08`, `README.md` and `AGENTS.md` with the planning spec, and records the agreed schema direction. Code changed so far: only the `PointType` enum in `schema.prisma`. |
-| **Business authority** | `planning/docs/planning/SYSTEM_SPECIFICATION.md` **v0.3.0**, approved by Mohand Hatem on 2026-10-22 (CHG-003), with `planning/PROJECT_BRIEF.md` v3.6. `planning/` is a **local workspace kept out of git** (renamed from `OpenAi Project Generator/`); this log is the shared record of what it decided. |
+| **Business authority** | `planning/docs/planning/SYSTEM_SPECIFICATION.md` **v0.4.0**, approved by Mohand Hatem on 2026-10-25 (CHG-004), with `planning/PROJECT_BRIEF.md` v3.6. `planning/` is a **local workspace kept out of git** (renamed from `OpenAi Project Generator/`); this log is the shared record of what it decided. |
 | **Technical authority** | `docs/`; for existing tables, `apps/api/prisma/schema.prisma` is the base model and changes to it are additive. |
 
 ## 1. Rules used
@@ -30,8 +30,8 @@
 | D-07 | REDs are offset before BLACKs. | AC-REQ-018-06 | 02 §6.4, 05 (G8) |
 | D-08 | Geofence radius is 50 m. | AC-REQ-009-01 | 02 §2 |
 | D-09 | Check-in needs GPS inside the geofence plus a QR validated within 15 minutes; server time only. | REQ-011, REQ-NFR-003 | already consistent |
-| D-10 | One company per deployment; no tenancy **behaviour** in the MVP. | Spec §11 | 01, 08 §3.0, README |
-| D-11 | Tenancy-ready data model: exactly one company row; every company-owned record references it; the company is resolved on the server, never from client input; no create-company / register / invite endpoint. | **REQ-NFR-008 (v0.3.0)** | 01, 08 §3.0, 06 (TASK-041) |
+| D-10 | ~~One company per deployment~~ **superseded by v0.4.0**: the MVP is a multi-company foundation; self-service SaaS is Later. | CHG-004 (stakeholder, relayed 2026-10-25) | 01, 02, 08 §3.0, README |
+| D-11 | Companies are created only by a provisioning command (REQ-031); employees join by invitation (REQ-032); one company per account; every read, mutation and refresh is company-scoped from the session, foreign records answer 404, employees reach only their own records (REQ-033); nothing may block a later SaaS (REQ-NFR-009). | **REQ-031–033, REQ-NFR-009 (v0.4.0)** | 01, 02 (FR-COMP-1–4), 08 §3.0, 06 (TASK-042–045) |
 | D-12 | Two active roles (`ADMIN`, `EMPLOYEE`) on a small RBAC foundation. | REQ-003 | 02 (FR-AUTH-3), 04, 08 |
 | D-13 | WHITE is visibility only. Ledgers are append-only. No leave accrual or carry-over. | AC-REQ-012-03, REQ-017, REQ-021 | already consistent |
 
@@ -43,7 +43,7 @@ No two CONFIRMED decisions conflict with each other.
 |---|---|---|---|---|
 | C-01 | Currency | `docs/` v3.0: fund in USD, `usd_egp_rate`, `fund_credit_usd`, `amount_usd`, `fx_rate`, `{usdEgpRate}`. Spec: EGP only. | EGP only (D-01). USD columns and FX input removed from docs; `fee_egp` / `net_egp` on `payouts`; `payroll_records` gets `off_day_*` and `fund_credit_egp`. | Done |
 | C-02 | Money storage | Spec proposes integer piasters. Docs: `NUMERIC(14,2)`. Schema: `Decimal(14,2)` plus `value_per_point_piasters` (BigInt). | Keep `NUMERIC(14,2)`; the ledger snapshot is the only piaster column. | Open: DN-23 |
-| C-03 | Tenancy | Spec v0.2.0: no tenancy. Commit `98153f9`: companies, invitations, `company_id` everywhere. | **Resolved by spec v0.3.0** (D-10 + D-11): single-company behaviour on the existing tenancy-ready schema; `company_invitations` and `owner_user_id` kept but unused. | Done |
+| C-03 | Tenancy | Spec v0.2.0: no tenancy. v0.3.0: one company, tenancy-ready. Commit `98153f9`: companies, invitations, `company_id` everywhere. | **Resolved by spec v0.4.0** (D-10 + D-11): real multi-company behaviour on the existing schema; one company per account; `company_invitations` and `owner_user_id` are now used. | Done in docs; code in progress |
 | C-04 | Salary versioning | Docs had `employee_salaries` (user-keyed); schema has `EmployeeSalaryVersion` (employee-keyed, no unique). | Schema table `employee_compensation_versions` kept; **[ADD]** `UNIQUE(employee_id, effective_from)`; salary > 0 and first-of-month (provisional) as service rules. | Docs done; granularity open: DN-11 |
 | C-05 | Point values and type | Docs: GREEN in USD; schema: `point_type` free text. | `point_value_versions` in EGP, GREEN seed 1000; **`enum PointType {GREEN, WHITE, RED, BLACK}` added to the schema** (2026-10-22); WHITE excluded from value rows by service rule; **[ADD]** unique per type and date. | Enum done; fund valuation timing open: DN-21 |
 | C-06 | Off-day work | Docs DN-12: normal windows/points. Spec: 1 GREEN + salary / 30. | Spec rule (D-06). | Done; time bounds DN-20 |
@@ -95,6 +95,9 @@ No two CONFIRMED decisions conflict with each other.
 | C-17 | Confirm the grace / red-period reading with the author of the 2026-10-22 model. | Model author |
 | U-5 | How a point offset is undone after a reversal (`point_offset_allocations` has no APPLY/UNDO). | Phase 4 |
 | Q-9 | Which spec proposals does the stakeholder accept (section 4)? | Stakeholder |
+| GAP-026 | How an invitee receives the invitation (one-time link shown to the Admin is the default). | Stakeholder |
+| GAP-027 | Which settings are per company vs platform-wide: Paymob account, fees, legal gate, payroll timing. Blocks Phases 6–7. | Stakeholder |
+| GAP-028 / GAP-029 | Support access for a company without an Admin; brief v3.7; row-level security as a later backstop. | Stakeholder / team |
 
 ## 6. Traceability: spec REQ-* to `docs/` FR-* / sections
 
@@ -134,23 +137,35 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-NFR-005 | NFR-8, NFR-11 |
 | REQ-NFR-006 | NFR-10, NFR-12 |
 | REQ-NFR-007 | NFR-13 |
-| REQ-NFR-008 | **`08` §3.0 (new)**; planning TASK-041 / TEST-037 |
+| REQ-NFR-008 | DEPRECATED in v0.4.0 (superseded by REQ-031–033, REQ-NFR-009) |
+| REQ-031 | FR-COMP-1; `08` §3.0, `companies`; planning TASK-043 / TEST-038 |
+| REQ-032 | FR-COMP-2; `08` `company_invitations`; planning TASK-044 / TEST-039 |
+| REQ-033 | FR-COMP-3; `08` §3.0; planning TASK-042, TASK-045 / TEST-040 |
+| REQ-NFR-009 | FR-COMP-4; `08` §3.0; planning TASK-042 / TEST-041 |
 
 Phase-level mapping to planning tasks: `06-ROADMAP.md` "Traceability".
 
-## 7. Schema and code changes (Step 4, 2026-10-22)
+## 7. Code status (2026-10-25)
 
-All additive; nothing was deleted from `schema.prisma`. Status: **done in code**, `tsc` 0 errors, build OK, 19 unit tests pass. **Not yet applied to any database** (`db push` pending approval).
+Done for spec v0.4.0, verified on a fresh local PostgreSQL: `tsc` 0 errors, build OK, 35 unit tests, 28 e2e tests (19 new for provisioning, invitations and two-company isolation), and the three verify scripts.
 
-1. `enum PointType` on `point_value_versions` and `point_ledger_entries`; `attendance_days.classification`.
-2. New models `RefreshToken` and `Setting` (`(company_id, key)`).
-3. New columns: `users.must_change_password`; `employees.phone`, `employees.active_from`, `employees.deactivated_at`; `shift_versions.early_minutes`; `attendance_days.early_end_at`; `audit_events.actor_type`, `audit_events.request_id`.
-4. New uniques: `employee_compensation_versions (employee_id, effective_from)`; `point_value_versions (company_id, point_type, effective_from)`.
-5. `CompanyContextService` (global): resolves the single company on the server and fails loudly unless exactly one row exists (AC-REQ-NFR-008-01/03).
-6. Auth: roles and permissions read through `user_roles → roles → role_permissions → permissions`; `fullName` from `employees`. Token rotation and theft detection unchanged.
-7. Users API (`/admin/users`): storage moved to `users` + `employees` + `user_roles` + `employee_compensation_versions`, scoped to the company; **response shape unchanged**. Contract notes: `employeeCode` is now **required** (schema `employee_number` is NOT NULL); `currency` is still accepted but **must be `EGP`**.
-8. Seed rewritten: one company, roles/permissions, default shift with the confirmed windows, EGP point values, settings, development-only admin.
-9. Service rules while `db push` is used: one role per user; WHITE never in value rows; salary > 0; no overlapping assignments; company resolved server-side. Not yet implemented: the WHITE and overlap rules (no endpoint writes those tables yet).
+1. Sessions: the JWT and `AuthenticatedUser` carry `companyId`; tokens without it are rejected (AC-REQ-006-07). Refresh re-derives claims from the account, so a refresh cannot switch company (AC-REQ-006-08). `JwtStrategy` no longer has a default secret: a missing `JWT_ACCESS_SECRET` stops the app at startup.
+2. Scope: every `UsersService` method takes `companyId` as an explicit argument from the session. Another company's record answers 404 (AC-REQ-033-02/03). The earlier single-company service was removed (REQ-NFR-009).
+3. Provisioning (REQ-031): `src/company/provision-company.ts` creates company, settings, point values, default shift and first Admin in one transaction. `npm run provision:company` needs `PROVISIONING_SECRET` (16+ chars) in the environment and a matching `--secret`; it prints a generated one-time password once. No HTTP route exists. Operator procedure, retries and lost-password recovery: `docs/11-PROVISIONING_RUNBOOK.md`.
+4. Invitations (REQ-032): `POST/GET /admin/invitations`, `DELETE /admin/invitations/:id`, public `POST /auth/invitations/accept`. Token: 32 random bytes, only the SHA-256 hash is stored, 7-day expiry (proposal), single-use via an atomic claim, one pending invitation per company and email (service rule).
+5. Seed: platform-wide roles and permissions always; a sample company only outside production, through the same provisioning function.
+6. Tests: `test/company-isolation.e2e-spec.ts` (TEST-038/039/040) and the extended unit specs.
+
+7. API documentation (2026-10-25): Swagger UI at `/api/docs`, importable OpenAPI at `/api/docs-json` and `docs/api/openapi.json` (15 operations, 25 schemas); `src/swagger.spec.ts` fails when the file is stale; `docs/10-API_TESTING_GUIDE.md` is generated from a real run (`npm run docs:guide`, 35 steps). New self-service route `GET /me/profile` (the owner comes only from the token).
+
+8. Session hardening (2026-10-25), each proven by a test that failed first: (a) refresh rotation is one atomic claim, so two simultaneous refreshes cannot both succeed and the loser burns the family; (b) every request checks the account in the database: a deactivated user and a token whose company is not the account's are refused at once (access-token life no longer matters); (c) login throttling counts wrong credentials only, a success clears it, and the map cleans itself; (d) forced password change: global `PasswordChangeRequiredGuard` plus `PATCH /me/password` (ends all sessions, rate-limited); (e) CI job `api-e2e` runs the e2e suites on PostgreSQL.
+
+9. Migrations and database-level rules (2026-10-25): `prisma/migrations` now holds the baseline plus `integrity_rules` (one pending invitation per email and per code, lower-case emails, one role per user, positive salary and point values, WHITE never has a value, ordered check-in windows, no overlapping shift assignments) and `audit_append_only` (no UPDATE, DELETE or TRUNCATE on `audit_events`). CI and shared databases use `prisma migrate deploy`; `db push` is for throwaway databases only. A migration that meets rule-breaking rows fails cleanly and changes nothing.
+10. Audit events (REQ-028): every admin mutation (`user.create`, `user.activate`, `user.deactivate`, `salary.set`, `invitation.create`, `invitation.revoke`) and security event (`invitation.accept`, `password.change`, `company.provision`) is written in the same transaction as the change, so a failed action leaves nothing behind. Passwords, hashes and tokens never appear. `GET /admin/audit-events` (permission `audit.read`) is company-scoped, paginated and filterable.
+
+11. Bootstrap hardening (TASK-043, 2026-10-25, approved by Mohand Hatem): the platform operator is the only initiator; the first Admin gets a random one-time password handed over privately; a repeat run with the same slug and Admin email answers "already provisioned" and changes nothing; a different email on a taken slug, or an email already in use, is refused with a message that names which one collided; a lost first password is recovered by an operator in the database (documented, no reset command). The command logic lives in `src/company/provision-command.ts` and is unit tested; `test/provisioning.e2e-spec.ts` covers the owner link, the ADMIN role, company scope, retries and the no-secrets rule.
+
+**Known gaps (not done):** (a) the ownership helper for employee-facing routes arrives with the first such route (Phase 3); today employees are blocked from every admin route and `/me/profile` has no id; (b) an Admin learns whether an email already has an account in any company, because email is globally unique (GAP-029); (c) login throttling is in memory and per instance, move it to Redis before running more than one instance (DN-27); (d) Neon was brought up to date on 2026-10-25: the old Step 1.1 tables (5 users, 6 salaries, 16 refresh tokens) were moved untouched into the schema `legacy_step11`, then the three migrations were applied and the seed run. Drop `legacy_step11` once nobody needs it (`DROP SCHEMA legacy_step11 CASCADE;`). Apply future migrations to Neon with the direct (non-pooled) URL; (e) audit events do not store a request id yet, and failed or denied attempts are not logged (only successful changes).
 
 ## 8. Observations outside the reconciliation
 
