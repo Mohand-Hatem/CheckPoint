@@ -7,6 +7,7 @@ import {
 import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { CompanyContextService } from '../company/company-context.service';
+import { EmployeesService } from '../employees/employees.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { CreateUserDto } from './dto/create-user.dto';
@@ -77,6 +78,7 @@ export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly companyContext: CompanyContextService,
+    private readonly employees: EmployeesService,
   ) {}
 
   async createUser(dto: CreateUserDto, creatorId?: string) {
@@ -102,7 +104,7 @@ export class UsersService {
       throw new NotFoundException(`Role '${dto.roleCode}' not found`);
     }
 
-    // shortcut: every new employee starts on the company's first active shift; per-employee assignment comes with Phase 2 (TASK-006).
+    // New employees start on the first active shift; assignment history is created by EmployeesService.
     const shift = await this.prisma.shift.findFirst({
       where: { companyId, isActive: true },
       orderBy: { createdAt: 'asc' },
@@ -136,6 +138,13 @@ export class UsersService {
           phone: dto.phone || null,
           currentShiftId: shift.id,
         },
+      });
+
+      await this.employees.assignInitialShift(tx, {
+        companyId,
+        employeeId: employee.id,
+        shiftId: shift.id,
+        assignedByUserId: creatorId ?? null,
       });
 
       if (dto.initialSalary) {

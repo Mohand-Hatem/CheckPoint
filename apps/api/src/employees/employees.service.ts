@@ -6,7 +6,8 @@ import {
 } from '@nestjs/common';
 import { Prisma, CompanyInvitationStatus } from '@prisma/client';
 import { createHash, randomBytes } from 'node:crypto';
-import { PrismaService } from 'src/prisma/prisma.service';
+import { CompanyPolicyService } from '../company/company-policy.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { ListEmployeesQuery } from './dto/list-employees.query';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
@@ -15,7 +16,10 @@ const INVITATION_EXPIRY_DAYS = 7;
 
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly companyPolicy: CompanyPolicyService,
+  ) {}
 
   async create(
     companyId: string,
@@ -118,15 +122,9 @@ export class EmployeesService {
         INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
     );
 
-    const cairoDateString = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Africa/Cairo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now);
-
-    const effectiveFrom = new Date(
-      `${cairoDateString}T00:00:00.000Z`,
+    const effectiveFrom = await this.companyPolicy.getCompanyDate(
+      companyId,
+      now,
     );
 
     try {
@@ -192,6 +190,110 @@ export class EmployeesService {
       throw error;
     }
   }
+
+  async assignShift(
+    tx: Prisma.TransactionClient,
+    input: {
+      companyId: string;
+      employeeId: string;
+      shiftId: string;
+      effectiveFrom: Date;
+      effectiveTo: Date | null;
+      assignedByUserId: string | null;
+      companyDate: Date;
+    },
+  ) {
+    const employee = await tx.employee.findFirst({
+      where: { id: input.employeeId, companyId: input.companyId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    const overlapping = await tx.shiftAssignment.findMany({
+      where: {
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        effectiveFrom: {
+          lte: input.effectiveTo ?? new Date('9999-12-31T00:00:00.000Z'),
+        },
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: input.effectiveFrom } },
+        ],
+      },
+      orderBy: { effectiveFrom: 'asc' },
+    });
+    const priorAssignments = overlapping.filter(
+      (assignment) => assignment.effectiveFrom < input.effectiveFrom,
+    );
+    const laterOrSameAssignments = overlapping.filter(
+      (assignment) => assignment.effectiveFrom >= input.effectiveFrom,
+    );
+
+    if (priorAssignments.length > 1 || laterOrSameAssignments.length > 0) {
+      throw new ConflictException(
+        'The employee already has an assignment overlapping these effective dates.',
+      );
+    }
+
+    if (priorAssignments[0]) {
+      await tx.shiftAssignment.update({
+        where: { id: priorAssignments[0].id },
+        data: {
+          effectiveTo: new Date(
+            input.effectiveFrom.getTime() - 24 * 60 * 60 * 1000,
+          ),
+        },
+      });
+    }
+
+    const assignment = await tx.shiftAssignment.create({
+      data: {
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        shiftId: input.shiftId,
+        effectiveFrom: input.effectiveFrom,
+        effectiveTo: input.effectiveTo,
+        assignedByUserId: input.assignedByUserId,
+      },
+    });
+
+    if (
+      input.effectiveFrom <= input.companyDate &&
+      (input.effectiveTo === null || input.effectiveTo >= input.companyDate)
+    ) {
+      await tx.employee.update({
+        where: { id: employee.id },
+        data: { currentShiftId: input.shiftId },
+      });
+    }
+
+    return assignment;
+  }
+
+  async assignInitialShift(
+    tx: Prisma.TransactionClient,
+    input: {
+      companyId: string;
+      employeeId: string;
+      shiftId: string;
+      assignedByUserId: string | null;
+    },
+  ) {
+    const effectiveFrom = await this.companyPolicy.getCompanyDate(
+      input.companyId,
+    );
+
+    return this.assignShift(tx, {
+      ...input,
+      effectiveFrom,
+      effectiveTo: null,
+      companyDate: effectiveFrom,
+    });
+  }
+
   async findAll(companyId: string, query: ListEmployeesQuery) {
     const where: Prisma.EmployeeWhereInput = {
       companyId,
