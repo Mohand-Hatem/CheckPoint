@@ -192,6 +192,119 @@ export class EmployeesService {
       throw error;
     }
   }
+  async update(
+    companyId: string,
+    employeeId: string,
+    dto: UpdateEmployeeDto,
+  ) {
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        id: employeeId,
+        companyId,
+      },
+      select: {
+        id: true,
+        employeeNumber: true,
+        currentShiftId: true,
+      },
+    });
+
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    const employeeNumber = dto.employeeNumber?.trim();
+
+    if (
+      employeeNumber &&
+      employeeNumber !== employee.employeeNumber
+    ) {
+      const duplicate = await this.prisma.employee.findFirst({
+        where: {
+          companyId,
+          employeeNumber,
+          id: {
+            not: employeeId,
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (duplicate) {
+        throw new ConflictException(
+          'Employee number already exists',
+        );
+      }
+    }
+
+    if (dto.shiftId) {
+      const shift = await this.prisma.shift.findFirst({
+        where: {
+          id: dto.shiftId,
+          companyId,
+          isActive: true,
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      if (!shift) {
+        throw new BadRequestException(
+          'The selected shift is not available',
+        );
+      }
+    }
+
+    try {
+      return await this.prisma.employee.update({
+        where: {
+          id: employeeId,
+        },
+        data: {
+          ...(employeeNumber && {
+            employeeNumber,
+          }),
+          ...(dto.fullName !== undefined && {
+            fullName: dto.fullName.trim(),
+          }),
+          ...(dto.phone !== undefined && {
+            phone: dto.phone.trim() || null,
+          }),
+          ...(dto.shiftId && {
+            currentShiftId: dto.shiftId,
+          }),
+        },
+        include: {
+          user: {
+            select: {
+              email: true,
+              isActive: true,
+            },
+          },
+          currentShift: {
+            select: {
+              id: true,
+              name: true,
+            },
+          },
+        },
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException(
+          'Employee number already exists',
+        );
+      }
+
+      throw error;
+    }
+  }
   async findAll(companyId: string, query: ListEmployeesQuery) {
     const where: Prisma.EmployeeWhereInput = {
       companyId,

@@ -8,6 +8,7 @@ import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { AppLoggerModule } from './logger/logger.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
+import { EmployeesModule } from './employees/employees.module';
 
 @Module({
   imports: [
@@ -20,6 +21,7 @@ import { UsersModule } from './users/users.module';
     CompanyModule,
     AuthModule,
     UsersModule,
+    EmployeesModule,
   ],
   providers: [
     {
