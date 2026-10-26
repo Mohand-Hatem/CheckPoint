@@ -34,6 +34,7 @@ import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import {
   CreatedSalaryResponseDto,
   MyProfileResponseDto,
+  UserDetailResponseDto,
   UserListResponseDto,
   UserResponseDto,
 } from './dto/user-responses.dto';
@@ -123,7 +124,7 @@ export class UsersController {
     description: '**Scenario:** an Admin opens an employee. Another company\'s user id returns 404, exactly like an id that does not exist.',
   })
   @ApiParam({ name: 'id', format: 'uuid', description: 'User id' })
-  @ApiOkResponse({ type: UserResponseDto })
+  @ApiOkResponse({ type: UserDetailResponseDto })
   @ApiNotFoundResponse(notFoundInCompany)
   async getUserById(@CurrentUser() admin: AuthenticatedUser, @Param('id') id: string) {
     return this.usersService.getUserById(admin.companyId, id);

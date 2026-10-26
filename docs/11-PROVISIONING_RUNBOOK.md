@@ -27,6 +27,8 @@ Keep the `-s`. Without it, npm prints the full command line, including the secre
 
 What one successful run creates, all in one database transaction: the company, its default settings, point values and shift, the first Admin user with the ADMIN role, an employee record for that Admin, and `companies.owner_user_id` pointing at that Admin. If any part fails, nothing is kept.
 
+To try the whole flow step by step, with real output, follow Part 0 of `docs/10-API_TESTING_GUIDE.md`.
+
 ## Running it twice
 
 Same slug and same Admin email: the command reports "already provisioned", changes nothing and prints no password. Same slug with a different email, or an email that already has an account in any company: the command refuses and says which one collided. Nothing is created.

@@ -159,6 +159,7 @@ DIRECT_URL="postgresql://user:password@ep-direct.neon.tech/neondb?sslmode=requir
 JWT_ACCESS_SECRET="your-secure-random-access-secret"
 JWT_EXPIRES_IN="15m"
 REFRESH_TOKEN_EXPIRES_DAYS=30
+CORS_ORIGINS="http://localhost:3000"   # browsers allowed to call the API (web app). Mobile and tools are not affected.
 ```
 
 ### 3. Database Schema & Seeding

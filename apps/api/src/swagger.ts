@@ -1,6 +1,6 @@
 import { INestApplication } from '@nestjs/common';
 import { DocumentBuilder, OpenAPIObject, SwaggerModule } from '@nestjs/swagger';
-import { BEARER } from './common/api-docs';
+import { BEARER, COOKIE } from './common/api-docs';
 
 const DESCRIPTION = `
 Attendance, points and incentive payroll for companies. Every company's data is isolated.
@@ -14,7 +14,7 @@ Attendance, points and incentive payroll for companies. Every company's data is 
 The full step-by-step cycle with real request and response bodies is in \`docs/10-API_TESTING_GUIDE.md\`.
 
 ## Rules that apply everywhere
-- **Authentication:** \`Authorization: Bearer <accessToken>\`. Only login, refresh, logout and invitation accept are public.
+- **Authentication:** \`Authorization: Bearer <accessToken>\` (mobile, tools). Web clients send \`X-Auth-Mode: cookie\` on login, refresh and logout and get \`HttpOnly\` cookies instead; a write authenticated by cookie must also send \`X-CSRF-Token\`. When both a header and a cookie arrive, the header wins. Only login, refresh, logout and invitation accept are public.
 - **Company scope:** your company comes from your token, never from the request. A record of another company answers **404**, the same as a missing one.
 - **Roles:** ADMIN may use the \`/admin/*\` routes; EMPLOYEE gets **403** there. Employees reach only their own data (\`/me/*\`).
 - **Validation:** unknown properties in a body are rejected with **400**.
@@ -29,6 +29,7 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .setVersion('1.0.0')
     .addServer('http://localhost:4000', 'Local development')
     .addBearerAuth({ type: 'http', scheme: 'bearer', bearerFormat: 'JWT', description: 'Paste the accessToken from POST /api/auth/login' }, BEARER)
+    .addCookieAuth('cp_access', { type: 'apiKey', in: 'cookie', name: 'cp_access', description: 'Web clients only: set by POST /api/auth/login with the header X-Auth-Mode: cookie' }, COOKIE)
     .addTag('Auth', 'Sign in, refresh, sign out, and redeem an invitation')
     .addTag('Me', 'The signed-in user\'s own data (any role)')
     .addTag('Admin · Users', 'Employees of the Admin\'s own company (ADMIN only)')

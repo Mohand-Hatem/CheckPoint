@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 export class LoginUserDto {
   @ApiProperty({ example: '7c9e6679-7425-40de-944b-e07fc1f90ae7', format: 'uuid' })
@@ -26,6 +26,19 @@ export class LoginResponseDto {
 
   @ApiProperty({ type: LoginUserDto })
   user!: LoginUserDto;
+}
+
+export class CookieLoginResponseDto {
+  @ApiProperty({ type: LoginUserDto })
+  user!: LoginUserDto;
+
+  @ApiProperty({ description: 'Send it back as the `X-CSRF-Token` header on every POST, PATCH, PUT and DELETE while signed in by cookie.', example: 'k3Jx...43 characters' })
+  csrfToken!: string;
+}
+
+export class CookieRefreshResponseDto {
+  @ApiProperty({ description: 'The new CSRF token for the new access cookie. Replace the old one.', example: 'k3Jx...43 characters' })
+  csrfToken!: string;
 }
 
 export class RefreshResponseDto {
@@ -62,6 +75,9 @@ export class SessionDto {
 
   @ApiProperty({ example: false, description: 'True until the user changes the one-time password; every route except PATCH /me/password, GET /auth/me and logout answers 403 meanwhile' })
   mustChangePassword!: boolean;
+
+  @ApiPropertyOptional({ description: 'Only when the request was authenticated by the access cookie: the token to send as `X-CSRF-Token`. Use it to recover after a page reload.', example: 'k3Jx...43 characters' })
+  csrfToken?: string;
 }
 
 export class PermissionCheckResponseDto {

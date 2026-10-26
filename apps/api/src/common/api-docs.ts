@@ -2,6 +2,7 @@ import { applyDecorators } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiCookieAuth,
   ApiForbiddenResponse,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
@@ -9,11 +10,14 @@ import { ErrorResponseDto } from './dto/error-response.dto';
 
 /** Name of the bearer scheme declared in swagger.ts. */
 export const BEARER = 'access-token';
+/** Name of the cookie scheme declared in swagger.ts (web clients). */
+export const COOKIE = 'cookie-auth';
 
 /** Route needs a valid access token (every route except those marked @Public). */
 export const ApiProtected = () =>
   applyDecorators(
     ApiBearerAuth(BEARER),
+    ApiCookieAuth(COOKIE),
     ApiUnauthorizedResponse({
       description: 'No token, an invalid token, or an expired access token (15 minutes).',
       type: ErrorResponseDto,

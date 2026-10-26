@@ -131,6 +131,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Read the audit log of my company",
@@ -141,7 +144,7 @@
     },
     "/api/auth/login": {
       "post": {
-        "description": "**Start here.** Public route.\n\n**Scenario:** an ADMIN or EMPLOYEE signs in. The response holds a 15-minute `accessToken` (a JWT carrying `companyId`, `role` and `permissions`) and a 30-day single-use `refreshToken`. Send the access token as `Authorization: Bearer <accessToken>` on every other call.\n\n**Rules:** the same message is returned for an unknown email and a wrong password. A deactivated account is refused. More than 5 attempts per minute from one IP for one email returns 429.",
+        "description": "**Start here.** Public route.\n\n**Scenario:** an ADMIN or EMPLOYEE signs in. The response holds a 15-minute `accessToken` (a JWT carrying `companyId`, `role` and `permissions`) and a 30-day single-use `refreshToken`. Send the access token as `Authorization: Bearer <accessToken>` on every other call.\n\n**Rules:** the same message is returned for an unknown email and a wrong password. A deactivated account is refused. More than 5 attempts per minute from one IP for one email returns 429.\n\n**Web (cookie mode):** send the header `X-Auth-Mode: cookie`. The response then sets `cp_access` and `cp_refresh` as HttpOnly, SameSite=Lax cookies and returns `{ user, csrfToken }` with no tokens in the body.",
         "operationId": "AuthController_login",
         "parameters": [
           {
@@ -150,6 +153,18 @@
             "in": "header",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Web clients send `cookie`: the tokens are then set as HttpOnly cookies (`cp_access`, `cp_refresh`) and left out of the response body, which carries a `csrfToken` instead. Leave it out for the bearer flow (mobile, Apidog, curl).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
             }
           }
         ],
@@ -174,11 +189,18 @@
         },
         "responses": {
           "200": {
-            "description": "Signed in.",
+            "description": "Signed in. Bearer flow: tokens in the body. Cookie mode: cookies are set and the body holds `user` and `csrfToken`.",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/LoginResponseDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/LoginResponseDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CookieLoginResponseDto"
+                    }
+                  ]
                 }
               }
             }
@@ -238,7 +260,7 @@
     },
     "/api/auth/refresh": {
       "post": {
-        "description": "Public route (the refresh token is the credential).\n\n**Scenario:** the access token expired (401). Send the refresh token, store BOTH new tokens, and discard the old refresh token: it is single-use.\n\n**Theft detection:** if an already-used refresh token is presented again, the whole session family is revoked and this returns 401. The new access token always carries the account's own company; a refresh can never change company.",
+        "description": "Public route (the refresh token is the credential).\n\n**Scenario:** the access token expired (401). Send the refresh token, store BOTH new tokens, and discard the old refresh token: it is single-use.\n\n**Theft detection:** if an already-used refresh token is presented again, the whole session family is revoked and this returns 401. The new access token always carries the account's own company; a refresh can never change company.\n\n**Web (cookie mode):** send `X-Auth-Mode: cookie` and no body. The refresh token is read from the `cp_refresh` cookie, both cookies are replaced, and the body holds the new `csrfToken`.",
         "operationId": "AuthController_refresh",
         "parameters": [
           {
@@ -247,6 +269,18 @@
             "in": "header",
             "schema": {
               "type": "string"
+            }
+          },
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Web clients send `cookie`: the tokens are then set as HttpOnly cookies (`cp_access`, `cp_refresh`) and left out of the response body, which carries a `csrfToken` instead. Leave it out for the bearer flow (mobile, Apidog, curl).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
             }
           }
         ],
@@ -262,11 +296,18 @@
         },
         "responses": {
           "200": {
-            "description": "New access token and a new refresh token.",
+            "description": "New token pair (bearer flow) or new cookies plus a new `csrfToken` (cookie mode).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/RefreshResponseDto"
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RefreshResponseDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CookieRefreshResponseDto"
+                    }
+                  ]
                 }
               }
             }
@@ -312,9 +353,22 @@
     },
     "/api/auth/logout": {
       "post": {
-        "description": "Public route (the refresh token is the credential).\n\n**Scenario:** the user signs out. Every refresh token of that session is revoked, so refreshing fails afterwards. The current access token keeps working until it expires (up to 15 minutes). An unknown token still returns 200 so nothing is revealed.",
+        "description": "Public route (the refresh token is the credential).\n\n**Scenario:** the user signs out. Every refresh token of that session is revoked, so refreshing fails afterwards. The current access token keeps working until it expires (up to 15 minutes). An unknown token still returns 200 so nothing is revealed.\n\n**Web (cookie mode):** send `X-Auth-Mode: cookie` and no body; the refresh token comes from the cookie and both cookies are cleared.",
         "operationId": "AuthController_logout",
-        "parameters": [],
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Web clients send `cookie`: the tokens are then set as HttpOnly cookies (`cp_access`, `cp_refresh`) and left out of the response body, which carries a `csrfToken` instead. Leave it out for the bearer flow (mobile, Apidog, curl).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
+            }
+          }
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -362,7 +416,7 @@
     },
     "/api/auth/me": {
       "get": {
-        "description": "**Scenario:** check which user, company, role and permissions the current token carries. Works for any signed-in user.",
+        "description": "**Scenario:** check which user, company, role and permissions the current token carries. Works for any signed-in user.\n\nWhen the request was authenticated by the access **cookie**, the response also holds the current `csrfToken`, so a web page can recover it after a reload.",
         "operationId": "AuthController_getProfile",
         "parameters": [],
         "responses": {
@@ -394,6 +448,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Who am I? (the claims of my access token)",
@@ -451,6 +508,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Diagnostic: succeeds only if the token has users.read",
@@ -565,6 +625,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Create a user and employee in my company",
@@ -672,6 +735,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "List users of my company",
@@ -702,7 +768,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/UserResponseDto"
+                  "$ref": "#/components/schemas/UserDetailResponseDto"
                 }
               }
             }
@@ -755,6 +821,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Get one user with salary history",
@@ -865,6 +934,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Activate or deactivate a user",
@@ -975,6 +1047,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Add a salary version",
@@ -1027,6 +1102,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "My own profile",
@@ -1106,6 +1184,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Change my password",
@@ -1205,6 +1286,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Invite an employee into my company",
@@ -1263,6 +1347,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "List my company's invitations",
@@ -1361,6 +1448,9 @@
         "security": [
           {
             "access-token": []
+          },
+          {
+            "cookie-auth": []
           }
         ],
         "summary": "Revoke a pending invitation",
@@ -1442,7 +1532,7 @@
   },
   "info": {
     "title": "CheckPoint API",
-    "description": "\nAttendance, points and incentive payroll for companies. Every company's data is isolated.\n\n## Quick start (2 minutes)\n1. **Sign in:** `POST /api/auth/login` with the development admin `admin@checkpoint.local` / `AdminPassword123!` (created by `npx prisma db seed`).\n2. **Authorize:** click **Authorize** (top right) and paste the `accessToken`. It is valid 15 minutes.\n3. **Try routes:** `GET /api/auth/me`, then `POST /api/admin/users`, `POST /api/admin/invitations`, and so on.\n4. **Token expired (401)?** `POST /api/auth/refresh` with your `refreshToken`, and keep the NEW pair (refresh tokens are single-use).\n\nThe full step-by-step cycle with real request and response bodies is in `docs/10-API_TESTING_GUIDE.md`.\n\n## Rules that apply everywhere\n- **Authentication:** `Authorization: Bearer <accessToken>`. Only login, refresh, logout and invitation accept are public.\n- **Company scope:** your company comes from your token, never from the request. A record of another company answers **404**, the same as a missing one.\n- **Roles:** ADMIN may use the `/admin/*` routes; EMPLOYEE gets **403** there. Employees reach only their own data (`/me/*`).\n- **Validation:** unknown properties in a body are rejected with **400**.\n- **Errors** always look like `{ \"statusCode\": 404, \"message\": \"...\", \"error\": \"Not Found\" }`.\n- **Money** is EGP. Amounts come back as strings (for example `\"12000\"`).\n",
+    "description": "\nAttendance, points and incentive payroll for companies. Every company's data is isolated.\n\n## Quick start (2 minutes)\n1. **Sign in:** `POST /api/auth/login` with the development admin `admin@checkpoint.local` / `AdminPassword123!` (created by `npx prisma db seed`).\n2. **Authorize:** click **Authorize** (top right) and paste the `accessToken`. It is valid 15 minutes.\n3. **Try routes:** `GET /api/auth/me`, then `POST /api/admin/users`, `POST /api/admin/invitations`, and so on.\n4. **Token expired (401)?** `POST /api/auth/refresh` with your `refreshToken`, and keep the NEW pair (refresh tokens are single-use).\n\nThe full step-by-step cycle with real request and response bodies is in `docs/10-API_TESTING_GUIDE.md`.\n\n## Rules that apply everywhere\n- **Authentication:** `Authorization: Bearer <accessToken>` (mobile, tools). Web clients send `X-Auth-Mode: cookie` on login, refresh and logout and get `HttpOnly` cookies instead; a write authenticated by cookie must also send `X-CSRF-Token`. When both a header and a cookie arrive, the header wins. Only login, refresh, logout and invitation accept are public.\n- **Company scope:** your company comes from your token, never from the request. A record of another company answers **404**, the same as a missing one.\n- **Roles:** ADMIN may use the `/admin/*` routes; EMPLOYEE gets **403** there. Employees reach only their own data (`/me/*`).\n- **Validation:** unknown properties in a body are rejected with **400**.\n- **Errors** always look like `{ \"statusCode\": 404, \"message\": \"...\", \"error\": \"Not Found\" }`.\n- **Money** is EGP. Amounts come back as strings (for example `\"12000\"`).\n",
     "version": "1.0.0",
     "contact": {}
   },
@@ -1477,6 +1567,12 @@
         "bearerFormat": "JWT",
         "type": "http",
         "description": "Paste the accessToken from POST /api/auth/login"
+      },
+      "cookie-auth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "cp_access",
+        "description": "Web clients only: set by POST /api/auth/login with the header X-Auth-Mode: cookie"
       }
     },
     "schemas": {
@@ -1623,26 +1719,6 @@
           "message"
         ]
       },
-      "LoginDto": {
-        "type": "object",
-        "properties": {
-          "email": {
-            "type": "string",
-            "example": "admin@checkpoint.local",
-            "description": "Account email (case-insensitive)"
-          },
-          "password": {
-            "type": "string",
-            "example": "AdminPassword123!",
-            "minLength": 6,
-            "description": "Account password"
-          }
-        },
-        "required": [
-          "email",
-          "password"
-        ]
-      },
       "LoginUserDto": {
         "type": "object",
         "properties": {
@@ -1706,17 +1782,21 @@
           "user"
         ]
       },
-      "RefreshTokenDto": {
+      "CookieLoginResponseDto": {
         "type": "object",
         "properties": {
-          "refreshToken": {
+          "user": {
+            "$ref": "#/components/schemas/LoginUserDto"
+          },
+          "csrfToken": {
             "type": "string",
-            "example": "3f9a1c0e5b7d4a62...64 hex characters",
-            "description": "The refresh token returned by login or by the previous refresh. Single-use."
+            "description": "Send it back as the `X-CSRF-Token` header on every POST, PATCH, PUT and DELETE while signed in by cookie.",
+            "example": "k3Jx...43 characters"
           }
         },
         "required": [
-          "refreshToken"
+          "user",
+          "csrfToken"
         ]
       },
       "RefreshResponseDto": {
@@ -1736,6 +1816,49 @@
           "accessToken",
           "refreshToken"
         ]
+      },
+      "CookieRefreshResponseDto": {
+        "type": "object",
+        "properties": {
+          "csrfToken": {
+            "type": "string",
+            "description": "The new CSRF token for the new access cookie. Replace the old one.",
+            "example": "k3Jx...43 characters"
+          }
+        },
+        "required": [
+          "csrfToken"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@checkpoint.local",
+            "description": "Account email (case-insensitive)"
+          },
+          "password": {
+            "type": "string",
+            "example": "AdminPassword123!",
+            "minLength": 6,
+            "description": "Account password"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "example": "3f9a1c0e5b7d4a62...64 hex characters",
+            "description": "The refresh token returned by login or by the previous refresh. Single-use. Required, except in cookie mode (header `X-Auth-Mode: cookie`), where it is read from the `cp_refresh` cookie."
+          }
+        }
       },
       "LogoutResponseDto": {
         "type": "object",
@@ -1790,6 +1913,11 @@
             "type": "boolean",
             "example": false,
             "description": "True until the user changes the one-time password; every route except PATCH /me/password, GET /auth/me and logout answers 403 meanwhile"
+          },
+          "csrfToken": {
+            "type": "string",
+            "description": "Only when the request was authenticated by the access cookie: the token to send as `X-CSRF-Token`. Use it to recover after a page reload.",
+            "example": "k3Jx...43 characters"
           }
         },
         "required": [
@@ -2023,7 +2151,7 @@
           },
           "currentSalary": {
             "nullable": true,
-            "description": "Latest salary version, or null",
+            "description": "The salary in force today (Cairo date): the latest version that has already started. null if none has started.",
             "type": "object",
             "allOf": [
               {
@@ -2031,12 +2159,15 @@
               }
             ]
           },
-          "salaries": {
-            "description": "Full salary history, newest first",
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SalaryVersionDto"
-            }
+          "upcomingSalary": {
+            "nullable": true,
+            "description": "The next salary, dated in the future, or null. It never counts as current before its date.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
           }
         },
         "required": [
@@ -2053,7 +2184,7 @@
           "updatedAt",
           "role",
           "currentSalary",
-          "salaries"
+          "upcomingSalary"
         ]
       },
       "UserListResponseDto": {
@@ -2088,6 +2219,117 @@
           "page",
           "limit",
           "totalPages"
+        ]
+      },
+      "UserDetailResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+          },
+          "email": {
+            "type": "string",
+            "example": "sara@acme.test"
+          },
+          "fullName": {
+            "type": "object",
+            "example": "Sara Ahmed",
+            "nullable": true
+          },
+          "employeeCode": {
+            "type": "object",
+            "example": "EMP-001",
+            "nullable": true
+          },
+          "phone": {
+            "type": "object",
+            "example": "+201001234567",
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean",
+            "example": true,
+            "description": "false after deactivation"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": true
+          },
+          "activeFrom": {
+            "type": "object",
+            "example": "2026-10-25T00:00:00.000Z",
+            "nullable": true,
+            "description": "First date an absence (BLACK) may be recorded"
+          },
+          "disabledAt": {
+            "type": "object",
+            "example": null,
+            "nullable": true,
+            "description": "Set when the user is deactivated"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "role": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RoleDto"
+              }
+            ]
+          },
+          "currentSalary": {
+            "nullable": true,
+            "description": "The salary in force today (Cairo date): the latest version that has already started. null if none has started.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
+          },
+          "upcomingSalary": {
+            "nullable": true,
+            "description": "The next salary, dated in the future, or null. It never counts as current before its date.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
+          },
+          "salaries": {
+            "description": "Full salary history, newest first. Only on GET /admin/users/{id}.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalaryVersionDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "employeeCode",
+          "phone",
+          "active",
+          "mustChangePassword",
+          "activeFrom",
+          "disabledAt",
+          "createdAt",
+          "updatedAt",
+          "role",
+          "currentSalary",
+          "upcomingSalary",
+          "salaries"
         ]
       },
       "UpdateUserStatusDto": {

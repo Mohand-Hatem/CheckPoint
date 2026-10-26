@@ -1,8 +1,9 @@
 import { Injectable, UnauthorizedException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PassportStrategy } from '@nestjs/passport';
-import { ExtractJwt, Strategy } from 'passport-jwt';
+import { Strategy } from 'passport-jwt';
 import { PrismaService } from '../../prisma/prisma.service';
+import { extractAccessToken } from '../auth-transport';
 import { AuthenticatedUser } from '../decorators/current-user.decorator';
 
 interface JwtPayload {
@@ -25,7 +26,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
       throw new Error('JWT_ACCESS_SECRET is not set');
     }
     super({
-      jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
+      jwtFromRequest: extractAccessToken, // Authorization header first, then the cp_access cookie
       ignoreExpiration: false,
       secretOrKey: secret,
     });

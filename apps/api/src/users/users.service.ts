@@ -15,6 +15,7 @@ import { LoginThrottleService } from '../auth/guards/login-throttle.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { cairoToday, splitSalaryVersions } from './salary-view';
 
 const USER_VIEW_SELECT = Prisma.validator<Prisma.UserSelect>()({
   id: true,
@@ -48,18 +49,11 @@ const USER_VIEW_SELECT = Prisma.validator<Prisma.UserSelect>()({
 type UserView = Prisma.UserGetPayload<{ select: typeof USER_VIEW_SELECT }>;
 
 // Keeps the Step 1.4 response shape while storage follows the users/employees schema.
-function toUserResponse(user: UserView) {
+function userParts(user: UserView, today: Date) {
   const role = user.roles[0]?.role;
-  const salaries = (user.employee?.compensationVersions ?? []).map((s) => ({
-    id: s.id,
-    amount: s.salary,
-    currency: 'EGP',
-    effectiveFrom: s.effectiveFrom,
-    createdAt: s.createdAt,
-    creator: s.createdBy,
-  }));
+  const { current, upcoming, history } = splitSalaryVersions(user.employee?.compensationVersions ?? [], today);
 
-  return {
+  const summary = {
     id: user.id,
     email: user.email,
     fullName: user.employee?.fullName ?? null,
@@ -72,9 +66,21 @@ function toUserResponse(user: UserView) {
     createdAt: user.createdAt,
     updatedAt: user.updatedAt,
     role: role ? { code: role.name, name: role.description } : null,
-    currentSalary: salaries[0] ?? null,
-    salaries,
+    currentSalary: current,
+    upcomingSalary: upcoming,
   };
+  return { summary, history };
+}
+
+/** Create, list and status responses: no salary history. */
+function toUserResponse(user: UserView, today: Date) {
+  return userParts(user, today).summary;
+}
+
+/** `GET /admin/users/{id}`: the summary plus the full salary history, newest first. */
+function toUserDetailResponse(user: UserView, today: Date) {
+  const { summary, history } = userParts(user, today);
+  return { ...summary, salaries: history };
 }
 
 @Injectable()
@@ -175,7 +181,7 @@ export class UsersService {
       return tx.user.findUniqueOrThrow({ where: { id: newUser.id }, select: USER_VIEW_SELECT });
     });
 
-    return toUserResponse(user);
+    return toUserResponse(user, cairoToday());
   }
 
   async getUsers(
@@ -205,6 +211,7 @@ export class UsersService {
       where.isActive = active;
     }
 
+    const today = cairoToday();
     const [total, users] = await Promise.all([
       this.prisma.user.count({ where }),
       this.prisma.user.findMany({
@@ -217,7 +224,7 @@ export class UsersService {
     ]);
 
     return {
-      data: users.map(toUserResponse),
+      data: users.map((u) => toUserResponse(u, today)),
       total,
       page,
       limit,
@@ -236,7 +243,7 @@ export class UsersService {
       throw new NotFoundException(`User with ID '${id}' not found`);
     }
 
-    return toUserResponse(user);
+    return toUserDetailResponse(user, cairoToday());
   }
 
   /** Changes the caller's own password, clears the forced-change flag and ends every session. */
@@ -291,7 +298,7 @@ export class UsersService {
       throw new NotFoundException('Account not found');
     }
 
-    const full = toUserResponse(user);
+    const full = toUserResponse(user, cairoToday());
     return {
       id: full.id,
       email: full.email,
@@ -345,7 +352,7 @@ export class UsersService {
       return tx.user.findUniqueOrThrow({ where: { id }, select: USER_VIEW_SELECT });
     });
 
-    return toUserResponse(updated);
+    return toUserResponse(updated, cairoToday());
   }
 
   async createSalary(companyId: string, userId: string, dto: CreateSalaryDto, creatorId?: string) {

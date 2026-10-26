@@ -108,7 +108,7 @@ export class AuthService {
     };
   }
 
-  async refresh(dto: RefreshTokenDto, userAgent?: string) {
+  async refresh(dto: { refreshToken: string }, userAgent?: string) {
     const tokenHash = this.hashToken(dto.refreshToken);
 
     const existingToken = await this.prisma.refreshToken.findUnique({
@@ -188,7 +188,7 @@ export class AuthService {
     throw new UnauthorizedException('Refresh token reuse detected. All sessions in this family revoked.');
   }
 
-  async logout(dto: RefreshTokenDto) {
+  async logout(dto: { refreshToken: string }) {
     const tokenHash = this.hashToken(dto.refreshToken);
 
     const token = await this.prisma.refreshToken.findUnique({

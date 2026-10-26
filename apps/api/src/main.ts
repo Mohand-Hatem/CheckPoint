@@ -2,6 +2,7 @@ import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { Logger } from 'nestjs-pino';
 import { AppModule } from './app.module';
+import { corsOptions } from './auth/auth-transport';
 import { setupSwagger, swaggerEnabled } from './swagger';
 
 async function bootstrap() {
@@ -11,7 +12,7 @@ async function bootstrap() {
   app.useLogger(logger);
 
   app.setGlobalPrefix('api');
-  app.enableCors();
+  app.enableCors(corsOptions());
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

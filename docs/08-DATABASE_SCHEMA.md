@@ -132,7 +132,7 @@ Indexes: `(user_id)`, `(family_id)`, `(expires_at)`. User-owned, so no `company_
 | employee_id | uuid NN FK → employees | |
 | salary | numeric(14,2) NN | monthly EGP; must be > 0 (service rule) |
 | effective_from | date NN | provisional: 1st of month (DN-11), as the Step 1.4 API enforces |
-| effective_to | date | null = current |
+| effective_to | date | not written in the MVP; the API derives the end of a version from the next version's `effective_from` (docs/05 §2.3) |
 | created_by_user_id | uuid FK → users | |
 
 Constraint **[ADD]**: `UNIQUE (employee_id, effective_from)`. Rows are never edited; locked months stay reproducible. Payroll resolves one version per employee per month; off-day pay uses the version effective that day.

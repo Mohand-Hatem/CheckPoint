@@ -297,6 +297,49 @@ describe('UsersService (Unit)', () => {
     });
   });
 
+  describe('salary in user responses (docs/05 §2.3)', () => {
+    const v = (id: string, from: string, salary: number) => ({
+      id,
+      salary,
+      effectiveFrom: new Date(`${from}T00:00:00.000Z`),
+      createdAt: new Date('2026-01-01T00:00:00.000Z'),
+      createdBy: null,
+    });
+    // newest first, as the query returns them: a raise far in the future and the salary in force now
+    const withRaise = {
+      ...userView,
+      employee: { ...userView.employee, compensationVersions: [v('raise', '2099-01-01', 15000), v('now', '2020-01-01', 12000)] },
+    };
+
+    it('a future-dated raise is upcoming, never current', async () => {
+      prisma.user.findFirst.mockResolvedValue(withRaise);
+
+      const user = await service.getUserById('company-1', 'new-user-1');
+
+      expect(user.currentSalary?.id).toBe('now');
+      expect(user.upcomingSalary?.id).toBe('raise');
+    });
+
+    it('the detail response carries the full history, newest first', async () => {
+      prisma.user.findFirst.mockResolvedValue(withRaise);
+
+      const user = await service.getUserById('company-1', 'new-user-1');
+
+      expect(user.salaries.map((s) => s.id)).toEqual(['raise', 'now']);
+    });
+
+    it('list and create responses carry no history', async () => {
+      prisma.user.count.mockResolvedValue(1);
+      prisma.user.findMany.mockResolvedValue([withRaise]);
+
+      const list = await service.getUsers('company-1');
+
+      expect(list.data[0].currentSalary?.id).toBe('now');
+      expect(list.data[0].upcomingSalary?.id).toBe('raise');
+      expect(list.data[0]).not.toHaveProperty('salaries');
+    });
+  });
+
   describe('company scope (spec REQ-033)', () => {
     it('getUserById filters by the session company and answers 404 for a foreign record', async () => {
       prisma.user.findFirst.mockResolvedValue(null);

@@ -82,8 +82,8 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 - **[BE]**: `PermissionGuard` + seeds for `ADMIN`, `EMPLOYEE`.
 - **[BE]**: Users CRUD, disable/reactivate, salary versions (1st-of-month rule).
 - **[BE]**: `AuditService`, `SettingsService`, injectable `Clock`, Decimal helpers, BullMQ wiring.
-- **[WEB]**: Next.js shell setup, Tailwind CSS, admin login page, token refresh interceptor, admin navigation layout, user profile.
-- **[MOB]**: React Native (Expo) shell, employee login screen, token storage in `expo-secure-store`, session guard.
+- **[WEB]**: Next.js shell setup, Tailwind CSS, admin login page, cookie sign-in (`X-Auth-Mode: cookie`: HttpOnly cookies, `X-CSRF-Token` on writes, refresh through the cookie; docs/05 §3a), admin navigation layout, user profile.
+- **[MOB]**: React Native (Expo) shell, employee login screen, bearer sign-in with tokens kept in `expo-secure-store` (no cookie header), refresh interceptor, session guard.
 
 **Dependencies:** Phase 0 decisions for hosting and client stacks.
 

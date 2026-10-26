@@ -3,11 +3,12 @@
  * docs/10-API_TESTING_GUIDE.md from the real requests and responses. Fails if any step returns
  * an unexpected status, so it doubles as a smoke test.
  *
- *   1. docker compose up -d postgres ; npx prisma db push ; npx prisma db seed
+ *   1. docker compose up -d postgres ; npx prisma migrate deploy ; npx prisma db seed
  *   2. npm run start            (in another terminal)
  *   3. npm run docs:guide       (API_URL defaults to http://localhost:4000/api)
  */
 import { PrismaClient } from '@prisma/client';
+import { spawnSync } from 'child_process';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { provisionCompany } from '../src/company/provision-company';
@@ -25,6 +26,7 @@ interface Step {
   path: string;
   token?: string;
   body?: unknown;
+  headers?: Record<string, string>;
   expect: number;
   note?: string;
 }
@@ -39,23 +41,26 @@ function redact(value: any): any {
   if (value && typeof value === 'object') {
     return Object.fromEntries(
       Object.entries(value).map(([k, v]) =>
-        ['accessToken', 'refreshToken', 'token'].includes(k) && typeof v === 'string' ? [k, `${v.slice(0, 18)}…(${v.length} chars)`] : [k, redact(v)],
+        ['accessToken', 'refreshToken', 'token', 'csrfToken'].includes(k) && typeof v === 'string' ? [k, `${v.slice(0, 18)}…(${v.length} chars)`] : [k, redact(v)],
       ),
     );
   }
   return value;
 }
 
-async function call(step: Step): Promise<{ status: number; json: any }> {
+async function call(step: Step): Promise<{ status: number; json: any; cookies: Record<string, string> }> {
   const res = await fetch(`${BASE}${step.path}`, {
     method: step.method,
     headers: {
       ...(step.body !== undefined ? { 'Content-Type': 'application/json' } : {}),
       ...(step.token ? { Authorization: `Bearer ${step.token}` } : {}),
+      ...step.headers,
     },
     body: step.body !== undefined ? JSON.stringify(step.body) : undefined,
   });
   const text = await res.text();
+  const setCookies = res.headers.getSetCookie();
+  const cookies = Object.fromEntries(setCookies.map((c) => [c.split('=')[0], c.split(';')[0].slice(c.indexOf('=') + 1)]));
   let json: any = null;
   try {
     json = text ? JSON.parse(text) : null;
@@ -70,10 +75,37 @@ async function call(step: Step): Promise<{ status: number; json: any }> {
   md.push(`### Step ${stepNo}. ${step.title}`, '', step.why, '');
   md.push('**Request**', '', '```http', `${step.method} /api${step.path}`);
   if (step.token) md.push('Authorization: Bearer <accessToken>');
+  for (const [k, v] of Object.entries(step.headers ?? {})) md.push(`${k}: ${k === 'Cookie' ? v.replace(/=([^;]{12})[^;]*/g, '=$1…') : v}`);
   if (step.body !== undefined) md.push('Content-Type: application/json', '', JSON.stringify(redact(step.body), null, 2));
-  md.push('```', '', `**Response ${res.status}${ok ? '' : ' (UNEXPECTED)'}**`, '', '```json', JSON.stringify(redact(json), null, 2), '```', '');
+  md.push('```', '', `**Response ${res.status}${ok ? '' : ' (UNEXPECTED)'}**`, '');
+  if (setCookies.length) md.push('```http', ...setCookies.map((c) => c.replace(/=([^;]{12})[^;]*/, '=$1…')), '```', '');
+  md.push('```json', JSON.stringify(redact(json), null, 2), '```', '');
   if (step.note) md.push(`> ${step.note}`, '');
-  return { status: res.status, json };
+  return { status: res.status, json, cookies };
+}
+
+function check(ok: boolean, what: string) {
+  if (!ok) failures.push(`Check failed: ${what}`);
+}
+
+// Runs the REAL operator command (docs/11-PROVISIONING_RUNBOOK.md). The secret is a throwaway value and is never written to the guide.
+const OPERATOR_SECRET = `guide-secret-${run}-xxxx`;
+function operatorCommand(step: { title: string; why: string; args: string[]; secret?: string; exit: number; output: RegExp }): string {
+  const api = join(__dirname, '..');
+  const res = spawnSync(
+    process.execPath,
+    [require.resolve('ts-node/dist/bin.js'), 'prisma/provision-company.ts', '--secret', step.secret ?? OPERATOR_SECRET, ...step.args],
+    { cwd: api, env: { ...process.env, PROVISIONING_SECRET: OPERATOR_SECRET }, encoding: 'utf-8' },
+  );
+  const output = `${res.stdout}${res.stderr}`.trim();
+  stepNo += 1;
+  const ok = res.status === step.exit && step.output.test(output) && !output.includes(OPERATOR_SECRET);
+  if (!ok) failures.push(`Step ${stepNo} "${step.title}": expected exit ${step.exit} matching ${step.output}, got exit ${res.status}: ${output.slice(0, 200)}`);
+
+  md.push(`### Step ${stepNo}. ${step.title}`, '', step.why, '');
+  md.push('**Command** (run by the operator, in `apps/api`)', '', '```bash', `npm run -s provision:company -- --secret "${step.secret ?? '$PROVISIONING_SECRET'}" ${step.args.map((a) => (/\s/.test(a) ? `"${a}"` : a)).join(' ')}`, '```', '');
+  md.push(`**Output** (exit code ${res.status}${ok ? '' : ', UNEXPECTED'})`, '', '```text', output, '```', '');
+  return output;
 }
 
 function section(title: string, intro?: string) {
@@ -86,6 +118,79 @@ async function main() {
   const a = { email: 'admin@checkpoint.local', password: 'AdminPassword123!' }; // development admin from the seed
 
   section('3. The cycle, step by step', 'Everything below was produced by really calling the API (values such as ids and dates differ on your machine). Tokens are shortened.');
+
+  // ---------------------------------------------------------------- 0. operator creates a company (TASK-043)
+  md.push('### Part 0: Create a company and its first Admin (operator, no HTTP route)', '');
+  md.push('Only the platform operator can do this, from the server, with the database credentials. There is no API route for it. Full procedure: `docs/11-PROVISIONING_RUNBOOK.md`. In these steps the secret is the value of `PROVISIONING_SECRET` (16+ characters) and is never printed.', '');
+  const co = { slug: `acme-${run}`, email: `owner-${run}@acme.test`, newPassword: 'NewPassword456!' };
+  const coArgs = ['--name', `Acme ${run}`, '--slug', co.slug, '--admin-email', co.email];
+
+  operatorCommand({
+    title: 'A wrong secret creates nothing',
+    why: 'The command checks the secret before it touches the database.',
+    args: coArgs, secret: 'not-the-secret-0000', exit: 1, output: /Nothing was created/,
+  });
+  const created = operatorCommand({
+    title: 'Create the company and its first Admin',
+    why: 'One transaction creates the company, its default settings and shift, the Admin user with the ADMIN role, and sets the company owner. A random one-time password is printed once. Give it to the Admin privately.',
+    args: coArgs, exit: 0, output: /Company created[\s\S]*One-time password/,
+  });
+  const oneTime = /One-time password[^:]*: (\S+)/.exec(created)?.[1] ?? '';
+  check(oneTime.length >= 8, 'the one-time password was printed');
+
+  const retryOutput = operatorCommand({
+    title: 'Run it again: "already provisioned"',
+    why: 'Same slug and same Admin email. Nothing is created or changed, and no password is shown.',
+    args: coArgs, exit: 0, output: /Already provisioned/,
+  });
+  check(!/password/i.test(retryOutput), 'a retry prints no password');
+  operatorCommand({
+    title: 'Same slug, different Admin email: refused',
+    why: 'The message says which value collided. Nothing is created.',
+    args: ['--name', `Acme ${run}`, '--slug', co.slug, '--admin-email', `other-${run}@acme.test`], exit: 1, output: /already exists with a different first Admin/,
+  });
+
+  const first = await call({
+    title: 'The first Admin signs in with the one-time password',
+    why: 'Works, and the response says `mustChangePassword: true`.',
+    method: 'POST', path: '/auth/login', body: { email: co.email, password: oneTime }, expect: 200,
+  });
+  check(first.json?.user?.mustChangePassword === true, 'the first login reports mustChangePassword: true');
+  await call({
+    title: 'Everything else is blocked until the password is changed',
+    why: 'An Admin route answers **403** with code `PASSWORD_CHANGE_REQUIRED`.',
+    method: 'GET', path: '/admin/users', token: first.json.accessToken, expect: 403,
+  });
+  await call({
+    title: 'Change the password',
+    why: 'Allowed while the password change is forced. Every session of the account ends.',
+    method: 'PATCH', path: '/me/password', token: first.json.accessToken, expect: 200,
+    body: { currentPassword: oneTime, newPassword: co.newPassword },
+  });
+  const owner = await call({
+    title: 'Sign in with the new password',
+    why: 'Now the Admin works normally.',
+    method: 'POST', path: '/auth/login', body: { email: co.email, password: co.newPassword }, expect: 200,
+  });
+  await call({
+    title: 'The session is bound to the new company',
+    why: 'Role ADMIN and a `companyId` that is not the development company. It comes from the token.',
+    method: 'GET', path: '/auth/me', token: owner.json.accessToken, expect: 200,
+  });
+  const users = await call({
+    title: 'The new company contains only its own Admin',
+    why: 'The list is scoped to the company in the token, so the development company users are not visible.',
+    method: 'GET', path: '/admin/users', token: owner.json.accessToken, expect: 200,
+  });
+  check(users.json?.total === 1, 'the new company has exactly one user');
+  const audit = await call({
+    title: 'The creation was recorded, without any secret',
+    why: 'One `company.provision` event, written in the same transaction. It holds the name, slug and Admin email, never a password.',
+    method: 'GET', path: '/admin/audit-events?action=company.provision', token: owner.json.accessToken, expect: 200,
+  });
+  check(audit.json?.total === 1, 'exactly one company.provision event');
+  check(!JSON.stringify(audit.json).includes(oneTime) && !/password/i.test(JSON.stringify(audit.json)), 'the audit event holds no password');
+  md.push('> Lost the one-time password before the Admin changed it? An operator resets it in the database. The exact steps are in `docs/11-PROVISIONING_RUNBOOK.md`.', '');
 
   // ---------------------------------------------------------------- A. sign in
   md.push('### Part A: Sign in as an Admin', '');
@@ -125,13 +230,13 @@ async function main() {
   });
   await call({
     title: 'Add a salary version (a raise)',
-    why: 'Salaries are versioned, never edited. The date must be the 1st of a month.',
+    why: 'Salaries are versioned, never edited. The date must be the 1st of a month. This one starts in the future, so it will show as `upcomingSalary`, and `currentSalary` stays as it is until that date.',
     method: 'POST', path: `/admin/users/${saraId}/salaries`, token: admin.access, expect: 201,
     body: { amount: 13500, effectiveFrom: '2027-01-01' },
   });
   await call({
     title: 'Open one employee',
-    why: 'Now shows the full salary history, newest first.',
+    why: 'Shows `currentSalary` (in force today), `upcomingSalary` (the future raise) and, on this route only, the full `salaries` history, newest first.',
     method: 'GET', path: `/admin/users/${saraId}`, token: admin.access, expect: 200,
   });
 
@@ -325,6 +430,53 @@ async function main() {
     method: 'PATCH', path: `/admin/users/${saraId}/status`, token: b.json.accessToken, expect: 404, body: { active: false },
   });
 
+  // ---------------------------------------------------------------- H. web (cookie) mode
+  md.push('### Part H: Web clients (cookie mode)', '');
+  md.push('A browser app (Next.js) keeps the tokens in HttpOnly cookies, so page JavaScript can never read them. It asks for this with the header `X-Auth-Mode: cookie`. Everything else is the same API. Mobile apps and tools keep using the bearer header, as in Parts A to G. If a request carries both, the header wins. In production the cookies are also `Secure`, and browsers may call the API only from the origins in `CORS_ORIGINS`.', '');
+  const webEmail = `web-${run}@acme.test`;
+  const cookieHeader = (c: Record<string, string>) => `cp_access=${c.cp_access}`;
+  const webLogin = await call({
+    title: 'Sign in in cookie mode',
+    why: 'The tokens arrive as `Set-Cookie` (HttpOnly, SameSite=Lax) and are NOT in the body. The body holds the user and a `csrfToken`. Keep the `csrfToken` in memory.',
+    method: 'POST', path: '/auth/login', body: a, headers: { 'X-Auth-Mode': 'cookie' }, expect: 200,
+  });
+  check(!webLogin.json.accessToken && !!webLogin.json.csrfToken && !!webLogin.cookies.cp_access, 'cookie login sets cookies and returns only a csrfToken');
+  const webCookie = cookieHeader(webLogin.cookies);
+  const me = await call({
+    title: 'Call a route with the cookie only',
+    why: 'The browser sends the cookie by itself. `GET /auth/me` also returns the current `csrfToken`, which is how a reloaded page gets it back.',
+    method: 'GET', path: '/auth/me', headers: { Cookie: webCookie }, expect: 200,
+  });
+  check(me.json.csrfToken === webLogin.json.csrfToken, 'GET /auth/me returns the same csrfToken');
+  await call({
+    title: 'A write without the CSRF header is refused',
+    why: 'Browsers attach cookies automatically, so a write that came by cookie must also prove it comes from our page. **403** with code `CSRF_TOKEN_INVALID`.',
+    method: 'POST', path: '/admin/users', headers: { Cookie: webCookie }, expect: 403,
+    body: { email: webEmail, fullName: 'Web User', employeeCode: `WEB-${run}`, password: PASSWORD, roleCode: 'EMPLOYEE' },
+  });
+  await call({
+    title: 'The same write with X-CSRF-Token works',
+    why: 'Send the `csrfToken` back in the `X-CSRF-Token` header. Reads (GET) never need it, and neither do requests sent with the Authorization header.',
+    method: 'POST', path: '/admin/users', headers: { Cookie: webCookie, 'X-CSRF-Token': webLogin.json.csrfToken }, expect: 201,
+    body: { email: webEmail, fullName: 'Web User', employeeCode: `WEB-${run}`, password: PASSWORD, roleCode: 'EMPLOYEE' },
+  });
+  const webRefresh = await call({
+    title: 'Refresh in cookie mode',
+    why: 'No body: the browser sends the `cp_refresh` cookie (only to `/api/auth`). Both cookies are replaced and a new `csrfToken` comes back.',
+    method: 'POST', path: '/auth/refresh', headers: { 'X-Auth-Mode': 'cookie', Cookie: `cp_refresh=${webLogin.cookies.cp_refresh}` }, expect: 200,
+  });
+  check(!!webRefresh.cookies.cp_access && !!webRefresh.json.csrfToken, 'cookie refresh returns new cookies and a csrfToken');
+  await call({
+    title: 'Sign out in cookie mode',
+    why: 'Revokes the whole session family and clears both cookies (`Max-Age=0` / expired).',
+    method: 'POST', path: '/auth/logout', headers: { 'X-Auth-Mode': 'cookie', Cookie: `cp_refresh=${webRefresh.cookies.cp_refresh}` }, expect: 200,
+  });
+  await call({
+    title: 'The refresh cookie no longer works',
+    why: 'After sign-out the old refresh token is revoked: **401**.',
+    method: 'POST', path: '/auth/refresh', headers: { 'X-Auth-Mode': 'cookie', Cookie: `cp_refresh=${webRefresh.cookies.cp_refresh}` }, expect: 401,
+  });
+
   // ---------------------------------------------------------------- G. errors
   md.push('### Part G: Common errors', '');
   await call({
@@ -367,7 +519,7 @@ async function main() {
   const rows: string[] = [];
   for (const [path, item] of Object.entries<any>(spec.paths)) {
     for (const [method, op] of Object.entries<any>(item)) {
-      rows.push(`| \`${method.toUpperCase()}\` | \`${path}\` | ${op.security ? 'Bearer token' : '**Public**'} | ${op.summary} |`);
+      rows.push(`| \`${method.toUpperCase()}\` | \`${path}\` | ${op.security ? 'Bearer token or cookie' : '**Public**'} | ${op.summary} |`);
     }
   }
 
@@ -375,7 +527,7 @@ async function main() {
 
 > **Generated by \`npm run docs:guide\`** from a real run of the API (${new Date().toISOString().slice(0, 10)}). Do not edit by hand: change the code, then re-run it. It fails if any step returns an unexpected status, so it is also a smoke test.
 
-This guide shows the whole life of the API: sign in, manage employees, invite people, refresh tokens, deactivate, and prove that companies cannot see each other. Every step shows the request body and the real response.
+This guide shows the whole life of the API: the operator creates a company, its first Admin signs in, manage employees, invite people, refresh tokens, deactivate, and prove that companies cannot see each other. Every step shows the request body and the real response.
 
 ## 1. Set up (5 minutes)
 
@@ -394,13 +546,14 @@ npm run start                          # API on http://localhost:4000/api
 
 **Test with:** Swagger UI (click **Authorize**, paste the \`accessToken\`), Apidog, Postman, or \`curl\`.
 
-## 2. Five ideas you need
+## 2. Six ideas you need
 
 1. **Two tokens.** Login returns an \`accessToken\` (15 minutes, send it as \`Authorization: Bearer ...\`) and a \`refreshToken\` (30 days, single-use, exchanged at \`/auth/refresh\`).
 2. **Roles.** \`ADMIN\` may call \`/admin/*\`. \`EMPLOYEE\` gets **403** there and may call \`/me/*\`. An account that still has a one-time password gets **403 \`PASSWORD_CHANGE_REQUIRED\`** everywhere until it calls \`PATCH /me/password\`.
 3. **Company scope.** Your company is inside your token. You never send it. Another company's record answers **404**, exactly like a missing one.
-4. **Errors** always look like \`{ "statusCode": 404, "message": "...", "error": "Not Found" }\`. A 400 lists every validation problem and rejects unknown fields.
-5. **Money** is EGP, and amounts come back as strings (\`"12000"\`).
+4. **Two ways to carry the token.** Mobile and tools use \`Authorization: Bearer\`. Web apps use HttpOnly cookies (header \`X-Auth-Mode: cookie\`, see Part H) and send \`X-CSRF-Token\` on writes. The header wins if both are present.
+5. **Errors** always look like \`{ "statusCode": 404, "message": "...", "error": "Not Found" }\`. A 400 lists every validation problem and rejects unknown fields.
+6. **Money** is EGP, and amounts come back as strings (\`"12000"\`).
 
 `;
 
