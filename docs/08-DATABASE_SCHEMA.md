@@ -14,7 +14,7 @@
 - Times: `timestamptz` (UTC). Business dates: `date` (Africa/Cairo calendar date). Months: `date` = first day of month.
 - Money: `NUMERIC(14,2)`, always EGP (CONFIRMED). There is no USD column, no FX rate and no conversion anywhere (DN-23: integer piasters were proposed, not adopted).
 - Enums (PostgreSQL `ENUM` or `text + CHECK`): `point_type` {GREEN, WHITE, RED, BLACK} · `entry_kind` {AWARD, REVERSAL} · `point_source` {ATTENDANCE, OVERTIME, ADMIN} · `attendance_status` {CONFIRMED, ABSENT, EXEMPT} · `verification_status` {PENDING, CONFIRMED, EXPIRED} · `leave_type` {ANNUAL, SICK, UNPAID} · `request_status` {PENDING, APPROVED, REJECTED, CANCELLED} · `offset_kind` {APPLY, UNDO} · `fund_tx_type` {MONTH_CLOSE_CREDIT, WITHDRAWAL, WITHDRAWAL_REFUND, ADJUSTMENT} · `payout_status` {PENDING, PROCESSING, PAID, FAILED} · `payout_provider` {PAYMOB, MANUAL} · `method_type` {WALLET, BANK} · `month_status` {OPEN, LOCKED}.
-- Prisma note: partial unique indexes, exclusion constraints, triggers and the `point_state` view are created by raw SQL migrations. While the schema is applied with `db push`, those rules are enforced in the service layer.
+- Prisma note: partial unique indexes, CHECK and exclusion constraints and triggers are created by raw SQL in `apps/api/prisma/migrations` (`20261025000100_integrity_rules`, `20261025000200_audit_append_only`); the schema and the baseline migration come from `schema.prisma`. Never use `db push` on a shared database. Not yet created: the `point_state` view and the ledger triggers (Phase 4).
 - **Name map** (older names still used in `02`, `05`, `07` → schema names): `users` (employee fields) → `employees`; `attendance` → `attendance_days`; `point_transactions` → `point_ledger_entries`; `point_offsets` → `point_offset_allocations`; `audit_logs` → `audit_events`; `work_schedules` / `schedule_assignments` → `shift_versions` / `shift_assignments`; `off_day_work_exceptions` → `work_offers`; `employee_salaries` → `employee_compensation_versions`.
 - Extensions: `pgcrypto` (UUID), `btree_gist` (exclusion constraints).
 
@@ -51,11 +51,13 @@ Later-phase tables (§3.5 onward) are not in the schema yet; they follow the rul
 
 > `NN` = NOT NULL. **[ADD]** marks a change to make in `schema.prisma` (additive only; nothing is removed). Every company-owned table carries `company_id uuid NN FK → companies` (REQ-NFR-008); it is omitted from the column lists below to keep them short.
 
-### 3.0 Deployment scope: one company, tenancy-ready data (spec REQ-NFR-008, v0.3.0)
+### 3.0 Deployment scope: multi-company foundation (spec REQ-031–033, REQ-NFR-009, v0.4.0)
 
-- The MVP behaves as **one company per deployment**. `companies` holds **exactly one row**, created by the seed (TASK-041). Every company-owned record references it, so multi-company can be added later without restructuring data.
-- The company of a request is resolved **on the server** by one company-context service from that single row; it is **never** read from client input (AC-REQ-NFR-008-03).
-- No MVP endpoint creates a company, self-registers, or invites users (AC-REQ-NFR-008-02). `company_invitations` and `companies.owner_user_id` exist for the future flow and stay unused.
+- The MVP supports **several companies**, each fully isolated. Every account belongs to **exactly one company** (`users.company_id`); a person in several companies is Later. An account's company never changes.
+- Companies are created **only by a provisioning command** (operator access, protected by a secret), together with the first Admin, in one transaction. There is no public company sign-up and no platform console in the MVP (REQ-031).
+- Employees join through `company_invitations` created by their company's Admin; the invitation token is stored only as a hash and is single-use, expiring and revocable (REQ-032).
+- Every company-owned table carries `company_id`. The company of a request comes from the **authenticated session**, never from client input; records of another company answer **404**; refresh re-derives the company from the account (REQ-033).
+- Per-company configuration is keyed by company (`settings` PK `(company_id, key)`). Which settings are per company versus platform-wide (Paymob account, fees, legal gate, payroll timing) is open: **GAP-027**.
 - Email addresses are globally unique; normalize to lowercase before writes and lookups.
 
 ### 3.1 Identity & access
@@ -64,13 +66,13 @@ Later-phase tables (§3.5 onward) are not in the schema yet; they follow the rul
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| owner_user_id | uuid UNIQUE FK → users | nullable; unused in MVP |
+| owner_user_id | uuid UNIQUE FK → users | nullable; the first Admin set by provisioning |
 | name | text NN | |
 | slug | text NN UNIQUE | |
 | is_active | bool NN default true | |
 
-#### `company_invitations` (unused in MVP)
-Future onboarding flow: email, full_name, employee_number, `token_hash` UNIQUE (never the raw token), status enum `PENDING/ACCEPTED/REVOKED/EXPIRED`, `expires_at`, `accepted_at`, `revoked_at`, `invited_by_user_id`. No MVP endpoint may write it.
+#### `company_invitations`
+Employee onboarding (REQ-032): email, full_name, employee_number, `token_hash` UNIQUE (never the raw token), status enum `PENDING/ACCEPTED/REVOKED/EXPIRED`, `expires_at`, `accepted_at`, `revoked_at`, `invited_by_user_id`. Rules: one `PENDING` invitation per company and per email and per employee code (partial unique indexes in the database, backed by a friendly 409 in the service); an email that already has an account cannot be invited; acceptance creates the user, role link and employee record in the inviter's company in one transaction.
 
 #### `users` (login accounts)
 | Column | Type | Notes |
@@ -130,7 +132,7 @@ Indexes: `(user_id)`, `(family_id)`, `(expires_at)`. User-owned, so no `company_
 | employee_id | uuid NN FK → employees | |
 | salary | numeric(14,2) NN | monthly EGP; must be > 0 (service rule) |
 | effective_from | date NN | provisional: 1st of month (DN-11), as the Step 1.4 API enforces |
-| effective_to | date | null = current |
+| effective_to | date | not written in the MVP; the API derives the end of a version from the next version's `effective_from` (docs/05 §2.3) |
 | created_by_user_id | uuid FK → users | |
 
 Constraint **[ADD]**: `UNIQUE (employee_id, effective_from)`. Rows are never edited; locked months stay reproducible. Payroll resolves one version per employee per month; off-day pay uses the version effective that day.
@@ -157,7 +159,7 @@ Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_
 `shift_version_weekdays(company_id, shift_version_id, weekday smallint)` PK all three: the working weekdays of a version (one start/end for all listed days).
 
 #### `shift_assignments`
-`id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. No overlapping assignments per employee (service rule; exclusion constraint once migrations replace `db push`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction.
+`id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. No overlapping assignments per employee (exclusion constraint `shift_assignments_no_overlap_excl`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction.
 
 #### `locations`, `employee_locations`, `holidays` (Phase 2, not in the schema yet)
 - `locations(id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea, active)`.
@@ -226,7 +228,7 @@ GPS-validated attempts awaiting QR: `employee_id`, `work_date`, `location_id`, s
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| point_type | `PointType` NN | only GREEN, RED, BLACK (WHITE has no money value); enforced in the service layer while the schema is applied with `db push` |
+| point_type | `PointType` NN | only GREEN, RED, BLACK (WHITE has no money value); enforced by CHECK `point_value_no_white_check` |
 | value | numeric(14,2) NN | EGP per point; must be > 0 |
 | effective_from / effective_to | date | |
 | created_by_user_id | uuid FK → users | |
@@ -535,7 +537,7 @@ Full table in `05-SYSTEM_DESIGN.md` §14. Core shapes:
 Never inside a transaction: Redis calls, Paymob calls, any external network call.
 
 ## 7. Seed Data
-- `companies`: the **one** company row (TASK-041); every other seeded row references it.
+- `companies`: none are seeded in production. A company and its first Admin come from the provisioning command (TASK-043, `docs/11-PROVISIONING_RUNBOOK.md`); the development seed creates one sample company through the same function.
 - `roles`: ADMIN, EMPLOYEE; `permissions` + `role_permissions` for both (EMPLOYEE: `*.own` set).
 - `point_value_versions`: GREEN 1000.00 EGP, RED 250.00 EGP, BLACK 1000.00 EGP (effective from go-live month start); EGP only.
 - `shifts` + `shift_versions`: "Default 08-16" (08:00, 16:00, early 60, grace 120, red period 240), weekdays Sunday–Thursday.

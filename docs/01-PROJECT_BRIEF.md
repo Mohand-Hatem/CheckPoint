@@ -36,6 +36,7 @@ Priority order (SoT §41): **Correctness > Money Integrity > Attendance Integrit
 ## 5. Scope
 
 ### MVP scope
+- Company provisioning, employee invitations and company isolation (spec REQ-031–033).
 - Auth (JWT + rotating refresh), two active roles `ADMIN`, `EMPLOYEE`, on a small RBAC foundation.
 - Client apps: React Native mobile app (Employee attendance, GPS geofencing, QR scanner, points, leaves, withdrawals) + Next.js web app (Admin dashboard/management, review queues, and `/kiosk` rotating QR display).
 - Employees, salaries (versioned), locations/geofences, work schedules + assignments, weekly off days, holidays, off-day-work exceptions (admin-granted).
@@ -50,11 +51,11 @@ Priority order (SoT §41): **Correctness > Money Integrity > Attendance Integrit
 - Employee-initiated off-day-work requests; push notifications (FCM); self-service password reset; reports/exports; multiple payout methods; salary payouts through Paymob; Sentry/metrics dashboards.
 
 ### Future
-- `MANAGER`, `HR`, `FINANCE` roles; rotating/split shifts; half-day leave; multi-company (tenancy).
+- `MANAGER`, `HR`, `FINANCE` roles; rotating/split shifts; half-day leave; multi-company users (one person in several companies); self-service SaaS.
 
 ## 6. Explicit Out of Scope (current version)
 
-Microservices, Kafka/RabbitMQ, distributed event architecture, multi-tenant SaaS, multi-currency support and currency conversion, complex RBAC matrix, full accounting/ERP, leave accrual/carry-over engine, complex scheduling engine, NFC / Wi-Fi / biometrics / Play Integrity / AI fraud detection, social insurance & income tax computation, cursor pagination (unless proven necessary), audit-log partitioning (unless volume requires).
+Microservices, Kafka/RabbitMQ, distributed event architecture, self-service SaaS (public company sign-up, billing, platform console), multi-currency support and currency conversion, complex RBAC matrix, full accounting/ERP, leave accrual/carry-over engine, complex scheduling engine, NFC / Wi-Fi / biometrics / Play Integrity / AI fraud detection, social insurance & income tax computation, cursor pagination (unless proven necessary), audit-log partitioning (unless volume requires).
 
 ## 7. System Boundaries
 
@@ -97,6 +98,6 @@ GREEN lifecycle:   1 GREEN cancels 1 RED (oldest first)
 
 **Off-day work (CONFIRMED):** when an Admin grants an off-day-work exception, the day yields exactly 1 GREEN regardless of check-in time, plus a day's pay of `monthly salary ÷ 30` (divisor always 30) at the normal rate.
 
-**Deployment scope (CONFIRMED):** one company per deployment. Multi-company tenancy is Future, not MVP. The data model is tenancy-ready (planning spec v0.3.0, REQ-NFR-008): it keeps exactly one company record that every company-owned row references, resolved on the server only.
+**Deployment scope (CONFIRMED, planning spec v0.4.0):** the MVP is a **multi-company foundation**. Several companies can exist, each fully isolated; a company and its first Admin are created only by an operator provisioning command, and employees join through invitations from their company's Admin. Each account belongs to exactly one company. Public self-service SaaS (self sign-up, billing, a platform console) is **later**, but nothing in the data model or auth may block it.
 
 Deductions from salary are **configurable and OFF by default** until the company's legal review (DN-01).
