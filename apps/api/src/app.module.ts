@@ -9,6 +9,8 @@ import { AppLoggerModule } from './logger/logger.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { EmployeesModule } from './employees/employees.module';
+import { FileMailTransport, MailModule } from '@nestjs/mail';
+import { MailFeatureModule } from './mail/mail.module';
 
 @Module({
   imports: [
@@ -22,6 +24,13 @@ import { EmployeesModule } from './employees/employees.module';
     AuthModule,
     UsersModule,
     EmployeesModule,
+    MailFeatureModule,
+    MailModule.forRoot({
+      transport: new FileMailTransport({
+        directory: 'var/mail',
+      }),
+      from: 'CheckPoint <noreply@example.com>',
+    }),
   ],
   providers: [
     {
