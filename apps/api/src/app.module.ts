@@ -12,8 +12,10 @@ import { AppLoggerModule } from './logger/logger.module';
 import { PrismaModule } from './prisma/prisma.module';
 import { UsersModule } from './users/users.module';
 import { EmployeesModule } from './employees/employees.module';
-import { FileMailTransport, MailModule } from '@nestjs/mail';
+import { FileMailTransport, FileTemplateEngine, MailModule } from '@nestjs/mail';
 import { MailFeatureModule } from './mail/mail.module';
+import { mailTransport } from './mail/mail-transport';
+import { join } from 'node:path';
 
 @Module({
   imports: [
@@ -28,11 +30,16 @@ import { MailFeatureModule } from './mail/mail.module';
     UsersModule,
     EmployeesModule,
     MailFeatureModule,
-    MailModule.forRoot({
-      transport: new FileMailTransport({
-        directory: 'var/mail',
+    MailModule.forRootAsync({
+      useFactory: () => ({
+        transport: mailTransport(),
+        templates: new FileTemplateEngine({
+          dir: join(__dirname, 'mail/templates'),
+          layout: 'layout',
+          cache: process.env.NODE_ENV === 'production',
+        }),
+        from: process.env.MAIL_FROM ?? 'CheckPoint <noreply@example.com>',
       }),
-      from: 'CheckPoint <noreply@example.com>',
     }),
     InvitationsModule,
   ],
