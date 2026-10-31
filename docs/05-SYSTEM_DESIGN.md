@@ -32,8 +32,10 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /auth/login` | email + password → access + refresh |
 | `POST /auth/refresh` | rotate refresh token |
 | `POST /auth/logout` | revoke refresh family |
-| `PATCH /me/password` | change own password |
+| `POST /auth/invitations/accept` `{token,password}` | Public, rate-limited: the invitee redeems a one-time token and the account is created in the inviter's company (REQ-032) |
 | `GET /me` | profile, role, today's schedule summary |
+| `GET /me/profile` | Own profile only: the owner is the token, there is no id parameter |
+| `PATCH /me/password` `{currentPassword,newPassword}` | Change own password. Required first when `mustChangePassword` is true: until then every other route answers 403 `PASSWORD_CHANGE_REQUIRED`. Ends all sessions. |
 
 ### 2.2 Employee (`EMPLOYEE`; own data only)
 | Method & path | Purpose |
@@ -57,6 +59,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Group | Endpoints |
 |---|---|
 | Employees | `GET/POST /admin/users` · `GET/PATCH /admin/users/{id}` · `POST /admin/users/{id}/{disable, reactivate, reset-password}` · `PUT /admin/users/{id}/locations` · `POST /admin/users/{id}/salaries` |
+| Invitations | `POST/GET /admin/invitations` · `DELETE /admin/invitations/{id}` (revoke); the raw token is returned once on create (REQ-032) |
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
 | Calendar | CRUD `/admin/holidays` · `GET/PUT /admin/settings/weekly_off_days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
@@ -67,7 +70,13 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Payroll | `GET /admin/payroll/months/{month}/preview` · `POST /admin/payroll/months/{month}/close` (no body; EGP only) · `GET /admin/payroll/months/{month}/records` · `POST /admin/payroll/adjustments` |
 | Fund | `GET /admin/fund/users/{id}` · `POST /admin/fund/adjustments` `{userId,amountEgp,reason}` + `Idempotency-Key` |
 | Payouts | `GET /admin/payouts?status=&userId=` · `POST /admin/payouts/{id}/inquire` · `POST /admin/payouts/{id}/resend` · `POST /admin/payouts/{id}/mark-paid` · `POST /admin/payouts/{id}/mark-failed` |
-| Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-logs?entity=&actor=&from=&to=` |
+| Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-events?action=&targetType=&targetId=&actorUserId=&page=&limit=` (company-scoped, append-only log, no secrets) |
+
+**Salary in user responses (REQ-008, FR-EMP-2).** Every user response (create, list, get, status change) carries `currentSalary` and `upcomingSalary`; only `GET /admin/users/{id}` also carries `salaries`, the full history, newest first. A version is *in force* from its `effective_from` (Cairo date) onward, so:
+- `currentSalary` is the version with the latest `effective_from` that is on or before today, or `null` when none has started yet.
+- `upcomingSalary` is the version with the earliest `effective_from` after today, or `null`.
+- A version dated in the future never shows as current. Payroll still resolves its own version per month (payroll calculation).
+- `effective_to` is not written in the MVP: it is derived from the next version's start.
 
 ### 2.4 Webhooks
 | Path | Purpose |
@@ -76,9 +85,10 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 
 ## 3. Authentication
 
-1. **Login** — normalize email; check throttle (Redis counter `email+IP`, e.g., 5 failures/15 min ⇒ `429`); load active user; argon2id verify; issue access JWT (15 min; claims `sub`, `role`) and a refresh token (random 256-bit; **SHA-256 hash** stored in `refresh_tokens` with `family_id`, `expires_at` 30 days by default — DN-22).
+1. **Login** — normalize email; check throttle (Redis counter `email+IP`, e.g., 5 failures/15 min ⇒ `429`); load active user; argon2id verify; issue access JWT (15 min; claims `sub`, `companyId`, `email`, `role`, `permissions`) and a refresh token (random 256-bit; **SHA-256 hash** stored in `refresh_tokens` with `family_id`, `expires_at` 30 days by default — DN-22).
 2. **Refresh** — look up hash; if valid & unrevoked: revoke it (`replaced_by`), issue new pair in the same family. If an **already-rotated** token is presented ⇒ revoke the whole family (theft signal) and return `401`. Re-check `users.active`.
 3. **Logout** — revoke the family.
+3a. **Transport (bearer or cookie).** Default: tokens in the JSON body, access token sent as `Authorization: Bearer` (mobile, tools). With the request header `X-Auth-Mode: cookie` on login, refresh and logout (web): the API sets `cp_access` (`Path=/api`) and `cp_refresh` (`Path=/api/auth`) as `HttpOnly`, `SameSite=Lax` cookies (`Secure` in production), returns no tokens in the body and returns a `csrfToken` instead; refresh and logout read the refresh token from the cookie; logout also clears both cookies. Token lookup on every other route: the `Authorization` header first, then the `cp_access` cookie. A cookie-authenticated POST, PATCH, PUT or DELETE must send `X-CSRF-Token` equal to the token the API issued for that access token (HMAC of the access token), else `403 CSRF_TOKEN_INVALID`; `GET /auth/me` returns the current `csrfToken` so a reloaded page can recover it. Header-authenticated requests need no CSRF token. CORS: only `CORS_ORIGINS` (comma separated), credentials allowed; in development without the variable, `http://localhost:3000`.
 4. **Disable user** — revoke all families in the disabling transaction.
 5. **Password hashing** — argon2id with parameters from config; passwords never logged.
 6. **RBAC foundation** — `PermissionGuard` resolves `role → permissions` (cached in process memory, invalidated on role change). Permission names: `resource.action.scope` (e.g., `attendance.read.own`, `attendance.read.any`, `points.reverse.any`, `payroll.close.any`). Only `ADMIN` and `EMPLOYEE` rows are seeded (see `04-ARCHITECTURE.md` §11).

@@ -1,0 +1,2692 @@
+{
+  "openapi": "3.0.0",
+  "paths": {
+    "/api/admin/audit-events": {
+      "get": {
+        "description": "**Scenario:** an Admin asks \"who did what?\". Every admin mutation (create user, activate/deactivate, salary, invitations) and security event (password change, company provisioning) is recorded with who did it, which record it touched, and what changed. Newest first, paginated, filterable.\n\n**Rules:** only your own company's events are ever returned. The log is append-only (the database refuses edits and deletes) and never contains passwords, hashes or tokens.",
+        "operationId": "AuditController_list",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "example": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "example": 20,
+              "type": "number"
+            }
+          },
+          {
+            "name": "action",
+            "required": false,
+            "in": "query",
+            "description": "Exact action, for example user.deactivate",
+            "schema": {
+              "example": "user.create",
+              "type": "string"
+            }
+          },
+          {
+            "name": "targetType",
+            "required": false,
+            "in": "query",
+            "description": "user, invitation or company",
+            "schema": {
+              "example": "user",
+              "type": "string"
+            }
+          },
+          {
+            "name": "targetId",
+            "required": false,
+            "in": "query",
+            "description": "Id of the record the event is about",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "actorUserId",
+            "required": false,
+            "in": "query",
+            "description": "Id of the user who did it",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditEventListResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `audit.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): audit.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Read the audit log of my company",
+        "tags": [
+          "Admin · Audit"
+        ]
+      }
+    },
+    "/api/auth/login": {
+      "post": {
+        "description": "**Start here.** Public route.\n\n**Scenario:** an ADMIN or EMPLOYEE signs in. The response holds a 15-minute `accessToken` (a JWT carrying `companyId`, `role` and `permissions`) and a 30-day single-use `refreshToken`. Send the access token as `Authorization: Bearer <accessToken>` on every other call.\n\n**Rules:** the same message is returned for an unknown email and a wrong password. A deactivated account is refused. More than 5 attempts per minute from one IP for one email returns 429.\n\n**Web (cookie mode):** send the header `X-Auth-Mode: cookie`. The response then sets `cp_access` and `cp_refresh` as HttpOnly, SameSite=Lax cookies and returns `{ user, csrfToken }` with no tokens in the body.",
+        "operationId": "AuthController_login",
+        "parameters": [
+          {
+            "name": "user-agent",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Web clients send `cookie`: the tokens are then set as HttpOnly cookies (`cp_access`, `cp_refresh`) and left out of the response body, which carries a `csrfToken` instead. Leave it out for the bearer flow (mobile, Apidog, curl).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LoginDto"
+              },
+              "examples": {
+                "admin": {
+                  "summary": "Development admin (from the seed)",
+                  "value": {
+                    "email": "admin@checkpoint.local",
+                    "password": "AdminPassword123!"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Signed in. Bearer flow: tokens in the body. Cookie mode: cookies are set and the body holds `user` and `csrfToken`.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/LoginResponseDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CookieLoginResponseDto"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Wrong email or password, or the account is deactivated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Invalid email or password",
+                  "error": "Unauthorized"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "More than 5 login attempts in one minute for this IP and email.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 429,
+                  "message": "Too many login attempts. Please try again in 42 seconds."
+                }
+              }
+            }
+          }
+        },
+        "summary": "Sign in with email and password",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/refresh": {
+      "post": {
+        "description": "Public route (the refresh token is the credential).\n\n**Scenario:** the access token expired (401). Send the refresh token, store BOTH new tokens, and discard the old refresh token: it is single-use.\n\n**Theft detection:** if an already-used refresh token is presented again, the whole session family is revoked and this returns 401. The new access token always carries the account's own company; a refresh can never change company.\n\n**Web (cookie mode):** send `X-Auth-Mode: cookie` and no body. The refresh token is read from the `cp_refresh` cookie, both cookies are replaced, and the body holds the new `csrfToken`.",
+        "operationId": "AuthController_refresh",
+        "parameters": [
+          {
+            "name": "user-agent",
+            "required": true,
+            "in": "header",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Web clients send `cookie`: the tokens are then set as HttpOnly cookies (`cp_access`, `cp_refresh`) and left out of the response body, which carries a `csrfToken` instead. Leave it out for the bearer flow (mobile, Apidog, curl).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "New token pair (bearer flow) or new cookies plus a new `csrfToken` (cookie mode).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/RefreshResponseDto"
+                    },
+                    {
+                      "$ref": "#/components/schemas/CookieRefreshResponseDto"
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unknown, expired or already-used refresh token, or the account was deactivated.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Refresh token reuse detected. All sessions in this family revoked.",
+                  "error": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Exchange a refresh token for a new token pair",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/logout": {
+      "post": {
+        "description": "Public route (the refresh token is the credential).\n\n**Scenario:** the user signs out. Every refresh token of that session is revoked, so refreshing fails afterwards. The current access token keeps working until it expires (up to 15 minutes). An unknown token still returns 200 so nothing is revealed.\n\n**Web (cookie mode):** send `X-Auth-Mode: cookie` and no body; the refresh token comes from the cookie and both cookies are cleared.",
+        "operationId": "AuthController_logout",
+        "parameters": [
+          {
+            "name": "X-Auth-Mode",
+            "in": "header",
+            "description": "Web clients send `cookie`: the tokens are then set as HttpOnly cookies (`cp_access`, `cp_refresh`) and left out of the response body, which carries a `csrfToken` instead. Leave it out for the bearer flow (mobile, Apidog, curl).",
+            "required": false,
+            "schema": {
+              "type": "string",
+              "enum": [
+                "cookie"
+              ]
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RefreshTokenDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LogoutResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Sign out (revoke the whole session family)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/me": {
+      "get": {
+        "description": "**Scenario:** check which user, company, role and permissions the current token carries. Works for any signed-in user.\n\nWhen the request was authenticated by the access **cookie**, the response also holds the current `csrfToken`, so a web page can recover it after a reload.",
+        "operationId": "AuthController_getProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Who am I? (the claims of my access token)",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/auth/test-permission": {
+      "get": {
+        "description": "**Scenario:** a quick way to see authorization working. An ADMIN gets 200; an EMPLOYEE signed in with a valid token gets 403; no token gets 401.",
+        "operationId": "AuthController_testPermission",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PermissionCheckResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Diagnostic: succeeds only if the token has users.read",
+        "tags": [
+          "Auth"
+        ]
+      }
+    },
+    "/api/admin/users": {
+      "post": {
+        "description": "**Scenario:** an Admin adds an employee directly (the alternative is an invitation). The user, role link, employee record and optional first salary are created in one transaction, always inside the Admin's own company. `mustChangePassword` starts as `true`.\n\n**Rules:** the email must be new in the whole system; the employee code must be new in this company; the company needs an active shift (created at provisioning).",
+        "operationId": "UsersController_createUser",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateUserDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Unknown role code.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Role 'MANAGER' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Email or employee code already in use.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 409,
+                  "message": "Email is already registered",
+                  "error": "Conflict"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Create a user and employee in my company",
+        "tags": [
+          "Admin · Users"
+        ]
+      },
+      "get": {
+        "description": "**Scenario:** an Admin browses and searches employees. Only users of the Admin's company are ever returned. Paginated, newest first.",
+        "operationId": "UsersController_getUsers",
+        "parameters": [
+          {
+            "name": "search",
+            "required": false,
+            "in": "query",
+            "description": "Matches email, full name or employee code",
+            "schema": {
+              "example": "sara",
+              "type": "string"
+            }
+          },
+          {
+            "name": "role",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "ADMIN",
+                "EMPLOYEE"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "active",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "enum": [
+                "true",
+                "false"
+              ],
+              "type": "string"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "description": "Max 100",
+            "schema": {
+              "example": 20
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "example": 1
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserListResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List users of my company",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
+    "/api/admin/users/{id}": {
+      "get": {
+        "description": "**Scenario:** an Admin opens an employee. Another company's user id returns 404, exactly like an id that does not exist.",
+        "operationId": "UsersController_getUserById",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserDetailResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user **in your company**. A user of another company gets the same answer, so nothing is revealed about it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "User with ID '00000000-0000-4000-8000-000000000000' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Get one user with salary history",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
+    "/api/admin/users/{id}/status": {
+      "patch": {
+        "description": "**Scenario:** an employee leaves. `{\"active\": false}` revokes all their refresh tokens in the same transaction and stops new absences from being recorded, so they cannot refresh or sign in again. Their current access token still works until it expires (up to 15 minutes). `{\"active\": true}` reactivates.",
+        "operationId": "UsersController_updateUserStatus",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateUserStatusDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UserResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user **in your company**. A user of another company gets the same answer, so nothing is revealed about it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "User with ID '00000000-0000-4000-8000-000000000000' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Activate or deactivate a user",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
+    "/api/admin/users/{id}/salaries": {
+      "post": {
+        "description": "**Scenario:** a raise. Salaries are versioned, never edited: the new row applies from `effectiveFrom`, which must be the 1st of a month. Sending the same date again replaces that one version. Amounts are EGP.",
+        "operationId": "UsersController_createSalary",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateSalaryDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedSalaryResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user **in your company**. A user of another company gets the same answer, so nothing is revealed about it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "User with ID '00000000-0000-4000-8000-000000000000' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Add a salary version",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
+    "/api/me/profile": {
+      "get": {
+        "description": "**Scenario:** an EMPLOYEE (or ADMIN) reads their own profile. The record is chosen only by the access token, so there is no way to ask for someone else's. Any extra query parameter is ignored.",
+        "operationId": "MeController_getMyProfile",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyProfileResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "The account no longer exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My own profile",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/me/password": {
+      "patch": {
+        "description": "**Scenario:** the first Admin of a company (or an employee an Admin created) signs in with a one-time password. Until it is changed, **every other route answers 403** with `code: PASSWORD_CHANGE_REQUIRED` (only `GET /auth/me`, logout and this route work). Anyone may also change their password voluntarily.\n\n**Effect:** the new password applies at once, `mustChangePassword` becomes false, and **all sessions end**, so sign in again with the new password. Wrong current passwords are rate-limited (5 per minute).",
+        "operationId": "MeController_changeMyPassword",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ChangePasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ChangePasswordResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The current password is wrong, or the new one equals the current one.\n\nThe body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many wrong current passwords.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Change my password",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/admin/invitations": {
+      "post": {
+        "description": "**Scenario:** an Admin invites a new hire. The response contains the one-time `token` **once**; only its hash is stored. Share the token with the invitee, who redeems it at `POST /auth/invitations/accept`. It is single-use and expires after 7 days.\n\n**Rules:** the email must not have an account anywhere; the employee code must be free in this company; only one pending invitation per email or code.",
+        "operationId": "InvitationsController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateInvitationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CreatedInvitationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Email already has an account, employee code in use, or a pending invitation already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 409,
+                  "message": "A pending invitation already exists for this email or employee code",
+                  "error": "Conflict"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Invite an employee into my company",
+        "tags": [
+          "Admin · Invitations"
+        ]
+      },
+      "get": {
+        "description": "**Scenario:** an Admin checks who is still pending, accepted, revoked or expired. Never includes tokens. Only this company's invitations are returned.",
+        "operationId": "InvitationsController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/InvitationResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List my company's invitations",
+        "tags": [
+          "Admin · Invitations"
+        ]
+      }
+    },
+    "/api/admin/invitations/{id}": {
+      "delete": {
+        "description": "**Scenario:** the invitation was sent by mistake. Its token stops working immediately. Only a `PENDING` invitation can be revoked.",
+        "operationId": "InvitationsController_revoke",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "Invitation id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvitationResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such invitation in your company (another company's invitation looks the same).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "Invitation '00000000-0000-4000-8000-000000000000' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The invitation is no longer pending.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 409,
+                  "message": "Only a pending invitation can be revoked (this one is ACCEPTED)",
+                  "error": "Conflict"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Revoke a pending invitation",
+        "tags": [
+          "Admin · Invitations"
+        ]
+      }
+    },
+    "/api/auth/invitations/accept": {
+      "post": {
+        "description": "Public route (the one-time token is the credential).\n\n**Scenario:** the invitee opens the link their Admin shared, chooses a password, and the account is created **in the inviter's company** with the EMPLOYEE role. No tokens are issued here: sign in afterwards with `POST /auth/login`.\n\n**Rules:** an unknown, expired, revoked or already-used token all return the same 400, so nothing leaks. Rate-limited like login.",
+        "operationId": "InvitationsController_accept",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AcceptInvitationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AcceptInvitationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invitation is invalid or has expired (unknown, expired, revoked or used).\n\nThe body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "An account with this email or employee code already exists.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "429": {
+            "description": "Too many attempts from this IP.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "summary": "Redeem an invitation and create my account",
+        "tags": [
+          "Auth"
+        ]
+      }
+    }
+  },
+  "info": {
+    "title": "CheckPoint API",
+    "description": "\nAttendance, points and incentive payroll for companies. Every company's data is isolated.\n\n## Quick start (2 minutes)\n1. **Sign in:** `POST /api/auth/login` with the development admin `admin@checkpoint.local` / `AdminPassword123!` (created by `npx prisma db seed`).\n2. **Authorize:** click **Authorize** (top right) and paste the `accessToken`. It is valid 15 minutes.\n3. **Try routes:** `GET /api/auth/me`, then `POST /api/admin/users`, `POST /api/admin/invitations`, and so on.\n4. **Token expired (401)?** `POST /api/auth/refresh` with your `refreshToken`, and keep the NEW pair (refresh tokens are single-use).\n\nThe full step-by-step cycle with real request and response bodies is in `docs/10-API_TESTING_GUIDE.md`.\n\n## Rules that apply everywhere\n- **Authentication:** `Authorization: Bearer <accessToken>` (mobile, tools). Web clients send `X-Auth-Mode: cookie` on login, refresh and logout and get `HttpOnly` cookies instead; a write authenticated by cookie must also send `X-CSRF-Token`. When both a header and a cookie arrive, the header wins. Only login, refresh, logout and invitation accept are public.\n- **Company scope:** your company comes from your token, never from the request. A record of another company answers **404**, the same as a missing one.\n- **Roles:** ADMIN may use the `/admin/*` routes; EMPLOYEE gets **403** there. Employees reach only their own data (`/me/*`).\n- **Validation:** unknown properties in a body are rejected with **400**.\n- **Errors** always look like `{ \"statusCode\": 404, \"message\": \"...\", \"error\": \"Not Found\" }`.\n- **Money** is EGP. Amounts come back as strings (for example `\"12000\"`).\n",
+    "version": "1.0.0",
+    "contact": {}
+  },
+  "tags": [
+    {
+      "name": "Auth",
+      "description": "Sign in, refresh, sign out, and redeem an invitation"
+    },
+    {
+      "name": "Me",
+      "description": "The signed-in user's own data (any role)"
+    },
+    {
+      "name": "Admin · Users",
+      "description": "Employees of the Admin's own company (ADMIN only)"
+    },
+    {
+      "name": "Admin · Invitations",
+      "description": "Invite employees into the Admin's own company (ADMIN only)"
+    }
+  ],
+  "servers": [
+    {
+      "url": "http://localhost:4000",
+      "description": "Local development"
+    }
+  ],
+  "components": {
+    "securitySchemes": {
+      "access-token": {
+        "scheme": "bearer",
+        "bearerFormat": "JWT",
+        "type": "http",
+        "description": "Paste the accessToken from POST /api/auth/login"
+      },
+      "cookie-auth": {
+        "type": "apiKey",
+        "in": "cookie",
+        "name": "cp_access",
+        "description": "Web clients only: set by POST /api/auth/login with the header X-Auth-Mode: cookie"
+      }
+    },
+    "schemas": {
+      "AuditEventDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "actorUserId": {
+            "type": "object",
+            "format": "uuid",
+            "nullable": true,
+            "description": "Who did it; null for system events"
+          },
+          "actorType": {
+            "type": "string",
+            "example": "ADMIN",
+            "enum": [
+              "ADMIN",
+              "EMPLOYEE",
+              "SYSTEM"
+            ],
+            "nullable": true
+          },
+          "action": {
+            "type": "string",
+            "example": "user.deactivate"
+          },
+          "targetType": {
+            "type": "string",
+            "example": "user"
+          },
+          "targetId": {
+            "type": "object",
+            "format": "uuid",
+            "nullable": true
+          },
+          "reason": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "changes": {
+            "type": "object",
+            "example": {
+              "isActive": {
+                "from": true,
+                "to": false
+              }
+            },
+            "description": "What changed. Never contains passwords or tokens."
+          }
+        },
+        "required": [
+          "id",
+          "createdAt",
+          "actorUserId",
+          "actorType",
+          "action",
+          "targetType",
+          "targetId",
+          "reason",
+          "changes"
+        ]
+      },
+      "AuditEventListResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AuditEventDto"
+            }
+          },
+          "total": {
+            "type": "number",
+            "example": 120
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 6
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit",
+          "totalPages"
+        ]
+      },
+      "ErrorResponseDto": {
+        "type": "object",
+        "properties": {
+          "statusCode": {
+            "type": "number",
+            "example": 400,
+            "description": "HTTP status code"
+          },
+          "message": {
+            "oneOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              }
+            ],
+            "example": [
+              "Must be a valid email address"
+            ],
+            "description": "A message, or a list of validation messages (400)"
+          },
+          "code": {
+            "type": "string",
+            "example": "PASSWORD_CHANGE_REQUIRED",
+            "description": "Machine-readable code on some errors"
+          },
+          "error": {
+            "type": "string",
+            "example": "Bad Request",
+            "description": "HTTP status text (absent on some errors)"
+          }
+        },
+        "required": [
+          "statusCode",
+          "message"
+        ]
+      },
+      "LoginUserDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "example": "admin@checkpoint.local"
+          },
+          "fullName": {
+            "type": "object",
+            "example": "System Administrator",
+            "nullable": true,
+            "description": "From the employee record; null if the account has none"
+          },
+          "role": {
+            "type": "string",
+            "example": "ADMIN",
+            "enum": [
+              "ADMIN",
+              "EMPLOYEE"
+            ]
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": false,
+            "description": "True for a first-time or reset password (not enforced yet)"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "role",
+          "mustChangePassword"
+        ]
+      },
+      "LoginResponseDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "description": "JWT, valid 15 minutes. Send it as `Authorization: Bearer <accessToken>`.",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "Opaque single-use token, valid 30 days. Exchange it at POST /auth/refresh.",
+            "example": "3f9a1c0e5b7d4a62...64 hex characters"
+          },
+          "user": {
+            "$ref": "#/components/schemas/LoginUserDto"
+          }
+        },
+        "required": [
+          "accessToken",
+          "refreshToken",
+          "user"
+        ]
+      },
+      "CookieLoginResponseDto": {
+        "type": "object",
+        "properties": {
+          "user": {
+            "$ref": "#/components/schemas/LoginUserDto"
+          },
+          "csrfToken": {
+            "type": "string",
+            "description": "Send it back as the `X-CSRF-Token` header on every POST, PATCH, PUT and DELETE while signed in by cookie.",
+            "example": "k3Jx...43 characters"
+          }
+        },
+        "required": [
+          "user",
+          "csrfToken"
+        ]
+      },
+      "RefreshResponseDto": {
+        "type": "object",
+        "properties": {
+          "accessToken": {
+            "type": "string",
+            "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+          },
+          "refreshToken": {
+            "type": "string",
+            "description": "The NEW refresh token. The one you sent is now spent; keep only this one.",
+            "example": "b21d84...64 hex characters"
+          }
+        },
+        "required": [
+          "accessToken",
+          "refreshToken"
+        ]
+      },
+      "CookieRefreshResponseDto": {
+        "type": "object",
+        "properties": {
+          "csrfToken": {
+            "type": "string",
+            "description": "The new CSRF token for the new access cookie. Replace the old one.",
+            "example": "k3Jx...43 characters"
+          }
+        },
+        "required": [
+          "csrfToken"
+        ]
+      },
+      "LoginDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "admin@checkpoint.local",
+            "description": "Account email (case-insensitive)"
+          },
+          "password": {
+            "type": "string",
+            "example": "AdminPassword123!",
+            "minLength": 6,
+            "description": "Account password"
+          }
+        },
+        "required": [
+          "email",
+          "password"
+        ]
+      },
+      "RefreshTokenDto": {
+        "type": "object",
+        "properties": {
+          "refreshToken": {
+            "type": "string",
+            "example": "3f9a1c0e5b7d4a62...64 hex characters",
+            "description": "The refresh token returned by login or by the previous refresh. Single-use. Required, except in cookie mode (header `X-Auth-Mode: cookie`), where it is read from the `cp_refresh` cookie."
+          }
+        }
+      },
+      "LogoutResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Logged out successfully"
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ]
+      },
+      "SessionDto": {
+        "type": "object",
+        "properties": {
+          "userId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+          },
+          "companyId": {
+            "type": "string",
+            "format": "uuid",
+            "example": "0b8f9c2e-1d4a-4c3b-9a7e-5f6d8e1a2b3c",
+            "description": "The caller's company. Taken from the token, never from the request."
+          },
+          "email": {
+            "type": "string",
+            "example": "admin@checkpoint.local"
+          },
+          "role": {
+            "type": "string",
+            "example": "ADMIN"
+          },
+          "permissions": {
+            "example": [
+              "users.read",
+              "users.write"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": false,
+            "description": "True until the user changes the one-time password; every route except PATCH /me/password, GET /auth/me and logout answers 403 meanwhile"
+          },
+          "csrfToken": {
+            "type": "string",
+            "description": "Only when the request was authenticated by the access cookie: the token to send as `X-CSRF-Token`. Use it to recover after a page reload.",
+            "example": "k3Jx...43 characters"
+          }
+        },
+        "required": [
+          "userId",
+          "companyId",
+          "email",
+          "role",
+          "permissions",
+          "mustChangePassword"
+        ]
+      },
+      "PermissionCheckResponseDto": {
+        "type": "object",
+        "properties": {
+          "message": {
+            "type": "string",
+            "example": "Access granted: you have users.read permission"
+          },
+          "user": {
+            "$ref": "#/components/schemas/SessionDto"
+          }
+        },
+        "required": [
+          "message",
+          "user"
+        ]
+      },
+      "CreateUserDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "sara@acme.test",
+            "description": "Login email. Unique across the whole system."
+          },
+          "fullName": {
+            "type": "string",
+            "example": "Sara Ahmed"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password123!",
+            "minLength": 6,
+            "description": "Initial password (stored as an argon2id hash)"
+          },
+          "employeeCode": {
+            "type": "string",
+            "example": "EMP-001",
+            "description": "Employee number. Unique within the company."
+          },
+          "phone": {
+            "type": "string",
+            "example": "+201001234567"
+          },
+          "roleCode": {
+            "type": "string",
+            "example": "EMPLOYEE",
+            "enum": [
+              "ADMIN",
+              "EMPLOYEE"
+            ],
+            "description": "Role code (case-insensitive)"
+          },
+          "initialSalary": {
+            "type": "number",
+            "example": 12000,
+            "description": "Monthly salary in EGP, effective from the 1st of the current month"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EGP",
+            "enum": [
+              "EGP"
+            ],
+            "description": "EGP is the only supported currency"
+          }
+        },
+        "required": [
+          "email",
+          "fullName",
+          "password",
+          "employeeCode",
+          "roleCode"
+        ]
+      },
+      "RoleDto": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "example": "EMPLOYEE",
+            "enum": [
+              "ADMIN",
+              "EMPLOYEE"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "example": "Employee"
+          }
+        },
+        "required": [
+          "code",
+          "name"
+        ]
+      },
+      "SalaryCreatorDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "example": "admin@checkpoint.local"
+          }
+        },
+        "required": [
+          "id",
+          "email"
+        ]
+      },
+      "SalaryVersionDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "example": "12000",
+            "description": "Decimal amount, serialized as a string to avoid rounding"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EGP"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "example": "2026-10-01T00:00:00.000Z"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "creator": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryCreatorDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "currency",
+          "effectiveFrom",
+          "createdAt",
+          "creator"
+        ]
+      },
+      "UserResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+          },
+          "email": {
+            "type": "string",
+            "example": "sara@acme.test"
+          },
+          "fullName": {
+            "type": "object",
+            "example": "Sara Ahmed",
+            "nullable": true
+          },
+          "employeeCode": {
+            "type": "object",
+            "example": "EMP-001",
+            "nullable": true
+          },
+          "phone": {
+            "type": "object",
+            "example": "+201001234567",
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean",
+            "example": true,
+            "description": "false after deactivation"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": true
+          },
+          "activeFrom": {
+            "type": "object",
+            "example": "2026-10-25T00:00:00.000Z",
+            "nullable": true,
+            "description": "First date an absence (BLACK) may be recorded"
+          },
+          "disabledAt": {
+            "type": "object",
+            "example": null,
+            "nullable": true,
+            "description": "Set when the user is deactivated"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "role": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RoleDto"
+              }
+            ]
+          },
+          "currentSalary": {
+            "nullable": true,
+            "description": "The salary in force today (Cairo date): the latest version that has already started. null if none has started.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
+          },
+          "upcomingSalary": {
+            "nullable": true,
+            "description": "The next salary, dated in the future, or null. It never counts as current before its date.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "employeeCode",
+          "phone",
+          "active",
+          "mustChangePassword",
+          "activeFrom",
+          "disabledAt",
+          "createdAt",
+          "updatedAt",
+          "role",
+          "currentSalary",
+          "upcomingSalary"
+        ]
+      },
+      "UserListResponseDto": {
+        "type": "object",
+        "properties": {
+          "data": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/UserResponseDto"
+            }
+          },
+          "total": {
+            "type": "number",
+            "example": 42
+          },
+          "page": {
+            "type": "number",
+            "example": 1
+          },
+          "limit": {
+            "type": "number",
+            "example": 20
+          },
+          "totalPages": {
+            "type": "number",
+            "example": 3
+          }
+        },
+        "required": [
+          "data",
+          "total",
+          "page",
+          "limit",
+          "totalPages"
+        ]
+      },
+      "UserDetailResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "example": "7c9e6679-7425-40de-944b-e07fc1f90ae7"
+          },
+          "email": {
+            "type": "string",
+            "example": "sara@acme.test"
+          },
+          "fullName": {
+            "type": "object",
+            "example": "Sara Ahmed",
+            "nullable": true
+          },
+          "employeeCode": {
+            "type": "object",
+            "example": "EMP-001",
+            "nullable": true
+          },
+          "phone": {
+            "type": "object",
+            "example": "+201001234567",
+            "nullable": true
+          },
+          "active": {
+            "type": "boolean",
+            "example": true,
+            "description": "false after deactivation"
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": true
+          },
+          "activeFrom": {
+            "type": "object",
+            "example": "2026-10-25T00:00:00.000Z",
+            "nullable": true,
+            "description": "First date an absence (BLACK) may be recorded"
+          },
+          "disabledAt": {
+            "type": "object",
+            "example": null,
+            "nullable": true,
+            "description": "Set when the user is deactivated"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "updatedAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "role": {
+            "nullable": true,
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/RoleDto"
+              }
+            ]
+          },
+          "currentSalary": {
+            "nullable": true,
+            "description": "The salary in force today (Cairo date): the latest version that has already started. null if none has started.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
+          },
+          "upcomingSalary": {
+            "nullable": true,
+            "description": "The next salary, dated in the future, or null. It never counts as current before its date.",
+            "type": "object",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/SalaryVersionDto"
+              }
+            ]
+          },
+          "salaries": {
+            "description": "Full salary history, newest first. Only on GET /admin/users/{id}.",
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SalaryVersionDto"
+            }
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "employeeCode",
+          "phone",
+          "active",
+          "mustChangePassword",
+          "activeFrom",
+          "disabledAt",
+          "createdAt",
+          "updatedAt",
+          "role",
+          "currentSalary",
+          "upcomingSalary",
+          "salaries"
+        ]
+      },
+      "UpdateUserStatusDto": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "example": false,
+            "description": "false deactivates the user and revokes all their refresh tokens at once; true reactivates"
+          }
+        },
+        "required": [
+          "active"
+        ]
+      },
+      "CreateSalaryDto": {
+        "type": "object",
+        "properties": {
+          "amount": {
+            "type": "number",
+            "example": 13500,
+            "description": "Monthly salary in EGP"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EGP",
+            "enum": [
+              "EGP"
+            ],
+            "description": "EGP is the only supported currency"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "example": "2026-11-01",
+            "description": "Must be the 1st of a month. Past months are never rewritten; use a new date."
+          }
+        },
+        "required": [
+          "amount",
+          "effectiveFrom"
+        ]
+      },
+      "CreatedSalaryResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "amount": {
+            "type": "string",
+            "example": "13500"
+          },
+          "currency": {
+            "type": "string",
+            "example": "EGP"
+          },
+          "effectiveFrom": {
+            "type": "string",
+            "example": "2026-11-01T00:00:00.000Z"
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "amount",
+          "currency",
+          "effectiveFrom",
+          "createdAt"
+        ]
+      },
+      "MyProfileResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "example": "sara@acme.test"
+          },
+          "fullName": {
+            "type": "object",
+            "example": "Sara Ahmed",
+            "nullable": true
+          },
+          "employeeCode": {
+            "type": "object",
+            "example": "EMP-001",
+            "nullable": true
+          },
+          "phone": {
+            "type": "object",
+            "example": "+201001234567",
+            "nullable": true
+          },
+          "role": {
+            "type": "object",
+            "example": "EMPLOYEE",
+            "nullable": true
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": false
+          },
+          "activeFrom": {
+            "type": "object",
+            "example": "2026-10-25T00:00:00.000Z",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "employeeCode",
+          "phone",
+          "role",
+          "mustChangePassword",
+          "activeFrom"
+        ]
+      },
+      "ChangePasswordDto": {
+        "type": "object",
+        "properties": {
+          "currentPassword": {
+            "type": "string",
+            "example": "Password123!",
+            "description": "Your current (or one-time) password"
+          },
+          "newPassword": {
+            "type": "string",
+            "example": "BrandNew#Pass9",
+            "minLength": 8,
+            "description": "The new password. Must differ from the current one."
+          }
+        },
+        "required": [
+          "currentPassword",
+          "newPassword"
+        ]
+      },
+      "ChangePasswordResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "message": {
+            "type": "string",
+            "example": "Password changed. Please sign in again."
+          }
+        },
+        "required": [
+          "success",
+          "message"
+        ]
+      },
+      "CreateInvitationDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "newhire@acme.test",
+            "description": "Email of the person being invited. Must not have an account yet."
+          },
+          "fullName": {
+            "type": "string",
+            "example": "New Hire"
+          },
+          "employeeCode": {
+            "type": "string",
+            "example": "EMP-050",
+            "description": "Employee number to assign. Unique within the company."
+          }
+        },
+        "required": [
+          "email",
+          "fullName",
+          "employeeCode"
+        ]
+      },
+      "InvitationStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "ACCEPTED",
+          "REVOKED",
+          "EXPIRED"
+        ]
+      },
+      "CreatedInvitationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "example": "newhire@acme.test"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "New Hire"
+          },
+          "employeeNumber": {
+            "type": "string",
+            "example": "EMP-050"
+          },
+          "status": {
+            "example": "PENDING",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvitationStatus"
+              }
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "example": "2026-11-01T12:00:00.000Z",
+            "description": "Seven days after creation"
+          },
+          "acceptedAt": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "revokedAt": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          },
+          "token": {
+            "type": "string",
+            "example": "9f2c4e...64 hex characters",
+            "description": "The one-time token. Returned ONLY here and never stored: share it with the invitee now."
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "employeeNumber",
+          "status",
+          "expiresAt",
+          "acceptedAt",
+          "revokedAt",
+          "createdAt",
+          "token"
+        ]
+      },
+      "InvitationResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "email": {
+            "type": "string",
+            "example": "newhire@acme.test"
+          },
+          "fullName": {
+            "type": "string",
+            "example": "New Hire"
+          },
+          "employeeNumber": {
+            "type": "string",
+            "example": "EMP-050"
+          },
+          "status": {
+            "example": "PENDING",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/InvitationStatus"
+              }
+            ]
+          },
+          "expiresAt": {
+            "type": "string",
+            "example": "2026-11-01T12:00:00.000Z",
+            "description": "Seven days after creation"
+          },
+          "acceptedAt": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "revokedAt": {
+            "type": "object",
+            "nullable": true,
+            "example": null
+          },
+          "createdAt": {
+            "type": "string",
+            "example": "2026-10-25T12:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "email",
+          "fullName",
+          "employeeNumber",
+          "status",
+          "expiresAt",
+          "acceptedAt",
+          "revokedAt",
+          "createdAt"
+        ]
+      },
+      "AcceptInvitationDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "9f2c4e...64 hex characters",
+            "description": "The one-time token the Admin shared with the invitee"
+          },
+          "password": {
+            "type": "string",
+            "example": "Password123!",
+            "minLength": 6,
+            "description": "The password the invitee chooses"
+          }
+        },
+        "required": [
+          "token",
+          "password"
+        ]
+      },
+      "AcceptInvitationResponseDto": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "example": "newhire@acme.test"
+          },
+          "message": {
+            "type": "string",
+            "example": "Account created. You can now sign in."
+          }
+        },
+        "required": [
+          "email",
+          "message"
+        ]
+      }
+    }
+  }
+}

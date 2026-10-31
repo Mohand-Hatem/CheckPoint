@@ -53,6 +53,13 @@
 
 ---
 
+### Rule 6: Every route is documented and tested end to end
+- A new or changed route needs `@ApiTags`, `@ApiOperation` (with a one-line scenario), response decorators, and `@ApiProperty` on every request/response class.
+- Then run `npm run docs:openapi` (rewrites `docs/api/openapi.json`, the file you import into Apidog/Postman) and, with the API running, `npm run docs:guide` (rewrites `docs/10-API_TESTING_GUIDE.md` from a real run).
+- The unit test `src/swagger.spec.ts` fails if `docs/api/openapi.json` is stale or a route lacks a summary, tag or response, so CI catches a forgotten update. Swagger UI: `/api/docs`; importable JSON: `/api/docs-json`.
+
+---
+
 ### Strict GitHub Policy
 - NEVER interact with, access, modify, query, or execute commands affecting GitHub accounts or remote repositories without explicit, direct user instructions.
 - Never run remote commands (`git push`, `git pull`, `git fetch`, GitHub CLI) unless explicitly commanded for that specific action.
@@ -65,7 +72,8 @@
 |------|-----------|---------|
 | Start API (Dev) | `apps/api` | `npm run start:dev` |
 | Build API | `apps/api` | `npm run build` |
-| Prisma Sync | `apps/api` | `npx prisma db push` |
+| Prisma Apply Migrations | `apps/api` | `npx prisma migrate deploy` (all shared and CI databases) |
+| Prisma New Migration | `apps/api` | `npx prisma migrate dev --name <change>` (then commit the new folder in `prisma/migrations/`) |
 | Prisma Generate | `apps/api` | `npx prisma generate` |
 | Prisma Seed | `apps/api` | `npx prisma db seed` |
 
@@ -83,4 +91,6 @@
 | Sequence Diagrams | `docs/07-SEQUENCE_DIAGRAMS.md` |
 | Database Schema (Full) | `docs/08-DATABASE_SCHEMA.md` |
 | Decision Log & REQ↔FR Traceability | `docs/09-DECISION_LOG.md` |
+| API Testing Guide (generated, end to end) | `docs/10-API_TESTING_GUIDE.md` |
+| OpenAPI file for Apidog/Postman | `docs/api/openapi.json` |
 | NestJS Expert Guidelines | `.agent/skills/nestjs-expert/SKILL.md` |

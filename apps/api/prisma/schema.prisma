@@ -153,6 +153,8 @@ model UserRole {
   assignedBy       User?    @relation("UserRoleAssignedBy", fields: [assignedByUserId], references: [id], onDelete: SetNull)
 
   @@id([userId, roleId])
+  // MVP rule: exactly one role per user. Drop this unique when roles beyond ADMIN/EMPLOYEE create multi-role users.
+  @@unique([userId], map: "user_roles_one_role_per_user_key")
   @@index([roleId], map: "user_roles_role_idx")
   @@map("user_roles")
 }
