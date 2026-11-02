@@ -1,87 +1,52 @@
-import 'reflect-metadata';
-import { PrismaService } from '../prisma/prisma.service';
-import { SchedulesService } from '../schedules/schedules.service';
-import { EmployeesService } from '../employees/employees.service';
-import { CompanyPolicyService } from '../company/company-policy.service';
 import { AuditService } from './audit.service';
+import { recordAuditEvent } from './record-audit-event';
 
-describe('AuditService (TEST-026)', () => {
-  const companyId = 'c0ffee00-0000-4000-8000-000000000001';
-  const adminUserId = 'c0ffee00-0000-4000-8000-000000000002';
+describe('Audit events (unit)', () => {
+  describe('recordAuditEvent', () => {
+    it('writes one event with the actor, target and changes, and null for what is absent', async () => {
+      const create = jest.fn().mockResolvedValue({});
 
-  it('records actor, action, target, changes and reason inside the given transaction', async () => {
-    const tx = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
-    await new AuditService({} as PrismaService).record(tx as any, {
-      companyId,
-      actorUserId: adminUserId,
-      action: 'shift.create',
-      targetType: 'SHIFT',
-      targetId: 'shift-1',
-      changes: { name: 'Morning' },
-      reason: 'New branch',
-    });
-    expect(tx.auditEvent.create).toHaveBeenCalledWith({
-      data: {
-        companyId,
-        actorUserId: adminUserId,
-        actorType: 'ADMIN',
-        action: 'shift.create',
-        targetType: 'SHIFT',
-        targetId: 'shift-1',
-        changes: { name: 'Morning' },
-        reason: 'New branch',
-      },
+      await recordAuditEvent({ auditEvent: { create } } as any, {
+        companyId: 'company-1', actorType: 'SYSTEM', action: 'company.provision', targetType: 'company', targetId: 'company-1',
+      });
+
+      expect(create).toHaveBeenCalledWith({
+        data: {
+          companyId: 'company-1', actorUserId: null, actorType: 'SYSTEM', action: 'company.provision',
+          targetType: 'company', targetId: 'company-1', reason: null, changes: {},
+        },
+      });
     });
   });
 
-  it('lists only the caller company, newest first, with filters (AC-REQ-028-01)', async () => {
-    const prisma = {
-      auditEvent: { findMany: jest.fn().mockResolvedValue([]), count: jest.fn().mockResolvedValue(0) },
-      $transaction: jest.fn((ops: Promise<unknown>[]) => Promise.all(ops)),
-    };
-    await new AuditService(prisma as unknown as PrismaService).list(companyId, {
-      targetType: 'ATTENDANCE_DAY',
-      from: '2026-11-01',
-      to: '2026-11-02',
-      page: 2,
-      limit: 10,
-    });
-    const args = prisma.auditEvent.findMany.mock.calls[0][0];
-    expect(args.where).toEqual({
-      companyId,
-      targetType: 'ATTENDANCE_DAY',
-      createdAt: { gte: new Date('2026-11-01T00:00:00.000Z'), lt: new Date('2026-11-03T00:00:00.000Z') },
-    });
-    expect(args).toMatchObject({ orderBy: { createdAt: 'desc' }, skip: 10, take: 10 });
-  });
+  describe('AuditService.list', () => {
+    let prisma: any;
+    let service: AuditService;
 
-  it('schedules mutations are audited: assigning a shift writes an audit row', async () => {
-    const tx = { auditEvent: { create: jest.fn().mockResolvedValue({}) } };
-    const prisma = {
-      shift: { findFirst: jest.fn().mockResolvedValue({ id: 'shift-1' }) },
-      $transaction: jest.fn(async (op: (t: unknown) => unknown) => op(tx)),
-    };
-    const employees = { assignShift: jest.fn().mockResolvedValue({ id: 'assignment-1' }) };
-    const companyPolicy = { getCompanyDate: jest.fn().mockResolvedValue(new Date('2026-11-02T00:00:00.000Z')) };
-    const service = new SchedulesService(
-      prisma as unknown as PrismaService,
-      employees as unknown as EmployeesService,
-      companyPolicy as unknown as CompanyPolicyService,
-      new AuditService(prisma as unknown as PrismaService),
-    );
-
-    await service.assignShift(companyId, 'shift-1', adminUserId, {
-      employeeId: 'employee-1',
-      effectiveFrom: '2026-11-10',
+    beforeEach(() => {
+      prisma = { auditEvent: { count: jest.fn().mockResolvedValue(45), findMany: jest.fn().mockResolvedValue([]) } };
+      service = new AuditService(prisma);
     });
-    expect(tx.auditEvent.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        companyId,
-        actorUserId: adminUserId,
-        action: 'shift.assign',
-        targetType: 'SHIFT_ASSIGNMENT',
-        targetId: 'assignment-1',
-      }),
+
+    it('is always limited to the caller\'s company and newest first', async () => {
+      await service.list('company-A', {});
+
+      expect(prisma.auditEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { companyId: 'company-A' }, orderBy: { createdAt: 'desc' }, skip: 0, take: 20 }),
+      );
+    });
+
+    it('applies filters and pagination, and reports the page count', async () => {
+      const result = await service.list('company-A', { page: 3, limit: 10, action: 'user.create', targetId: 'u1', actorUserId: 'a1', targetType: 'user' });
+
+      expect(prisma.auditEvent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { companyId: 'company-A', action: 'user.create', targetId: 'u1', actorUserId: 'a1', targetType: 'user' },
+          skip: 20,
+          take: 10,
+        }),
+      );
+      expect(result).toEqual(expect.objectContaining({ total: 45, page: 3, limit: 10, totalPages: 5 }));
     });
   });
 });

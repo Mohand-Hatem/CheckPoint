@@ -1,51 +1,55 @@
 import {
+  applyDecorators,
+  CallHandler,
   CanActivate,
   ExecutionContext,
   HttpException,
   HttpStatus,
   Injectable,
+  NestInterceptor,
+  UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { Observable, catchError, tap, throwError } from 'rxjs';
+import { LoginThrottleService } from './login-throttle.service';
 
-interface ThrottleRecord {
-  count: number;
-  resetAt: number;
-}
-
+/** Refuses the request (429) while the caller is over the failure limit. */
 @Injectable()
 export class LoginThrottleGuard implements CanActivate {
-  private readonly attempts = new Map<string, ThrottleRecord>();
-  private readonly maxAttempts = 5;
-  private readonly windowMs = 60 * 1000; // 1 minute
+  constructor(private readonly throttle: LoginThrottleService) {}
 
   canActivate(context: ExecutionContext): boolean {
-    const request = context.switchToHttp().getRequest();
-    const ip = request.ip || request.socket.remoteAddress || 'unknown';
-    const email = request.body?.email ? String(request.body.email).toLowerCase() : 'anonymous';
-    const key = `${ip}:${email}`;
-    const now = Date.now();
-
-    const record = this.attempts.get(key);
-
-    if (record) {
-      if (now > record.resetAt) {
-        // Window expired, reset counter
-        this.attempts.set(key, { count: 1, resetAt: now + this.windowMs });
-        return true;
-      }
-
-      if (record.count >= this.maxAttempts) {
-        const retryAfterSeconds = Math.ceil((record.resetAt - now) / 1000);
-        throw new HttpException(
-          `Too many login attempts. Please try again in ${retryAfterSeconds} seconds.`,
-          HttpStatus.TOO_MANY_REQUESTS,
-        );
-      }
-
-      record.count += 1;
-      return true;
+    const key = this.throttle.keyFor(context.switchToHttp().getRequest());
+    const wait = this.throttle.retryAfterSeconds(key);
+    if (wait > 0) {
+      throw new HttpException(
+        `Too many login attempts. Please try again in ${wait} seconds.`,
+        HttpStatus.TOO_MANY_REQUESTS,
+      );
     }
-
-    this.attempts.set(key, { count: 1, resetAt: now + this.windowMs });
     return true;
   }
 }
+
+/** Counts a failure on 400/401 answers and clears the counter on success. */
+@Injectable()
+export class LoginThrottleInterceptor implements NestInterceptor {
+  constructor(private readonly throttle: LoginThrottleService) {}
+
+  intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
+    const key = this.throttle.keyFor(context.switchToHttp().getRequest());
+    return next.handle().pipe(
+      tap(() => this.throttle.reset(key)),
+      catchError((error) => {
+        if (error instanceof HttpException && [400, 401].includes(error.getStatus())) {
+          this.throttle.recordFailure(key);
+        }
+        return throwError(() => error);
+      }),
+    );
+  }
+}
+
+/** Put on public credential routes (login, invitation accept). */
+export const LoginThrottled = () =>
+  applyDecorators(UseGuards(LoginThrottleGuard), UseInterceptors(LoginThrottleInterceptor));

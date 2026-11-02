@@ -152,7 +152,7 @@ describe('AttendanceService.correct (TEST-012, TEST-013)', () => {
         companyId,
         actorUserId: adminUserId,
         action: 'attendance.correct',
-        targetType: 'ATTENDANCE_DAY',
+        targetType: 'attendance_day',
         targetId: dayId,
         reason: 'Forgot to scan the QR',
         changes: expect.objectContaining({

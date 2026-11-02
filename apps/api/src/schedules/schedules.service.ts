@@ -96,8 +96,9 @@ export class SchedulesService {
             await this.audit.record(tx, {
               companyId,
               actorUserId: userId,
+              actorType: 'ADMIN',
               action: 'company.policy.create',
-              targetType: 'COMPANY_POLICY_VERSION',
+              targetType: 'company_policy_version',
               targetId: version.id,
               changes: {
                 timezone: dto.timezone,
@@ -181,8 +182,9 @@ export class SchedulesService {
           await this.audit.record(tx, {
             companyId,
             actorUserId: userId,
+            actorType: 'ADMIN',
             action: 'shift.create',
-            targetType: 'SHIFT',
+            targetType: 'shift',
             targetId: shift.id,
             changes: { name: shift.name },
           });
@@ -278,8 +280,9 @@ export class SchedulesService {
             await this.audit.record(tx, {
               companyId,
               actorUserId: userId,
+              actorType: 'ADMIN',
               action: 'shift.assign',
-              targetType: 'SHIFT_ASSIGNMENT',
+              targetType: 'shift_assignment',
               targetId: assignment.id,
               changes: {
                 employeeId: dto.employeeId,
@@ -359,8 +362,9 @@ export class SchedulesService {
     await this.audit.record(tx, {
       companyId,
       actorUserId: userId,
+      actorType: 'ADMIN',
       action: 'shift.version.create',
-      targetType: 'SHIFT_VERSION',
+      targetType: 'shift_version',
       targetId: version.id,
       changes: {
         shiftId,

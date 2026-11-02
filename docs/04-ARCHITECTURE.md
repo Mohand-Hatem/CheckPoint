@@ -130,8 +130,8 @@ Failure behavior: see `02-PRD.md` Edge Case 19.
 - Manual fallback: admin can inquire, and mark `PAID`/`FAILED` manually with mandatory evidence note; always audited.
 
 ## 8. Client Architecture (Web & Mobile)
-- **Admin Web (Next.js App Router):** Management dashboards, employee tables, schedule assignments, leave review queues, payroll preview/close, payout monitoring, and `/kiosk` (displays the rotating HMAC QR for a branch, polling every ~20 s).
-- **Employee Mobile (React Native / Expo):** Employee home status, 2-step check-in (native GPS geofence + live camera QR scan), check-out, point ledger with derived states, payroll estimate, leave requests, and fund withdrawal. Tokens secured via `expo-secure-store`.
+- **Admin Web (Next.js App Router):** Signs in with cookies (`X-Auth-Mode: cookie`): the browser never sees the tokens and sends `X-CSRF-Token` on writes. Management dashboards, employee tables, schedule assignments, leave review queues, payroll preview/close, payout monitoring, and `/kiosk` (displays the rotating HMAC QR for a branch, polling every ~20 s).
+- **Employee Mobile (React Native / Expo):** Signs in with the bearer header and keeps tokens in `expo-secure-store`. Employee home status, 2-step check-in (native GPS geofence + live camera QR scan), check-out, point ledger with derived states, payroll estimate, leave requests, and fund withdrawal. Tokens secured via `expo-secure-store`.
 - Both clients communicate strictly with `/api/v1`; types generated from the NestJS OpenAPI schema; zero business rules implemented client-side (server is authoritative for time, windows, points, and money).
 
 ## 9. Admin vs Employee

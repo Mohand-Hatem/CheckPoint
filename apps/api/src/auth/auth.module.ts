@@ -5,7 +5,8 @@ import { PassportModule } from '@nestjs/passport';
 import { AuthController } from './auth.controller';
 import { AuthService } from './auth.service';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
-import { LoginThrottleGuard } from './guards/login-throttle.guard';
+import { LoginThrottleGuard, LoginThrottleInterceptor } from './guards/login-throttle.guard';
+import { LoginThrottleService } from './guards/login-throttle.service';
 import { PermissionsGuard } from './guards/permissions.guard';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -29,14 +30,18 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     JwtStrategy,
     JwtAuthGuard,
     PermissionsGuard,
+    LoginThrottleService,
     LoginThrottleGuard,
+    LoginThrottleInterceptor,
   ],
   exports: [
     AuthService,
     JwtModule,
     JwtAuthGuard,
     PermissionsGuard,
+    LoginThrottleService,
     LoginThrottleGuard,
+    LoginThrottleInterceptor,
   ],
 })
 export class AuthModule {}

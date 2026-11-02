@@ -45,7 +45,9 @@ Selection rule: a technology is here only if it solves a problem this system act
 - **Choice:** Access JWT (15 min); opaque refresh token (random 256-bit, stored as hash in `refresh_tokens`, rotated on every use, reuse of an old token revokes the family); `argon2` (argon2id) for passwords.
 - **Why:** Stateless API calls with revocable sessions; argon2id is the current default recommendation.
 - **Problem solved:** Stolen refresh tokens are detected; disabled users lose access at next refresh (≤ 15 min for access tokens; permission check also reads `users.active` on refresh).
-- **Alternatives not needed now:** Session cookies + server store (fine, but mobile PWA + API clients favor tokens); OAuth/SSO (single company, no IdP requirement).
+- **Two transports, one core (decided 2026-10-26):** the same tokens and rules serve both clients. **Mobile** (and Swagger, Apidog, curl) sends `Authorization: Bearer <accessToken>` and keeps tokens in `expo-secure-store`. **Web** (Next.js) asks for cookie mode with the request header `X-Auth-Mode: cookie`: the API then sets `HttpOnly` cookies and keeps the tokens out of the response body, so browser JavaScript can never read them. When both a header and a cookie arrive, the header wins.
+- **Cookie rules:** access cookie `cp_access` (`Path=/api`, same lifetime as the JWT) and refresh cookie `cp_refresh` (`Path=/api/auth`, 30 days), both `HttpOnly`, `SameSite=Lax`, `Secure` in production. A request authenticated by cookie that changes data (POST, PATCH, PUT, DELETE) must also send `X-CSRF-Token`, a value the API returns at login, at refresh and on `GET /auth/me`. Requests authenticated by the header are exempt, because a browser cannot attach that header to a cross-site request by itself. CORS allows only the origins listed in `CORS_ORIGINS`, with credentials.
+- **Alternatives not needed now:** server-side session store (the token core already gives revocable sessions); OAuth/SSO (no IdP requirement).
 
 ## Validation — class-validator + class-transformer (DTOs)
 - **Choice:** DTO classes on every endpoint; global `ValidationPipe` (`whitelist`, `forbidNonWhitelisted`).

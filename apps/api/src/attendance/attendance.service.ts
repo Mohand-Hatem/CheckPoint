@@ -66,7 +66,7 @@ export class AttendanceService {
         orderBy: { createdAt: 'asc' },
       }),
       this.prisma.auditEvent.findMany({
-        where: { companyId, targetType: 'ATTENDANCE_DAY', targetId: id },
+        where: { companyId, targetType: 'attendance_day', targetId: id },
         orderBy: { createdAt: 'asc' },
         include: { actor: { select: { id: true, email: true } } },
       }),
@@ -206,8 +206,9 @@ export class AttendanceService {
         await this.audit.record(tx, {
           companyId,
           actorUserId: adminUserId,
+          actorType: 'ADMIN',
           action: 'attendance.correct',
-          targetType: 'ATTENDANCE_DAY',
+          targetType: 'attendance_day',
           targetId: day.id,
           reason,
           changes: {

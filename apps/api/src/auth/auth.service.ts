@@ -50,8 +50,8 @@ export class AuthService {
 
     return {
       sub: user.id,
-      email: user.email,
       companyId: user.companyId,
+      email: user.email,
       role: role.name,
       permissions: role.permissions.map((rp) => rp.permission.code),
     };
@@ -108,7 +108,7 @@ export class AuthService {
     };
   }
 
-  async refresh(dto: RefreshTokenDto, userAgent?: string) {
+  async refresh(dto: { refreshToken: string }, userAgent?: string) {
     const tokenHash = this.hashToken(dto.refreshToken);
 
     const existingToken = await this.prisma.refreshToken.findUnique({
@@ -122,13 +122,7 @@ export class AuthService {
 
     // Reuse detection (theft): Revoke the entire token family
     if (existingToken.revokedAt !== null) {
-      await this.prisma.refreshToken.updateMany({
-        where: { familyId: existingToken.familyId },
-        data: { revokedAt: new Date() },
-      });
-      throw new UnauthorizedException(
-        'Refresh token reuse detected. All sessions in this family revoked.',
-      );
+      await this.rejectReuse(existingToken.familyId);
     }
 
     if (existingToken.expiresAt < new Date()) {
@@ -144,8 +138,18 @@ export class AuthService {
     const newTokenHash = this.hashToken(newRawRefreshToken);
     const expiresAt = this.getRefreshTokenExpiry();
 
-    const [newToken] = await this.prisma.$transaction([
-      this.prisma.refreshToken.create({
+    const rotated = await this.prisma.$transaction(async (tx) => {
+      // Atomic claim: the database lets only ONE concurrent refresh flip revokedAt from null.
+      // A second request using the same token sees count 0 and is treated as reuse.
+      const claimed = await tx.refreshToken.updateMany({
+        where: { id: existingToken.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+      if (claimed.count !== 1) {
+        return null;
+      }
+
+      const created = await tx.refreshToken.create({
         data: {
           userId: existingToken.userId,
           familyId: existingToken.familyId,
@@ -153,19 +157,17 @@ export class AuthService {
           expiresAt,
           userAgent,
         },
-      }),
-      this.prisma.refreshToken.update({
+      });
+      await tx.refreshToken.update({
         where: { id: existingToken.id },
-        data: {
-          revokedAt: new Date(),
-        },
-      }),
-    ]);
-
-    await this.prisma.refreshToken.update({
-      where: { id: existingToken.id },
-      data: { replacedBy: newToken.id },
+        data: { replacedBy: created.id },
+      });
+      return created;
     });
+
+    if (!rotated) {
+      await this.rejectReuse(existingToken.familyId);
+    }
 
     const payload = this.toClaims(existingToken.user);
 
@@ -177,7 +179,16 @@ export class AuthService {
     };
   }
 
-  async logout(dto: RefreshTokenDto) {
+  /** A spent token was presented again: treat it as theft and end every session of the family. */
+  private async rejectReuse(familyId: string): Promise<never> {
+    await this.prisma.refreshToken.updateMany({
+      where: { familyId, revokedAt: null },
+      data: { revokedAt: new Date() },
+    });
+    throw new UnauthorizedException('Refresh token reuse detected. All sessions in this family revoked.');
+  }
+
+  async logout(dto: { refreshToken: string }) {
     const tokenHash = this.hashToken(dto.refreshToken);
 
     const token = await this.prisma.refreshToken.findUnique({

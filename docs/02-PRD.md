@@ -95,14 +95,14 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-AUTH-2 | Login throttling per email+IP. | MVP |
 | FR-AUTH-3 | Permission-based guards over roles; seeded roles `ADMIN`, `EMPLOYEE` only; exactly one role per user in the MVP, stored in `user_roles` (the many-to-many shape is kept for `MANAGER`/`HR`/`FINANCE`, FR-AUTH-6). | MVP |
 | FR-AUTH-4 | Employees can only access their own resources (ownership check). | MVP |
-| FR-AUTH-5 | Admin-driven password reset. Self-service reset by email/SMS. | MVP / Later |
+| FR-AUTH-5 | Admin-driven password reset. Self-service reset by email/SMS. A one-time password (provisioned first Admin, Admin-created account) must be replaced via `PATCH /me/password` before anything else works (`mustChangePassword`, enforced by a global guard). | MVP / Later |
 | FR-AUTH-6 | `MANAGER`, `HR`, `FINANCE`. | Future |
 
 ### 4.2 Employees, Schedules, Calendar, Locations
 | ID | Requirement | Priority |
 |---|---|---|
 | FR-EMP-1 | CRUD, disable/reactivate; disabled users cannot log in or refresh. Admin cannot deactivate themselves or the last active Admin. Scoped to the Admin's company. | MVP |
-| FR-EMP-3 | Invitations (spec REQ-032, CHG-005): creating an employee creates it inactive plus a 7-day single-use invitation; the Admin always gets the link and it is also emailed when SMTP is configured (best-effort, after commit). Accepting sets the password, creates the login and activates the employee. Admin can resend (new link, old one dies) or revoke. | MVP |
+| FR-EMP-3 | Invitations (spec REQ-032): an Admin invites by email, full name and employee code; the invitation is single-use and expires after 7 days. The Admin always gets the link back, and it is also emailed when SMTP is configured (best-effort, after commit). Accepting sets the password and creates the login, employee record and first shift assignment in the inviter's company. Admin can list and revoke pending invitations. | MVP |
 | FR-EMP-2 | Salary (EGP) stored as versioned rows in `employee_compensation_versions` (`effective_from`); payroll resolves exactly one version per employee per month; a locked month is never rewritten. Granularity (1st of month vs any day): **DN-11**. | MVP |
 | FR-SCH-1 | `Shift` with effective-dated `ShiftVersion` (start, end, `early_minutes`, `grace_minutes`, `red_period_minutes`, weekdays) + `ShiftAssignment` (`effectiveFrom`, `effectiveTo`); no overlapping assignments per employee. | MVP |
 | FR-SCH-2 | Rotating shifts, split shifts, advanced rules. | Out of Scope |
@@ -159,7 +159,15 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-PAYOUT-3 | Signed webhook (hint) + inquiry (truth) + manual fallback by admin. | MVP |
 | FR-PAYOUT-4 | Salary payouts via Paymob. | Later |
 
-### 4.7 Notifications
+### 4.7 Companies, invitations and isolation (spec v0.4.0)
+| ID | Requirement | Priority |
+|---|---|---|
+| FR-COMP-1 | Companies are created only by an operator provisioning command (secret-protected, one transaction: company, defaults, first Admin). No public endpoint, no self-registration. The first Admin signs in and the session is bound to the company. (REQ-031) | MVP |
+| FR-COMP-2 | An Admin invites employees into their own company; hash-only token, single-use, expiring, revocable; one pending invitation per company and email; acceptance creates user + role + employee atomically. (REQ-032) | MVP |
+| FR-COMP-3 | Company isolation: one company per account; every protected read and mutation is limited to the session's company; foreign records answer 404; tokens and refresh cannot switch company; employees only reach their own records; two-company tests prove it. (REQ-033, AC-REQ-001-02, AC-REQ-006-07/08) | MVP |
+| FR-COMP-4 | SaaS-ready, not SaaS yet: no single-company assumption anywhere; self sign-up, billing and a platform console are not built. (REQ-NFR-009) | MVP (constraint) |
+
+### 4.8 Notifications
 | ID | Requirement | Priority |
 |---|---|---|
 | FR-NOTIF-1 | In-app notifications with read/unread state; exactly one notification per covered event to the affected user. Covered events (planning proposal, unconfirmed): leave or early-leave decision, points added or reversed by Admin, withdrawal status change, payroll month closed. Push (FCM) is Later. | MVP |

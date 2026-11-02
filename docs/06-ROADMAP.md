@@ -33,7 +33,7 @@ Planning IDs come from the local `planning/` workspace (spec v0.3.0, `TASKS.json
 | Phase | Planning tasks | Spec requirements |
 |---|---|---|
 | 0 Decisions | (none; resolves DN-xx / GAP-xxx) | REQ-020 legal gate (DN-01), open DNs |
-| 1 Foundation | TASK-001, 002, 003, 004, 025, 028, 030, 031, 032, 040, 041 | REQ-001–003, REQ-006–008, REQ-028, REQ-NFR-003, REQ-NFR-004, REQ-NFR-008 |
+| 1 Foundation | TASK-001, 002, 003, 004, 025, 028, 030, 031, 032, 040, 042, 043, 044, 045 | REQ-001–003, REQ-006–008, REQ-028, REQ-NFR-003, REQ-NFR-004, REQ-031–033, REQ-NFR-009 |
 | 2 Schedules / calendar / locations | TASK-005, 006 | REQ-009, REQ-010 |
 | 3 Attendance / GPS / QR | TASK-007, 008, 009, 010, 023 (attendance part) | REQ-011–015, REQ-030 (GREEN) |
 | 4 Points / offsets | TASK-012, 013, 014, 016 | REQ-017–019, REQ-029 |
@@ -82,8 +82,8 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 - **[BE]**: `PermissionGuard` + seeds for `ADMIN`, `EMPLOYEE`.
 - **[BE]**: Users CRUD, disable/reactivate, salary versions (1st-of-month rule).
 - **[BE]**: `AuditService`, `SettingsService`, injectable `Clock`, Decimal helpers, BullMQ wiring.
-- **[WEB]**: Next.js shell setup, Tailwind CSS, admin login page, token refresh interceptor, admin navigation layout, user profile.
-- **[MOB]**: React Native (Expo) shell, employee login screen, token storage in `expo-secure-store`, session guard.
+- **[WEB]**: Next.js shell setup, Tailwind CSS, admin login page, cookie sign-in (`X-Auth-Mode: cookie`: HttpOnly cookies, `X-CSRF-Token` on writes, refresh through the cookie; docs/05 §3a), admin navigation layout, user profile.
+- **[MOB]**: React Native (Expo) shell, employee login screen, bearer sign-in with tokens kept in `expo-secure-store` (no cookie header), refresh interceptor, session guard.
 
 **Dependencies:** Phase 0 decisions for hosting and client stacks.
 

@@ -5,9 +5,12 @@ import { LogTransport, MailerModule } from '@nestjs-modules/mailer';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
+import { CsrfGuard } from './auth/guards/csrf.guard';
 import { JwtAuthGuard } from './auth/guards/jwt-auth.guard';
 import { CompanyModule } from './company/company.module';
 import { EmployeesModule } from './employees/employees.module';
+import { InvitationsModule } from './invitations/invitations.module';
+import { PasswordChangeRequiredGuard } from './auth/guards/password-change.guard';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { AppLoggerModule } from './logger/logger.module';
 import { PrismaModule } from './prisma/prisma.module';
@@ -46,11 +49,20 @@ import { UsersModule } from './users/users.module';
     PointsModule,
     SchedulesModule,
     AttendanceModule,
+    InvitationsModule,
   ],
   providers: [
     {
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: CsrfGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: PasswordChangeRequiredGuard,
     },
     {
       provide: APP_GUARD,
