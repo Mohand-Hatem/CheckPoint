@@ -6,47 +6,41 @@ CheckPoint is a production-grade full-stack platform that modernizes workplace a
 
 ---
 
-## 🗺️ Project Roadmap & Current Progress Dashboard
+## 🗺️ Where the project stands (2026-11-02)
 
-The full project is structured across **9 Phases** consisting of **47 Granular Engineering Steps**:
+Only the **backend API** is built so far. `apps/web` and `apps/mobile` are still empty. The detailed done / not-done list per phase is in [`docs/06-ROADMAP.md`](docs/06-ROADMAP.md#status-2026-11-02-main-at-pr-10).
 
 ```mermaid
 flowchart LR
-  P0["Phase 0: Setup ✅"] --> P1["Phase 1: Foundation 🟡"]
-  P1 --> P2["Phase 2: Schedules ⏳"]
-  P2 --> P3["Phase 3: Attendance ⏳"]
-  P3 --> P4["Phase 4: Points ⏳"]
-  P4 --> P5["Phase 5: Leaves ⏳"]
-  P5 --> P6["Phase 6: Payroll ⏳"]
-  P6 --> P7["Phase 7: Payouts ⏳"]
-  P7 --> P8["Phase 8: Deploy ⏳"]
+  P0["0 Decisions 🟡"] --> P1["1 Foundation 🟡"]
+  P1 --> P2["2 Schedules 🟡"]
+  P2 --> P3["3 Attendance 🟡"]
+  P3 --> P4["4 Points 🟡"]
+  P4 --> P5["5 Leave & corrections 🟡"]
+  P5 --> P6["6 Payroll ⏳"]
+  P6 --> P7["7 Paymob ⏳"]
+  P7 --> P8["8 Pilot ⏳"]
 ```
 
-### Milestone Status: Phase 0 & Phase 1 (Steps 1.1–1.4) 100% COMPLETE 🎉
+### What works today (API)
 
-| Phase | Steps | Focus & Scope | Owner | Status |
-| :--- | :---: | :--- | :--- | :---: |
-| **Phase 0: Business Decisions & Workspace** | **4 steps** | Multi-client monorepo structure, legal decisions, security policies, and seed data. | Lead Dev (User) | **COMPLETED ✅** |
-| ↳ *Step 0.1* | - | NestJS expert skill and monorepo scaffolding (`apps/api`, `web`, `mobile`) | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 0.2* | - | Root `.gitignore` and `.env` credentials setup | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 0.3* | - | Security policies (Argon2id, 15m JWT, 30d refresh family rotation, throttling) | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 0.4* | - | System rules & seed data specifications | Lead Dev | **COMPLETED ✅** |
-| **Phase 1: Foundation (Backend, Web & Mobile)** | **8 steps** | Modular monolith foundation, database schema, secure authentication, and RBAC. | Lead Dev / Team | **IN PROGRESS 🟡** |
-| ↳ *Step 1.1* | - | Prisma schema, Neon PostgreSQL sync & initial database seeding | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 1.2* | - | `AuthService`: Login, JWT signing, refresh rotation & real-time reuse theft detection | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 1.3* | - | Global `JwtAuthGuard` (default-deny), `@RequirePermission` RBAC & 429 login throttling | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 1.4* | - | Users CRUD, 1st-of-month versioned salaries & deactivation session purging | Lead Dev | **COMPLETED ✅** |
-| ↳ *Step 1.5* | - | Audit interceptor, system settings service & injectable clock provider | Lead Dev / TM 2 | **UPCOMING ⏳** |
-| ↳ *Step 1.6* | - | Dockerfile, Docker Compose & local multi-container orchestration | Teammate 3 (Asmaa) | **UPCOMING ⏳** |
-| ↳ *Step 1.7* | - | Next.js 15 Admin Web Shell, token refresh interceptor & layout | Frontend Web | **UPCOMING ⏳** |
-| ↳ *Step 1.8* | - | React Native Mobile App Shell, login screen & SecureStore tokens | Frontend Mobile | **UPCOMING ⏳** |
-| **Phase 2: Schedules, Calendar & Locations** | **6 steps** | Geofence locations, shifts, Cairo/UTC timezone calendar & kiosk rotating QR tokens. | Teammate 2 | **UPCOMING ⏳** |
-| **Phase 3: Attendance, GPS & Rotating QR** | **6 steps** | 2-step verification (GPS accuracy + kiosk camera scan), overtime units & auto-expiry. | Teammate 2 | **UPCOMING ⏳** |
-| **Phase 4: Points & Offset Engine** | **6 steps** | Append-only point transactions, offset engine (Green/Red/Black), and absence sweeper. | Teammate 2 | **UPCOMING ⏳** |
-| **Phase 5: Leave, Early Leave & Corrections** | **5 steps** | Leave requests, absence exemptions, admin corrections & in-app notifications. | Teammate 2 | **UPCOMING ⏳** |
-| **Phase 6: Payroll Fund & Month Settlement** | **5 steps** | Month close transaction (EGP only), off-day-work pay, profit-sharing fund distribution. | Teammate 2 | **UPCOMING ⏳** |
-| **Phase 7: Paymob Integration & Fund Payouts** | **4 steps** | Paymob payout gateway, encrypted account storage, webhook callbacks & idempotency. | Lead Dev / TM 2 | **UPCOMING ⏳** |
-| **Phase 8: Hardening, Security & Deployment** | **3 steps** | Concurrency regression, production Docker deployment, security audit & live company pilot. | Full Team | **UPCOMING ⏳** |
+| Area | What you can do |
+| :--- | :--- |
+| **Auth** | Sign in, rotating refresh tokens with theft detection, sign out, cookie sign-in for the web app (with CSRF), forced password change, login throttling |
+| **Companies** | Several isolated companies; a company and its first Admin are created by a provisioning command, never a public endpoint |
+| **People** | Admin creates users directly or **invites** them (the link is also emailed when SMTP is set); list, edit, activate and deactivate employees; salary versions from the 1st of a month |
+| **Schedules** | Company timezone policy, shifts with dated versions and weekdays, employee shift assignments with history |
+| **Points** | Point values in EGP from a date; add and reverse points with a mandatory reason; the ledger is append-only |
+| **Attendance** | Admin corrections (set check-in, set check-out, exempt) that reverse and re-award the day's points and overtime Greens |
+| **Audit** | Every admin change is recorded with actor, target and before/after; the log is append-only and readable by the Admin |
+
+### Coming next
+
+1. Phase 2 remainder: locations and geofences, rotating QR tokens, holidays, off-day work offers.
+2. Phase 3: the employee check-in API (GPS, then QR), built on the existing attendance rules.
+3. Phase 4: the offset engine and the daily absence job (BLACK at 12:00).
+4. Phase 5: leave and early-leave requests.
+5. Web admin and mobile app shells (can start at any time).
 
 ---
 
@@ -58,9 +52,9 @@ CheckPoint is structured as a scalable monorepo comprising three specialized cli
 CheckPoint/
 ├── apps/
 │   ├── api/        # [Backend] NestJS 11 Modular Monolith + Prisma + PostgreSQL 16 (Neon) + Redis
-│   ├── web/        # [Web Frontend] Next.js 15 (Admin Management & Branch /kiosk QR Display)
-│   └── mobile/     # [Mobile App] React Native (Expo) for Employees (GPS Check-in & QR Camera Scan)
-├── docs/           # Comprehensive System Specifications & Sequence Diagrams (8 Modules)
+│   ├── web/        # [Web Frontend] Next.js 15 (Admin Management & Branch /kiosk QR Display) — not started
+│   └── mobile/     # [Mobile App] React Native (Expo) for Employees (GPS Check-in & QR Camera Scan) — not started
+├── docs/           # Specifications, decision log, API guide and docs/api/openapi.json
 ├── AGENTS.md       # Engineering Rules, NestJS Standards & Team Division Guidelines
 └── .gitignore      # Secrets & Environment Policy
 ```
@@ -73,6 +67,9 @@ CheckPoint/
 | **Logging & Metrics** | Pino (`nestjs-pino`, `pino-pretty`) | High-performance asynchronous structured logging with sensitive field redaction. |
 | **Cache & Queue** | Redis, BullMQ | Asynchronous event processing, job workers, and rate limiting. |
 | **Security & Auth** | Argon2id, Passport-JWT, Crypto SHA-256 | Single-use rotating refresh tokens with family theft detection. |
+| **Email** | `@nestjs-modules/mailer` 4.0.0 (Nodemailer) | Invitation emails over SMTP; printed to the console when SMTP is not set. |
+| **Time** | Luxon | Shift windows in the company timezone (DST-safe), stored as UTC. |
+| **API docs** | `@nestjs/swagger` | Swagger UI at `/api/docs`, committed `docs/api/openapi.json`. |
 | **Admin & Kiosk Web** | Next.js 15 (App Router), Tailwind CSS | Administrative control panel and high-contrast rotating QR kiosk. |
 | **Employee Mobile** | React Native (Expo Router) | Geofenced GPS check-in, camera scanner, points ledger, and leave requests. |
 
@@ -94,40 +91,27 @@ To ensure clean engineering separation and avoid git merge collisions:
 - **Zero Plaintext Stored Tokens**: Refresh tokens are stored strictly as SHA-256 hashes in Neon DB.
 - **Fine-Grained RBAC**: Route handlers declare granular permissions (e.g. `@RequirePermission('users.write')`), validated by global guards adhering to a **default-deny** architecture.
 - **Immediate Session Purge**: Deactivating an employee (`active: false`) instantly invalidates all active sessions.
+- **Company Isolation**: The company always comes from the session. Another company's record answers 404, exactly like a missing one.
+- **Hash-Only Invitations**: Invitation tokens are stored as SHA-256 hashes, expire after 7 days and work once, even under concurrent accepts.
+- **Append-Only Records**: Database triggers reject UPDATE, DELETE and TRUNCATE on the audit log and the point ledger. Corrections are new compensating rows.
 
 ---
 
-## 🧪 Testing & CI/CD Quality Gates
+## 🧪 Testing & CI
 
-CheckPoint enforces automated testing across three complementary layers:
+Run these in `apps/api`:
 
-### 1. Unit Tests (`npm run test:unit`)
-Fast, isolated Jest unit tests mocking all external dependencies (Prisma, JwtService):
 ```bash
-npm run test:unit
-```
-- Covers password hashing, user creation edge cases, 1st-of-month salary rules, and refresh token theft detection branching.
-
-### 2. End-to-End Tests (`npm run test:e2e`)
-Formal Jest + Supertest E2E tests verifying real HTTP requests against the NestJS application instance:
-```bash
-npm run test:e2e
-```
-- Tests live login authentication, `@CurrentUser` profile extraction, token rotation, family theft detection rejection, user creation, and 1st-of-month salary enforcement.
-
-### 3. Comprehensive Verification Scripts (`npm run test:all`)
-Runs the full suite of end-to-end regression scripts:
-```bash
-npm run test:all
+npm run test:unit   # Jest unit tests, no database needed
+npm run test:e2e    # HTTP end-to-end suites; needs a migrated PostgreSQL (see docs/10-API_TESTING_GUIDE.md)
 ```
 
-### 4. GitHub Actions CI Pipeline (`.github/workflows/ci.yml`)
-Every push and pull request to `main` runs an automated quality gate:
-1. `npm ci` (clean dependency installation)
-2. `npx prisma generate` (Prisma client generation)
-3. `npx tsc --noEmit` (strict TypeScript typechecking)
-4. `npm run build` (NestJS production compilation)
-5. `npm run test:unit` (Jest unit test suite)
+- **Unit tests** cover auth and token theft, company scoping, invitations and email delivery, salary rules, shift windows and classification at every boundary second (including Egyptian summer time), overtime Greens, attendance corrections, and audit.
+- **`swagger.spec.ts`** fails when a route has no summary, tag or success response, or when `docs/api/openapi.json` is stale. Fix it with `npm run docs:openapi`.
+
+GitHub Actions (`.github/workflows/ci.yml`) runs two jobs on every pull request and push to `main`:
+1. **Build, typecheck and unit tests:** `npm ci`, `prisma generate`, `tsc --noEmit`, `npm run build`, `npm run test:unit`.
+2. **End-to-end on PostgreSQL:** a fresh PostgreSQL service, `prisma migrate deploy`, seed, then `npm run test:e2e`.
 
 ---
 
@@ -160,6 +144,13 @@ JWT_ACCESS_SECRET="your-secure-random-access-secret"
 JWT_EXPIRES_IN="15m"
 REFRESH_TOKEN_EXPIRES_DAYS=30
 CORS_ORIGINS="http://localhost:3000"   # browsers allowed to call the API (web app). Mobile and tools are not affected.
+# Invitation email. Leave SMTP_HOST empty in development: mails are printed to the console.
+SMTP_HOST=
+SMTP_PORT=587
+SMTP_USER=
+SMTP_PASS=
+MAIL_FROM="CheckPoint <no-reply@checkpoint.local>"
+INVITE_URL_BASE=http://localhost:3000/invitations/accept   # web page that accepts invitations; the API appends ?token=...
 ```
 
 ### 3. Database Schema & Seeding
@@ -178,24 +169,25 @@ Do not use the development seed account in production. **Existing database from 
 ```bash
 npm run start:dev
 ```
-API runs on `http://localhost:4000/api`.
+API runs on `http://localhost:4000/api`. Swagger UI is at `http://localhost:4000/api/docs` (outside production).
 
 ---
 
 ## 📚 Documentation Index
 
 The repository contains complete specifications for the entire system lifecycle:
-- [`01-PROJECT_BRIEF.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/01-PROJECT_BRIEF.md) — High-level problem, solution, and MVP scope.
-- [`02-PRD.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/02-PRD.md) — Detailed functional requirements & user stories.
-- [`03-TECH_STACK.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/03-TECH_STACK.md) — Architectural rationale & technical selections.
-- [`04-ARCHITECTURE.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/04-ARCHITECTURE.md) — Multi-client data flow and module diagrams.
-- [`05-SYSTEM_DESIGN.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/05-SYSTEM_DESIGN.md) — Deep-dive state machines, algorithms, and policies.
-- [`06-ROADMAP.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/06-ROADMAP.md) — 9 phases and 47 granular engineering steps.
-- [`07-SEQUENCE_DIAGRAMS.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/07-SEQUENCE_DIAGRAMS.md) — Sequence diagrams for Auth, QR check-in, and Payroll.
-- [`08-DATABASE_SCHEMA.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/docs/08-DATABASE_SCHEMA.md) — Complete relational schema & indexing strategy.
+- [`01-PROJECT_BRIEF.md`](docs/01-PROJECT_BRIEF.md) — High-level problem, solution, and MVP scope.
+- [`02-PRD.md`](docs/02-PRD.md) — Detailed functional requirements & user stories.
+- [`03-TECH_STACK.md`](docs/03-TECH_STACK.md) — Architectural rationale & technical selections.
+- [`04-ARCHITECTURE.md`](docs/04-ARCHITECTURE.md) — Multi-client data flow and module diagrams.
+- [`05-SYSTEM_DESIGN.md`](docs/05-SYSTEM_DESIGN.md) — Deep-dive state machines, algorithms, and policies.
+- [`06-ROADMAP.md`](docs/06-ROADMAP.md) — The 9 phases, their Definition of Done, and the current done / not-done status.
+- [`07-SEQUENCE_DIAGRAMS.md`](docs/07-SEQUENCE_DIAGRAMS.md) — Sequence diagrams for Auth, QR check-in, and Payroll.
+- [`08-DATABASE_SCHEMA.md`](docs/08-DATABASE_SCHEMA.md) — Complete relational schema & indexing strategy.
 - [`09-DECISION_LOG.md`](docs/09-DECISION_LOG.md) — Reconciliation of the planning spec and these docs: confirmed decisions, conflicts, REQ-to-FR traceability, open questions.
 - [`10-API_TESTING_GUIDE.md`](docs/10-API_TESTING_GUIDE.md) — End-to-end walkthrough of every route with real request and response bodies. Interactive docs at `/api/docs`; import `docs/api/openapi.json` into Apidog or Postman.
-- [`AGENTS.md`](file:///c:/Users/Mohand/Documents/GitHub/CheckPoint/AGENTS.md) — Guidelines for AI agents and engineering contributors.
+- [`11-PROVISIONING_RUNBOOK.md`](docs/11-PROVISIONING_RUNBOOK.md) — How an operator creates a company and its first Admin.
+- [`AGENTS.md`](AGENTS.md) — Guidelines for AI agents and engineering contributors.
 
 ---
 

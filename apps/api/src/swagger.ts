@@ -8,7 +8,7 @@ Attendance, points and incentive payroll for companies. Every company's data is 
 ## Quick start (2 minutes)
 1. **Sign in:** \`POST /api/auth/login\` with the development admin \`admin@checkpoint.local\` / \`AdminPassword123!\` (created by \`npx prisma db seed\`).
 2. **Authorize:** click **Authorize** (top right) and paste the \`accessToken\`. It is valid 15 minutes.
-3. **Try routes:** \`GET /api/auth/me\`, then \`POST /api/admin/users\`, \`POST /api/admin/invitations\`, and so on.
+3. **Try routes:** \`GET /api/auth/me\`, then \`POST /api/admin/invitations\`, \`GET /api/admin/shifts\`, \`POST /api/admin/attendance/corrections\`, \`GET /api/admin/audit-events\`, and so on.
 4. **Token expired (401)?** \`POST /api/auth/refresh\` with your \`refreshToken\`, and keep the NEW pair (refresh tokens are single-use).
 
 The full step-by-step cycle with real request and response bodies is in \`docs/10-API_TESTING_GUIDE.md\`.
@@ -33,7 +33,12 @@ export function buildOpenApiDocument(app: INestApplication): OpenAPIObject {
     .addTag('Auth', 'Sign in, refresh, sign out, and redeem an invitation')
     .addTag('Me', 'The signed-in user\'s own data (any role)')
     .addTag('Admin · Users', 'Employees of the Admin\'s own company (ADMIN only)')
-    .addTag('Admin · Invitations', 'Invite employees into the Admin\'s own company (ADMIN only)')
+    .addTag('Admin · Invitations', 'Invite employees into the Admin\'s own company; the link is also emailed when SMTP is configured (ADMIN only)')
+    .addTag('Admin · Employees', 'Employee records of the Admin\'s company: list, edit, activate and deactivate (ADMIN only)')
+    .addTag('Admin · Schedules', 'Company timezone policy, shifts, shift versions and assignments (ADMIN only)')
+    .addTag('Admin · Points', 'Point values in EGP and the append-only point ledger: add and reverse (ADMIN only)')
+    .addTag('Admin · Attendance', 'Attendance days and corrections through compensating ledger entries (ADMIN only)')
+    .addTag('Admin · Audit', 'The append-only audit log of the Admin\'s company (ADMIN only)')
     .build();
 
   // Only the tags declared with @ApiTags: no extra tag named after each controller class.

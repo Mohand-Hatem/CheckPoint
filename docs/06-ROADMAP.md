@@ -4,10 +4,30 @@
 |---|---|
 | **Version** | 3.0 |
 | **Status** | Final draft — implementation-ready |
-| **Last Updated** | 2026-10-08 |
+| **Last Updated** | 2026-11-02 |
 | **Source of Truth** | The finalization prompt ("SoT") overrides older documents. Phase order follows SoT §33, with one dependency clarification (Phase 3 ↔ Phase 4, below). |
 
 A phase is **complete only when every Definition of Done (DoD) item is checked by a passing test or a signed artifact.**
+
+## Status (2026-11-02, `main` at PR #10)
+
+Only the backend API exists so far; `apps/web` and `apps/mobile` are empty. "Done" below means built, unit-tested and covered by the CI end-to-end job on PostgreSQL. No phase has met its full DoD yet.
+
+| Phase | Done | Not done yet |
+|---|---|---|
+| 0 Decisions | Spec v0.4.0 approved (multi-company MVP); invitation email decided (CHG-005, awaiting approval) | Legal review of deductions (GAP-001), Paymob account, fees and minimum (GAP-008), Green-vs-penalty economy (GAP-018), per-company settings (GAP-027) |
+| 1 Foundation | Login, rotating refresh with reuse detection, logout, cookie auth with CSRF, forced password change, login throttling; RBAC; multi-company isolation and provisioning command; users and 1st-of-month salary versions; employees (list, edit, activate/deactivate); invitations with email; append-only audit log with read endpoint; Prisma migrations; Swagger and `openapi.json`; Pino logging; Docker Compose; CI (unit + e2e) | Settings service, injectable `Clock`, BullMQ wiring, Next.js admin shell, Expo mobile shell |
+| 2 Schedules / calendar / locations | Company timezone policy versions; shifts, shift versions with weekdays, assignments (no overlaps, history kept) | Holidays, off-day-work offers, locations and geofences, rotating QR tokens, `/kiosk` |
+| 3 Attendance | Window and classification rules (`attendance-rules.ts`, DST-safe) ready for check-in to reuse | Check-in step 1 (GPS) and step 2 (QR), check-out, verification expiry job, mobile screens |
+| 4 Points | Point values (EGP, effective-dated); ledger add and reverse with mandatory reason; ledger append-only by migration | `point_state` view, offset engine, absence sweeper (BLACK at 12:00), locked-month guard |
+| 5 Leave / corrections | Admin attendance corrections (`POST /admin/attendance/corrections`): compensating ledger entries, overtime Greens, audited before/after | Leave and early-leave requests, approvals, notifications |
+| 6 Payroll / fund | — | Everything |
+| 7 Paymob | — | Everything |
+| 8 Hardening / pilot | — | Everything |
+
+**Next, in dependency order:** Phase 2 remainder (locations, geofence, QR tokens, holidays, off-day offers) → Phase 3 check-in API on top of `attendance-rules.ts` → Phase 4 offset engine and absence sweeper (needs BullMQ) → Phase 5 leave. The web and mobile shells can start in parallel at any time.
+
+**Open housekeeping:** approve spec v0.4.1 in `planning/docs/planning/SPEC_APPROVAL.md`; baseline the shared Neon dev database onto migrations (it was built with `db push`, see the README).
 
 ```mermaid
 flowchart LR

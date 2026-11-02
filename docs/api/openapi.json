@@ -2862,7 +2862,7 @@
   },
   "info": {
     "title": "CheckPoint API",
-    "description": "\nAttendance, points and incentive payroll for companies. Every company's data is isolated.\n\n## Quick start (2 minutes)\n1. **Sign in:** `POST /api/auth/login` with the development admin `admin@checkpoint.local` / `AdminPassword123!` (created by `npx prisma db seed`).\n2. **Authorize:** click **Authorize** (top right) and paste the `accessToken`. It is valid 15 minutes.\n3. **Try routes:** `GET /api/auth/me`, then `POST /api/admin/users`, `POST /api/admin/invitations`, and so on.\n4. **Token expired (401)?** `POST /api/auth/refresh` with your `refreshToken`, and keep the NEW pair (refresh tokens are single-use).\n\nThe full step-by-step cycle with real request and response bodies is in `docs/10-API_TESTING_GUIDE.md`.\n\n## Rules that apply everywhere\n- **Authentication:** `Authorization: Bearer <accessToken>` (mobile, tools). Web clients send `X-Auth-Mode: cookie` on login, refresh and logout and get `HttpOnly` cookies instead; a write authenticated by cookie must also send `X-CSRF-Token`. When both a header and a cookie arrive, the header wins. Only login, refresh, logout and invitation accept are public.\n- **Company scope:** your company comes from your token, never from the request. A record of another company answers **404**, the same as a missing one.\n- **Roles:** ADMIN may use the `/admin/*` routes; EMPLOYEE gets **403** there. Employees reach only their own data (`/me/*`).\n- **Validation:** unknown properties in a body are rejected with **400**.\n- **Errors** always look like `{ \"statusCode\": 404, \"message\": \"...\", \"error\": \"Not Found\" }`.\n- **Money** is EGP. Amounts come back as strings (for example `\"12000\"`).\n",
+    "description": "\nAttendance, points and incentive payroll for companies. Every company's data is isolated.\n\n## Quick start (2 minutes)\n1. **Sign in:** `POST /api/auth/login` with the development admin `admin@checkpoint.local` / `AdminPassword123!` (created by `npx prisma db seed`).\n2. **Authorize:** click **Authorize** (top right) and paste the `accessToken`. It is valid 15 minutes.\n3. **Try routes:** `GET /api/auth/me`, then `POST /api/admin/invitations`, `GET /api/admin/shifts`, `POST /api/admin/attendance/corrections`, `GET /api/admin/audit-events`, and so on.\n4. **Token expired (401)?** `POST /api/auth/refresh` with your `refreshToken`, and keep the NEW pair (refresh tokens are single-use).\n\nThe full step-by-step cycle with real request and response bodies is in `docs/10-API_TESTING_GUIDE.md`.\n\n## Rules that apply everywhere\n- **Authentication:** `Authorization: Bearer <accessToken>` (mobile, tools). Web clients send `X-Auth-Mode: cookie` on login, refresh and logout and get `HttpOnly` cookies instead; a write authenticated by cookie must also send `X-CSRF-Token`. When both a header and a cookie arrive, the header wins. Only login, refresh, logout and invitation accept are public.\n- **Company scope:** your company comes from your token, never from the request. A record of another company answers **404**, the same as a missing one.\n- **Roles:** ADMIN may use the `/admin/*` routes; EMPLOYEE gets **403** there. Employees reach only their own data (`/me/*`).\n- **Validation:** unknown properties in a body are rejected with **400**.\n- **Errors** always look like `{ \"statusCode\": 404, \"message\": \"...\", \"error\": \"Not Found\" }`.\n- **Money** is EGP. Amounts come back as strings (for example `\"12000\"`).\n",
     "version": "1.0.0",
     "contact": {}
   },
@@ -2881,7 +2881,27 @@
     },
     {
       "name": "Admin · Invitations",
-      "description": "Invite employees into the Admin's own company (ADMIN only)"
+      "description": "Invite employees into the Admin's own company; the link is also emailed when SMTP is configured (ADMIN only)"
+    },
+    {
+      "name": "Admin · Employees",
+      "description": "Employee records of the Admin's company: list, edit, activate and deactivate (ADMIN only)"
+    },
+    {
+      "name": "Admin · Schedules",
+      "description": "Company timezone policy, shifts, shift versions and assignments (ADMIN only)"
+    },
+    {
+      "name": "Admin · Points",
+      "description": "Point values in EGP and the append-only point ledger: add and reverse (ADMIN only)"
+    },
+    {
+      "name": "Admin · Attendance",
+      "description": "Attendance days and corrections through compensating ledger entries (ADMIN only)"
+    },
+    {
+      "name": "Admin · Audit",
+      "description": "The append-only audit log of the Admin's company (ADMIN only)"
     }
   ],
   "servers": [
