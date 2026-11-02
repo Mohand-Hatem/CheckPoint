@@ -3,6 +3,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import * as argon2 from 'argon2';
 import { HttpException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
+import { EmployeesService } from '../employees/employees.service';
 import { LoginThrottleService } from '../auth/guards/login-throttle.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { UsersService } from './users.service';
@@ -83,6 +84,7 @@ describe('UsersService (Unit)', () => {
         { provide: PrismaService, useValue: prisma },
         { provide: LoginThrottleService, useValue: throttle },
         { provide: AuditService, useValue: audit },
+        { provide: EmployeesService, useValue: { assignInitialShift: jest.fn().mockResolvedValue({}) } },
       ],
     }).compile();
 

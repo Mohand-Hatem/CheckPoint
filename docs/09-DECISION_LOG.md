@@ -34,6 +34,8 @@
 | D-11 | Companies are created only by a provisioning command (REQ-031); employees join by invitation (REQ-032); one company per account; every read, mutation and refresh is company-scoped from the session, foreign records answer 404, employees reach only their own records (REQ-033); nothing may block a later SaaS (REQ-NFR-009). | **REQ-031–033, REQ-NFR-009 (v0.4.0)** | 01, 02 (FR-COMP-1–4), 08 §3.0, 06 (TASK-042–045) |
 | D-12 | Two active roles (`ADMIN`, `EMPLOYEE`) on a small RBAC foundation. | REQ-003 | 02 (FR-AUTH-3), 04, 08 |
 | D-13 | WHITE is visibility only. Ledgers are append-only. No leave accrual or carry-over. | AC-REQ-012-03, REQ-017, REQ-021 | already consistent |
+| D-14 | Invitations: the Admin always gets the one-time link; it is also emailed when SMTP is configured, best-effort after commit. The employee is created when the invitation is accepted (REQ-032 as approved in v0.4.0). | REQ-032, AC-REQ-032-05 (spec CHG-005 draft) | 02 (FR-EMP-3), 05 §3, 08 §3.0 |
+| D-15 | Attendance corrections use one endpoint and keep the original through the append-only audit log plus reversing ledger entries (no corrections table). The point ledger is append-only by migration `20261102000000_point_ledger_append_only`, like the audit log. | REQ-016, REQ-028, AC-REQ-017-01 | 05 §4.7, §13 |
 
 No two CONFIRMED decisions conflict with each other.
 
@@ -109,6 +111,7 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-005 | `04` §7, `05` §11 |
 | REQ-006 | FR-AUTH-1, FR-AUTH-2, FR-AUTH-5; `05` §3 |
 | REQ-007 | FR-EMP-1 |
+| REQ-032 | FR-EMP-3; `05` §3 item 7 |
 | REQ-008 | FR-EMP-2 |
 | REQ-009 | FR-LOC-1; `05` §4.2 |
 | REQ-010 | FR-SCH-1, FR-CAL-1, FR-CAL-2 |
@@ -116,7 +119,7 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-012 | FR-ATT-4; `02` §6.1 |
 | REQ-013, REQ-014 | FR-ATT-5; `02` §6.5; `07` §5-6 |
 | REQ-015 | `02` §6.1; `05` §12; `07` §7 |
-| REQ-016 | FR-ATT-6 |
+| REQ-016 | FR-ATT-6; `05` §4.7 |
 | REQ-017 | FR-PTS-1 |
 | REQ-018 | FR-PTS-2, FR-PTS-3, FR-PTS-4; `02` §6.4; golden G3-G5, G8 |
 | REQ-019 | FR-PTS-5 |

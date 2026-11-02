@@ -4,194 +4,125 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Prisma, CompanyInvitationStatus } from '@prisma/client';
-import { createHash, randomBytes } from 'node:crypto';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { CreateEmployeeDto } from './dto/create-employee.dto';
+import { Prisma } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
+import { CompanyPolicyService } from '../company/company-policy.service';
+import { PrismaService } from '../prisma/prisma.service';
 import { ListEmployeesQuery } from './dto/list-employees.query';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
 
-const INVITATION_EXPIRY_DAYS = 7;
-
+// Employees are created by InvitationsService (accept) or UsersService (direct create).
 @Injectable()
 export class EmployeesService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly companyPolicy: CompanyPolicyService,
+    private readonly audit: AuditService,
+  ) {}
 
-  async create(
-    companyId: string,
-    adminUserId: string,
-    dto: CreateEmployeeDto,
+  async assignShift(
+    tx: Prisma.TransactionClient,
+    input: {
+      companyId: string;
+      employeeId: string;
+      shiftId: string;
+      effectiveFrom: Date;
+      effectiveTo: Date | null;
+      assignedByUserId: string | null;
+      companyDate: Date;
+    },
   ) {
-    const email = dto.email.toLowerCase().trim();
-    const employeeNumber = dto.employeeNumber.trim();
-
-    const admin = await this.prisma.user.findFirst({
-      where: {
-        id: adminUserId,
-        companyId,
-        isActive: true,
-      },
+    const employee = await tx.employee.findFirst({
+      where: { id: input.employeeId, companyId: input.companyId },
       select: { id: true },
     });
-
-    if (!admin) {
-      throw new NotFoundException('Admin account not found');
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
     }
 
-    const shift = await this.prisma.shift.findFirst({
+    const overlapping = await tx.shiftAssignment.findMany({
       where: {
-        id: dto.shiftId,
-        companyId,
-        isActive: true,
-      },
-      select: { id: true },
-    });
-
-    if (!shift) {
-      throw new BadRequestException(
-        'The selected shift is not available in this company',
-      );
-    }
-
-    const existingUser = await this.prisma.user.findUnique({
-      where: { email },
-      select: { id: true },
-    });
-
-    if (existingUser) {
-      throw new ConflictException(
-        'An account with this email already exists',
-      );
-    }
-
-    const existingEmployee = await this.prisma.employee.findFirst({
-      where: {
-        companyId,
-        employeeNumber,
-      },
-      select: { id: true },
-    });
-
-    if (existingEmployee) {
-      throw new ConflictException(
-        'An employee with this number already exists',
-      );
-    }
-
-    const now = new Date();
-
-    await this.prisma.companyInvitation.updateMany({
-      where: {
-        email,
-        status: CompanyInvitationStatus.PENDING,
-        expiresAt: { lte: now },
-      },
-      data: {
-        status: CompanyInvitationStatus.EXPIRED,
-      },
-    });
-
-    const pendingInvitation =
-      await this.prisma.companyInvitation.findFirst({
-        where: {
-          email,
-          status: CompanyInvitationStatus.PENDING,
-          expiresAt: { gt: now },
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        effectiveFrom: {
+          lte: input.effectiveTo ?? new Date('9999-12-31T00:00:00.000Z'),
         },
-        select: { id: true },
-      });
+        OR: [
+          { effectiveTo: null },
+          { effectiveTo: { gte: input.effectiveFrom } },
+        ],
+      },
+      orderBy: { effectiveFrom: 'asc' },
+    });
+    const priorAssignments = overlapping.filter(
+      (assignment) => assignment.effectiveFrom < input.effectiveFrom,
+    );
+    const laterOrSameAssignments = overlapping.filter(
+      (assignment) => assignment.effectiveFrom >= input.effectiveFrom,
+    );
 
-    if (pendingInvitation) {
+    if (priorAssignments.length > 1 || laterOrSameAssignments.length > 0) {
       throw new ConflictException(
-        'A pending invitation already exists for this email',
+        'The employee already has an assignment overlapping these effective dates.',
       );
     }
 
-    const rawToken = randomBytes(32).toString('hex');
-
-    const tokenHash = createHash('sha256')
-      .update(rawToken)
-      .digest('hex');
-
-    const expiresAt = new Date(
-      now.getTime() +
-        INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-    );
-
-    const cairoDateString = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'Africa/Cairo',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(now);
-
-    const effectiveFrom = new Date(
-      `${cairoDateString}T00:00:00.000Z`,
-    );
-
-    try {
-      const result = await this.prisma.$transaction(async (tx) => {
-        const employee = await tx.employee.create({
-          data: {
-            companyId,
-            currentShiftId: shift.id,
-            employeeNumber,
-            fullName: dto.fullName.trim(),
-            phone: dto.phone?.trim() || null,
-            isActive: false,
-          },
-        });
-
-        await tx.shiftAssignment.create({
-          data: {
-            companyId,
-            employeeId: employee.id,
-            shiftId: shift.id,
-            effectiveFrom,
-            assignedByUserId: adminUserId,
-          },
-        });
-
-        const invitation = await tx.companyInvitation.create({
-          data: {
-            companyId,
-            invitedByUserId: adminUserId,
-            email,
-            fullName: employee.fullName,
-            employeeNumber,
-            tokenHash,
-            expiresAt,
-          },
-          select: {
-            id: true,
-            status: true,
-            expiresAt: true,
-          },
-        });
-
-        return {
-          employee,
-          invitation,
-        };
+    if (priorAssignments[0]) {
+      await tx.shiftAssignment.update({
+        where: { id: priorAssignments[0].id },
+        data: {
+          effectiveTo: new Date(
+            input.effectiveFrom.getTime() - 24 * 60 * 60 * 1000,
+          ),
+        },
       });
-
-      return {
-        ...result,
-        invitationToken: rawToken,
-      };
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
-      ) {
-        throw new ConflictException(
-          'The employee number or email is already in use',
-        );
-      }
-
-      throw error;
     }
+
+    const assignment = await tx.shiftAssignment.create({
+      data: {
+        companyId: input.companyId,
+        employeeId: input.employeeId,
+        shiftId: input.shiftId,
+        effectiveFrom: input.effectiveFrom,
+        effectiveTo: input.effectiveTo,
+        assignedByUserId: input.assignedByUserId,
+      },
+    });
+
+    if (
+      input.effectiveFrom <= input.companyDate &&
+      (input.effectiveTo === null || input.effectiveTo >= input.companyDate)
+    ) {
+      await tx.employee.update({
+        where: { id: employee.id },
+        data: { currentShiftId: input.shiftId },
+      });
+    }
+
+    return assignment;
   }
+
+  async assignInitialShift(
+    tx: Prisma.TransactionClient,
+    input: {
+      companyId: string;
+      employeeId: string;
+      shiftId: string;
+      assignedByUserId: string | null;
+    },
+  ) {
+    const effectiveFrom = await this.companyPolicy.getCompanyDate(
+      input.companyId,
+    );
+
+    return this.assignShift(tx, {
+      ...input,
+      effectiveFrom,
+      effectiveTo: null,
+      companyDate: effectiveFrom,
+    });
+  }
+
   async findAll(companyId: string, query: ListEmployeesQuery) {
     const where: Prisma.EmployeeWhereInput = {
       companyId,
@@ -301,50 +232,113 @@ export class EmployeesService {
 
     return employee;
   }
+
+  async update(
+    companyId: string,
+    adminUserId: string,
+    employeeId: string,
+    dto: UpdateEmployeeDto,
+  ) {
+    const before = await this.prisma.employee.findFirst({
+      where: { id: employeeId, companyId },
+      select: { id: true, employeeNumber: true, fullName: true, phone: true },
+    });
+    if (!before) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    const data = {
+      employeeNumber: dto.employeeNumber?.trim(),
+      fullName: dto.fullName?.trim(),
+      phone: dto.phone === undefined ? undefined : dto.phone.trim() || null,
+    };
+
+    try {
+      return await this.prisma.$transaction(async (tx) => {
+        const employee = await tx.employee.update({
+          where: { id: employeeId },
+          data,
+        });
+
+        await this.audit.record(tx, {
+          companyId,
+          actorUserId: adminUserId,
+          actorType: 'ADMIN',
+          action: 'employee.update',
+          targetType: 'employee',
+          targetId: employeeId,
+          changes: { before, after: data },
+        });
+
+        return employee;
+      });
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new ConflictException('An employee with this number already exists');
+      }
+      throw error;
+    }
+  }
+
   async setActive(
     companyId: string,
+    adminUserId: string,
     employeeId: string,
     isActive: boolean,
   ) {
     const employee = await this.prisma.employee.findFirst({
-      where: {
-        id: employeeId,
-        companyId,
-      },
-      select: {
-        id: true,
-        userId: true,
-        isActive: true,
-      },
+      where: { id: employeeId, companyId },
+      select: { id: true, userId: true },
     });
-
     if (!employee) {
       throw new NotFoundException('Employee not found');
     }
+    const { userId } = employee;
+    if (!userId) {
+      throw new BadRequestException(
+        'This employee has not accepted the invitation yet',
+      );
+    }
+    // The caller is an active Admin, so refusing self-deactivation keeps one active Admin (AC-REQ-007-05).
+    if (!isActive && userId === adminUserId) {
+      throw new BadRequestException('You cannot deactivate your own account');
+    }
+
+    // Reactivation restarts the absence window; deactivation stops new BLACKs. History is kept.
+    const data = isActive
+      ? {
+          isActive: true,
+          deactivatedAt: null,
+          activeFrom: await this.companyPolicy.getCompanyDate(companyId),
+        }
+      : { isActive: false, deactivatedAt: new Date() };
 
     return this.prisma.$transaction(async (tx) => {
-      const updatedEmployee = await tx.employee.update({
-        where: {
-          id: employeeId,
-        },
-        data: {
-          isActive,
-          deactivatedAt: isActive ? null : new Date(),
-        },
-      });
-
-      if (employee.userId) {
-        await tx.user.update({
-          where: {
-            id: employee.userId,
-          },
-          data: {
-            isActive,
-          },
+      if (!isActive) {
+        await tx.refreshToken.updateMany({
+          where: { userId, revokedAt: null },
+          data: { revokedAt: new Date() },
         });
       }
 
-      return updatedEmployee;
+      await tx.user.update({ where: { id: userId }, data: { isActive } });
+
+      const updated = await tx.employee.update({ where: { id: employeeId }, data });
+
+      await this.audit.record(tx, {
+        companyId,
+        actorUserId: adminUserId,
+        actorType: 'ADMIN',
+        action: isActive ? 'employee.activate' : 'employee.deactivate',
+        targetType: 'employee',
+        targetId: employeeId,
+        changes: { isActive },
+      });
+
+      return updated;
     });
   }
 }

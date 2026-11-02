@@ -1,8 +1,11 @@
-import { BadRequestException, ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, ConflictException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
+import { MailerService } from '@nestjs-modules/mailer';
 import { CompanyInvitationStatus, Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
 import { createHash, randomBytes } from 'crypto';
 import { AuditService } from '../audit/audit.service';
+import { EmployeesService } from '../employees/employees.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AcceptInvitationDto, CreateInvitationDto } from './dto/invitation.dto';
 
@@ -26,9 +29,14 @@ const VIEW = {
 
 @Injectable()
 export class InvitationsService {
+  private readonly logger = new Logger(InvitationsService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly audit: AuditService,
+    private readonly employees: EmployeesService,
+    private readonly mailer: MailerService,
+    private readonly config: ConfigService,
   ) {}
 
   async create(companyId: string, invitedByUserId: string, dto: CreateInvitationDto) {
@@ -100,8 +108,8 @@ export class InvitationsService {
       throw error;
     }
 
-    // The raw token is returned once and never stored (spec GAP-026 default: the Admin shares the link).
-    return { ...invitation, token };
+    // The raw token is returned once and never stored. The Admin always gets the link; email is extra (AC-REQ-032-05).
+    return { ...invitation, token, ...(await this.deliver(email, invitation.fullName, token)) };
   }
 
   list(companyId: string) {
@@ -178,7 +186,7 @@ export class InvitationsService {
         await tx.userRole.create({
           data: { userId: user.id, roleId: role.id, assignedByUserId: invitation.invitedByUserId },
         });
-        await tx.employee.create({
+        const employee = await tx.employee.create({
           data: {
             companyId: invitation.companyId,
             userId: user.id,
@@ -186,6 +194,13 @@ export class InvitationsService {
             fullName: invitation.fullName,
             currentShiftId: shift.id,
           },
+        });
+        // Attendance needs an assignment row covering each work date, not only currentShiftId.
+        await this.employees.assignInitialShift(tx, {
+          companyId: invitation.companyId,
+          employeeId: employee.id,
+          shiftId: shift.id,
+          assignedByUserId: invitation.invitedByUserId,
         });
         await this.audit.record(tx, {
           companyId: invitation.companyId,
@@ -205,5 +220,32 @@ export class InvitationsService {
     }
 
     return { email: invitation.email, message: 'Account created. You can now sign in.' };
+  }
+
+  // Best-effort and after commit: a mail failure never undoes the invitation.
+  private async deliver(email: string, fullName: string, token: string) {
+    const base = this.config.get<string>('INVITE_URL_BASE', 'http://localhost:3000/invitations/accept');
+    const invitationLink = `${base}?token=${token}`;
+    const smtpConfigured = Boolean(this.config.get<string>('SMTP_HOST'));
+
+    const sent = await this.mailer
+      .sendMail({
+        to: email,
+        subject: 'You are invited to CheckPoint',
+        text:
+          `Hello ${fullName},\n\n` +
+          'You have been invited to join CheckPoint. Set your password here ' +
+          `(the link expires in ${INVITATION_TTL_DAYS} days):\n\n${invitationLink}\n`,
+      })
+      .then(
+        () => true,
+        (error: unknown) => {
+          this.logger.warn(`Invitation email failed: ${String(error)}`);
+          return false;
+        },
+      );
+
+    // Without SMTP the mail only reaches LogTransport, so it was not delivered.
+    return { invitationLink, emailSent: smtpConfigured && sent };
   }
 }

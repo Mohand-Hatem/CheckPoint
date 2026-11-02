@@ -65,6 +65,15 @@ export class CreatedInvitationResponseDto extends InvitationResponseDto {
     description: 'The one-time token. Returned ONLY here and never stored: share it with the invitee now.',
   })
   token!: string;
+
+  @ApiProperty({
+    example: 'http://localhost:3000/invitations/accept?token=9f2c4e...',
+    description: 'The accept link (INVITE_URL_BASE + token). Share it yourself when `emailSent` is false.',
+  })
+  invitationLink!: string;
+
+  @ApiProperty({ example: true, description: 'True only when SMTP is configured and the email was handed to it.' })
+  emailSent!: boolean;
 }
 
 export class AcceptInvitationResponseDto {

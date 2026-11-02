@@ -1,14 +1,18 @@
 import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { Test, TestingModule } from '@nestjs/testing';
+import { MailerService } from '@nestjs-modules/mailer';
 import { Prisma } from '@prisma/client';
 import { createHash } from 'crypto';
 import { AuditService } from '../audit/audit.service';
+import { EmployeesService } from '../employees/employees.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { InvitationsService } from './invitations.service';
 
 describe('InvitationsService (Unit)', () => {
   let service: InvitationsService;
   let prisma: any;
+  let employees: { assignInitialShift: jest.Mock };
 
   const dto = { email: 'New.Person@Acme.com', fullName: 'New Person', employeeCode: 'EMP-9' };
   const hash = (t: string) => createHash('sha256').update(t).digest('hex');
@@ -47,6 +51,9 @@ describe('InvitationsService (Unit)', () => {
         InvitationsService,
         { provide: PrismaService, useValue: prisma },
         { provide: AuditService, useValue: { record: jest.fn().mockResolvedValue({}) } },
+        { provide: EmployeesService, useValue: (employees = { assignInitialShift: jest.fn().mockResolvedValue({}) }) },
+        { provide: MailerService, useValue: { sendMail: jest.fn().mockResolvedValue({}) } },
+        { provide: ConfigService, useValue: new ConfigService({}) },
       ],
     }).compile();
     service = module.get(InvitationsService);
@@ -121,6 +128,7 @@ describe('InvitationsService (Unit)', () => {
       prisma.role.findUnique.mockResolvedValue({ id: 'role-employee' });
       prisma.shift.findFirst.mockResolvedValue({ id: 'shift-A' });
       prisma.user.create.mockResolvedValue({ id: 'new-user' });
+      prisma.employee.create.mockResolvedValue({ id: 'new-employee' });
 
       const result = await service.accept({ token: 'raw-token', password: 'Password123!' });
 
@@ -130,6 +138,12 @@ describe('InvitationsService (Unit)', () => {
       });
       expect(prisma.employee.create).toHaveBeenCalledWith({
         data: expect.objectContaining({ companyId: 'company-A', employeeNumber: 'EMP-9', currentShiftId: 'shift-A' }),
+      });
+      expect(employees.assignInitialShift).toHaveBeenCalledWith(prisma, {
+        companyId: 'company-A',
+        employeeId: 'new-employee',
+        shiftId: 'shift-A',
+        assignedByUserId: 'admin-A',
       });
       expect(result.email).toBe('new.person@acme.com');
     });

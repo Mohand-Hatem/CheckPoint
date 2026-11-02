@@ -38,7 +38,8 @@ export class InvitationsController {
     summary: 'Invite an employee into my company',
     description:
       '**Scenario:** an Admin invites a new hire. The response contains the one-time `token` **once**; only its hash is stored. ' +
-      'Share the token with the invitee, who redeems it at `POST /auth/invitations/accept`. It is single-use and expires after 7 days.\n\n' +
+      'When SMTP is configured the link is also emailed after the invitation is saved (`emailSent`); otherwise share `invitationLink` yourself. ' +
+      'The invitee redeems it at `POST /auth/invitations/accept`. It is single-use and expires after 7 days.\n\n' +
       '**Rules:** the email must not have an account anywhere; the employee code must be free in this company; only one pending invitation per email or code.',
   })
   @ApiCreatedResponse({ type: CreatedInvitationResponseDto })

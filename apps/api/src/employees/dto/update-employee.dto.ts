@@ -3,5 +3,5 @@ import { CreateEmployeeDto } from './create-employee.dto';
 
 // الـ email مش بيتعدل هنا: تغيير الـ login له تبعات أمنية (قرار مؤجل).
 export class UpdateEmployeeDto extends PartialType(
-  OmitType(CreateEmployeeDto, ['email'] as const),
+  OmitType(CreateEmployeeDto, ['email', 'shiftId'] as const),
 ) {}
