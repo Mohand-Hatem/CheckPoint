@@ -391,7 +391,7 @@ model PointLedgerEntry {
   sourceType            String                  @map("source_type") @db.Text
   sourceId              String?                 @map("source_id") @db.Uuid
   idempotencyKey        String                  @unique(map: "point_ledger_entries_idempotency_key_key") @map("idempotency_key") @db.Text
-  reversesEntryId       String?                 @map("reverses_entry_id") @db.Uuid
+  reversesEntryId       String?                 @unique(map: "point_ledger_entries_reverses_entry_id_key") @map("reverses_entry_id") @db.Uuid
   reason                String?                 @db.Text
   createdByUserId       String?                 @map("created_by_user_id") @db.Uuid
   createdAt             DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)

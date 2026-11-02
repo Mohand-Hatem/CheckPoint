@@ -76,7 +76,7 @@ Rules
 |---|---|---|---|
 | `auth` | Login, refresh rotation, logout, throttling, guards, RBAC foundation | `roles`, `role_permissions`, `refresh_tokens` | users, settings |
 | `users` | Employees, salary versions, disable/reactivate, payout-method owner link | `users`, `employee_compensation_versions`, `user_locations` | auth(roles), audit |
-| `schedules` | Shift + versioned ShiftVersion + ShiftAssignment, effective-schedule resolver | `shifts`, `shift_versions`, `shift_version_weekdays`, `shift_assignments` | users, audit |
+| `schedules` | Company timezone policy and shift/version/assignment management | `company_policy_versions`, timezone setting, `shifts`, `shift_versions`, `shift_version_weekdays`, `shift_assignments` | employees, users, audit |
 | `calendar` | Weekly off days, holidays, off-day-work exceptions, `isWorkingDay` | `holidays`, `work_offers` (type `OFF_DAY_WORK`) | settings, audit |
 | `locations` | Geofences, QR token generation/validation | `locations` | audit |
 | `attendance` | Check-in (GPS+QR), check-out, absence handling, corrections, verification expiry | `attendance`, `attendance_verifications` | schedules, calendar, locations, leaves, points, audit |

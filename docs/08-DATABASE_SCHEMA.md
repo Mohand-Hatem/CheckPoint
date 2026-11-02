@@ -121,7 +121,7 @@ Indexes: `(user_id)`, `(family_id)`, `(expires_at)`. User-owned, so no `company_
 `company_id` + `key` text (PK both) · `value` jsonb NN · `updated_by` uuid FK · `updated_at` timestamptz NN. Keys and defaults: §3.8.
 
 #### `company_policy_versions`
-`id`, `timezone` text NN (MVP: `Africa/Cairo`), `monthly_hours_divisor` int NN, `effective_from` date NN, `effective_to` date, `created_by_user_id`. **`monthly_hours_divisor` is not used for any pay in the MVP**: off-day pay always divides by 30 (FR-CAL-3).
+`id`, `timezone` text NN (default: `Africa/Cairo`), `monthly_hours_divisor` int NN, `effective_from` date NN, `effective_to` date, `created_by_user_id`. Timezone changes create a new policy version; the `settings.timezone` key remains the current-value compatibility setting. Effective date ranges are inclusive, and a new version closes the preceding version on the day before its `effective_from`. **`monthly_hours_divisor` is not used for any pay in the MVP**: off-day pay always divides by 30 (FR-CAL-3).
 
 #### `employee_compensation_versions` (Prisma model `EmployeeSalaryVersion`)
 | Column | Type | Notes |
@@ -152,12 +152,12 @@ Constraint **[ADD]**: `UNIQUE (employee_id, effective_from)`. Rows are never edi
 | effective_from / effective_to | date | |
 | created_by_user_id | uuid FK → users | |
 
-Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_period < end`. With the defaults: GREEN 08:00–08:59, WHITE 09:00–09:59, RED 10:00–11:59, BLACK from 12:00 (spec REQ-012). *Reading `grace_minutes` and `red_period_minutes` as WHITE-end and RED-end is the reconciliation's interpretation of the 2026-10-22 model (see `09-DECISION_LOG.md`).*
+Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_period < end`. Shift versions use one continuous same-day interval: `end_time` must be later than `start_time`; split and overnight shifts are unsupported. Weekdays are unique values from Sunday `0` through Saturday `6`, and effective date ranges are inclusive and must not overlap for a shift. With the defaults: GREEN 08:00–08:59, WHITE 09:00–09:59, RED 10:00–11:59, BLACK from 12:00 (spec REQ-012). *Reading `grace_minutes` and `red_period_minutes` as WHITE-end and RED-end is the reconciliation's interpretation of the 2026-10-22 model (see `09-DECISION_LOG.md`).*
 
 `shift_version_weekdays(company_id, shift_version_id, weekday smallint)` PK all three: the working weekdays of a version (one start/end for all listed days).
 
 #### `shift_assignments`
-`id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. No overlapping assignments per employee (service rule; exclusion constraint once migrations replace `db push`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction.
+`id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. Effective dates are inclusive. No overlapping assignments per employee (service rule; exclusion constraint once migrations replace `db push`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction; schedule assignment delegates employee ownership checks and pointer updates to `EmployeesService`.
 
 #### `locations`, `employee_locations`, `holidays` (Phase 2, not in the schema yet)
 - `locations(id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea, active)`.

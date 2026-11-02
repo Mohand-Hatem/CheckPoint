@@ -7,6 +7,7 @@ import { CompanyModule } from './company/company.module';
 import { PermissionsGuard } from './auth/guards/permissions.guard';
 import { AppLoggerModule } from './logger/logger.module';
 import { PrismaModule } from './prisma/prisma.module';
+import { PointsModule } from './points/points.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { UsersModule } from './users/users.module';
 
@@ -21,6 +22,7 @@ import { UsersModule } from './users/users.module';
     CompanyModule,
     AuthModule,
     UsersModule,
+    PointsModule,
     SchedulesModule,
   ],
   providers: [
