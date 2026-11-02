@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import * as argon2 from 'argon2';
-import { CompanyContextService } from '../company/company-context.service';
+import { AuditService } from '../audit/audit.service';
 import { EmployeesService } from '../employees/employees.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateSalaryDto } from './dto/create-salary.dto';
@@ -77,12 +77,11 @@ function toUserResponse(user: UserView) {
 export class UsersService {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly companyContext: CompanyContextService,
     private readonly employees: EmployeesService,
+    private readonly audit: AuditService,
   ) {}
 
-  async createUser(dto: CreateUserDto, creatorId?: string) {
-    const companyId = await this.companyContext.getCompanyId();
+  async createUser(companyId: string, dto: CreateUserDto, creatorId?: string) {
     const email = dto.email.toLowerCase();
 
     const existingEmail = await this.prisma.user.findUnique({ where: { email } });
@@ -159,6 +158,20 @@ export class UsersService {
         });
       }
 
+      await this.audit.record(tx, {
+        companyId,
+        actorUserId: creatorId ?? null,
+        action: 'user.create',
+        targetType: 'USER',
+        targetId: newUser.id,
+        changes: {
+          email,
+          role: role.name,
+          employeeNumber: dto.employeeCode,
+          initialSalary: dto.initialSalary ?? null,
+        },
+      });
+
       return tx.user.findUniqueOrThrow({ where: { id: newUser.id }, select: USER_VIEW_SELECT });
     });
 
@@ -166,6 +179,7 @@ export class UsersService {
   }
 
   async getUsers(
+    companyId: string,
     page = 1,
     limit = 20,
     search?: string,
@@ -173,7 +187,7 @@ export class UsersService {
     active?: boolean,
   ) {
     const skip = (page - 1) * limit;
-    const where: Prisma.UserWhereInput = { companyId: await this.companyContext.getCompanyId() };
+    const where: Prisma.UserWhereInput = { companyId };
 
     if (search) {
       where.OR = [
@@ -211,9 +225,9 @@ export class UsersService {
     };
   }
 
-  async getUserById(id: string) {
+  async getUserById(companyId: string, id: string) {
     const user = await this.prisma.user.findFirst({
-      where: { id, companyId: await this.companyContext.getCompanyId() },
+      where: { id, companyId },
       select: USER_VIEW_SELECT,
     });
 
@@ -224,42 +238,21 @@ export class UsersService {
     return toUserResponse(user);
   }
 
-  async updateUserStatus(id: string, active: boolean) {
-    const user = await this.prisma.user.findFirst({
-      where: { id, companyId: await this.companyContext.getCompanyId() },
-      select: { id: true, employee: { select: { id: true } } },
+  async updateUserStatus(companyId: string, adminUserId: string, id: string, active: boolean) {
+    const employee = await this.prisma.employee.findFirst({
+      where: { userId: id, companyId },
+      select: { id: true },
     });
-    if (!user) {
+    if (!employee) {
       throw new NotFoundException(`User with ID '${id}' not found`);
     }
 
-    const updated = await this.prisma.$transaction(async (tx) => {
-      if (!active) {
-        // Deactivating: revoke all active refresh tokens for immediate session termination
-        await tx.refreshToken.updateMany({
-          where: { userId: id, revokedAt: null },
-          data: { revokedAt: new Date() },
-        });
-      }
-
-      await tx.user.update({ where: { id }, data: { isActive: active } });
-
-      if (user.employee) {
-        // Reactivation restarts the absence window (employees.active_from); deactivation stops new BLACKs.
-        await tx.employee.update({
-          where: { id: user.employee.id },
-          data: active ? { deactivatedAt: null, activeFrom: new Date() } : { deactivatedAt: new Date() },
-        });
-      }
-
-      return tx.user.findUniqueOrThrow({ where: { id }, select: USER_VIEW_SELECT });
-    });
-
-    return toUserResponse(updated);
+    // One deactivation path: guards, session revocation and audit live in EmployeesService.
+    await this.employees.setActive(companyId, adminUserId, employee.id, active);
+    return this.getUserById(companyId, id);
   }
 
-  async createSalary(userId: string, dto: CreateSalaryDto, creatorId?: string) {
-    const companyId = await this.companyContext.getCompanyId();
+  async createSalary(companyId: string, userId: string, dto: CreateSalaryDto, creatorId?: string) {
     const employee = await this.prisma.employee.findFirst({
       where: { userId, companyId },
       select: { id: true },
@@ -284,24 +277,39 @@ export class UsersService {
       Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), 1),
     );
 
-    const salary = await this.prisma.employeeSalaryVersion.upsert({
-      where: {
-        employeeId_effectiveFrom: {
-          employeeId: employee.id,
-          effectiveFrom: normalizedDate,
+    const key = { employeeId: employee.id, effectiveFrom: normalizedDate };
+    const salary = await this.prisma.$transaction(async (tx) => {
+      const before = await tx.employeeSalaryVersion.findUnique({
+        where: { employeeId_effectiveFrom: key },
+        select: { salary: true },
+      });
+      const saved = await tx.employeeSalaryVersion.upsert({
+        where: { employeeId_effectiveFrom: key },
+        update: {
+          salary: dto.amount,
+          createdByUserId: creatorId || null,
         },
-      },
-      update: {
-        salary: dto.amount,
-        createdByUserId: creatorId || null,
-      },
-      create: {
+        create: {
+          companyId,
+          ...key,
+          salary: dto.amount,
+          createdByUserId: creatorId || null,
+        },
+      });
+      await this.audit.record(tx, {
         companyId,
-        employeeId: employee.id,
-        salary: dto.amount,
-        effectiveFrom: normalizedDate,
-        createdByUserId: creatorId || null,
-      },
+        actorUserId: creatorId ?? null,
+        action: 'salary.set',
+        targetType: 'EMPLOYEE_SALARY_VERSION',
+        targetId: saved.id,
+        changes: {
+          employeeId: employee.id,
+          effectiveFrom: normalizedDate.toISOString().slice(0, 10),
+          before: before?.salary.toString() ?? null,
+          after: saved.salary.toString(),
+        },
+      });
+      return saved;
     });
 
     return {

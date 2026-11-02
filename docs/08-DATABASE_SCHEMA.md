@@ -55,7 +55,7 @@ Later-phase tables (§3.5 onward) are not in the schema yet; they follow the rul
 
 - The MVP behaves as **one company per deployment**. `companies` holds **exactly one row**, created by the seed (TASK-041). Every company-owned record references it, so multi-company can be added later without restructuring data.
 - The company of a request is resolved **on the server** by one company-context service from that single row; it is **never** read from client input (AC-REQ-NFR-008-03).
-- No MVP endpoint creates a company, self-registers, or invites users (AC-REQ-NFR-008-02). `company_invitations` and `companies.owner_user_id` exist for the future flow and stay unused.
+- No MVP endpoint creates a company or self-registers. Employees join through `company_invitations` (spec REQ-032, CHG-005; `05` §3 item 7). `companies.owner_user_id` stays unused.
 - Email addresses are globally unique; normalize to lowercase before writes and lookups.
 
 ### 3.1 Identity & access
@@ -69,8 +69,8 @@ Later-phase tables (§3.5 onward) are not in the schema yet; they follow the rul
 | slug | text NN UNIQUE | |
 | is_active | bool NN default true | |
 
-#### `company_invitations` (unused in MVP)
-Future onboarding flow: email, full_name, employee_number, `token_hash` UNIQUE (never the raw token), status enum `PENDING/ACCEPTED/REVOKED/EXPIRED`, `expires_at`, `accepted_at`, `revoked_at`, `invited_by_user_id`. No MVP endpoint may write it.
+#### `company_invitations`
+Employee onboarding (FR-EMP-3): email, full_name, employee_number, `token_hash` UNIQUE (never the raw token), status enum `PENDING/ACCEPTED/REVOKED/EXPIRED`, `expires_at`, `accepted_at`, `revoked_at`, `invited_by_user_id`. At most one `PENDING` row per company and email (service rule).
 
 #### `users` (login accounts)
 | Column | Type | Notes |

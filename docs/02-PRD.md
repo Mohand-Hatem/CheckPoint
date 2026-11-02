@@ -101,7 +101,8 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 ### 4.2 Employees, Schedules, Calendar, Locations
 | ID | Requirement | Priority |
 |---|---|---|
-| FR-EMP-1 | CRUD, disable/reactivate; disabled users cannot log in or refresh. | MVP |
+| FR-EMP-1 | CRUD, disable/reactivate; disabled users cannot log in or refresh. Admin cannot deactivate themselves or the last active Admin. Scoped to the Admin's company. | MVP |
+| FR-EMP-3 | Invitations (spec REQ-032, CHG-005): creating an employee creates it inactive plus a 7-day single-use invitation; the Admin always gets the link and it is also emailed when SMTP is configured (best-effort, after commit). Accepting sets the password, creates the login and activates the employee. Admin can resend (new link, old one dies) or revoke. | MVP |
 | FR-EMP-2 | Salary (EGP) stored as versioned rows in `employee_compensation_versions` (`effective_from`); payroll resolves exactly one version per employee per month; a locked month is never rewritten. Granularity (1st of month vs any day): **DN-11**. | MVP |
 | FR-SCH-1 | `Shift` with effective-dated `ShiftVersion` (start, end, `early_minutes`, `grace_minutes`, `red_period_minutes`, weekdays) + `ShiftAssignment` (`effectiveFrom`, `effectiveTo`); no overlapping assignments per employee. | MVP |
 | FR-SCH-2 | Rotating shifts, split shifts, advanced rules. | Out of Scope |

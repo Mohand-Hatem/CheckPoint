@@ -94,6 +94,11 @@ Selection rule: a technology is here only if it solves a problem this system act
 - **Why/Problem solved:** Traceable support cases and payout debugging without leaking secrets.
 - **Later (optional):** Sentry for errors; Prometheus metrics. Not required for MVP correctness.
 
+## Email — `@nestjs-modules/mailer` 4.0.0 (on Nodemailer)
+- **Choice:** `MailerModule` with SMTP from env (`SMTP_HOST/PORT/USER/PASS`, `MAIL_FROM`); `LogTransport` when `SMTP_HOST` is unset; `MailerTestModule` in tests. Pinned exactly (new major, 2026-10-23). Only the core is used: no template engines, queue, outbox or preview pages.
+- **Why:** built-in retries with backoff, address/header-injection validation, typed errors, and a one-line switch to an HTTP provider (e.g. `ResendTransport`). Email is best-effort and sent after commit (`05` §14), so a mail outage never blocks onboarding.
+- **Alternatives:** plain Nodemailer (fewer deps, but retries/validation/test mailbox by hand); `@nestjs/mail` (0.0.1, too early); BullMQ/`@nestjs/outbox` (revisit in Phase 7).
+
 ## Payments — Paymob Payouts via `PayoutProvider` interface
 - **Choice:** `PaymobProvider` adapter with `send()` and `inquire()`; signed webhook controller; manual provider path.
 - **Why:** SoT requires Paymob readiness without an enterprise payment platform. Interface keeps tests in a fake provider.

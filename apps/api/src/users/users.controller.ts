@@ -27,12 +27,13 @@ export class UsersController {
     @Body() dto: CreateUserDto,
     @CurrentUser() admin: AuthenticatedUser,
   ) {
-    return this.usersService.createUser(dto, admin.userId);
+    return this.usersService.createUser(admin.companyId, dto, admin.userId);
   }
 
   @Get()
   @RequirePermission('users.read')
   async getUsers(
+    @CurrentUser() admin: AuthenticatedUser,
     @Query('page') page = '1',
     @Query('limit') limit = '20',
     @Query('search') search?: string,
@@ -45,6 +46,7 @@ export class UsersController {
       active === 'true' ? true : active === 'false' ? false : undefined;
 
     return this.usersService.getUsers(
+      admin.companyId,
       pageNum,
       limitNum,
       search,
@@ -55,8 +57,8 @@ export class UsersController {
 
   @Get(':id')
   @RequirePermission('users.read')
-  async getUserById(@Param('id') id: string) {
-    return this.usersService.getUserById(id);
+  async getUserById(@Param('id') id: string, @CurrentUser() admin: AuthenticatedUser) {
+    return this.usersService.getUserById(admin.companyId, id);
   }
 
   @Patch(':id/status')
@@ -64,8 +66,9 @@ export class UsersController {
   async updateUserStatus(
     @Param('id') id: string,
     @Body() dto: UpdateUserStatusDto,
+    @CurrentUser() admin: AuthenticatedUser,
   ) {
-    return this.usersService.updateUserStatus(id, dto.active);
+    return this.usersService.updateUserStatus(admin.companyId, admin.userId, id, dto.active);
   }
 
   @Post(':id/salaries')
@@ -75,6 +78,6 @@ export class UsersController {
     @Body() dto: CreateSalaryDto,
     @CurrentUser() admin: AuthenticatedUser,
   ) {
-    return this.usersService.createSalary(id, dto, admin.userId);
+    return this.usersService.createSalary(admin.companyId, id, dto, admin.userId);
   }
 }

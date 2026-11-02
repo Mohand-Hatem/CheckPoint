@@ -5,6 +5,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma, ShiftVersion } from '@prisma/client';
+import { AuditService } from '../audit/audit.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { EmployeesService } from '../employees/employees.service';
@@ -22,6 +23,7 @@ export class SchedulesService {
     private readonly prisma: PrismaService,
     private readonly employees: EmployeesService,
     private readonly companyPolicy: CompanyPolicyService,
+    private readonly audit: AuditService,
   ) {}
 
   async getCompanyPolicy(companyId: string) {
@@ -88,6 +90,19 @@ export class SchedulesService {
                 monthlyHoursDivisor: previous?.monthlyHoursDivisor ?? 30,
                 effectiveFrom,
                 createdByUserId: userId,
+              },
+            });
+
+            await this.audit.record(tx, {
+              companyId,
+              actorUserId: userId,
+              action: 'company.policy.create',
+              targetType: 'COMPANY_POLICY_VERSION',
+              targetId: version.id,
+              changes: {
+                timezone: dto.timezone,
+                effectiveFrom: dto.effectiveFrom,
+                previousTimezone: previous?.timezone ?? null,
               },
             });
 
@@ -162,6 +177,14 @@ export class SchedulesService {
         this.prisma.$transaction(async (tx) => {
           const shift = await tx.shift.create({
             data: { companyId, name: dto.name.trim() },
+          });
+          await this.audit.record(tx, {
+            companyId,
+            actorUserId: userId,
+            action: 'shift.create',
+            targetType: 'SHIFT',
+            targetId: shift.id,
+            changes: { name: shift.name },
           });
           const version = await this.createVersion(
             tx,
@@ -242,8 +265,8 @@ export class SchedulesService {
     return this.withConflictHandling(
       () =>
         this.prisma.$transaction(
-          (tx) =>
-            this.employees.assignShift(tx, {
+          async (tx) => {
+            const assignment = await this.employees.assignShift(tx, {
               companyId,
               employeeId: dto.employeeId,
               shiftId,
@@ -251,7 +274,22 @@ export class SchedulesService {
               effectiveTo,
               assignedByUserId: userId,
               companyDate,
-            }),
+            });
+            await this.audit.record(tx, {
+              companyId,
+              actorUserId: userId,
+              action: 'shift.assign',
+              targetType: 'SHIFT_ASSIGNMENT',
+              targetId: assignment.id,
+              changes: {
+                employeeId: dto.employeeId,
+                shiftId,
+                effectiveFrom: dto.effectiveFrom,
+                effectiveTo: dto.effectiveTo ?? null,
+              },
+            });
+            return assignment;
+          },
           { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
         ),
       'The employee already has an assignment overlapping those effective dates.',
@@ -300,7 +338,7 @@ export class SchedulesService {
 
     const startTime = toUtcTime(dto.startTime);
     const endTime = toUtcTime(dto.endTime);
-    return tx.shiftVersion.create({
+    const version = await tx.shiftVersion.create({
       data: {
         companyId,
         shiftId,
@@ -317,6 +355,26 @@ export class SchedulesService {
         },
       },
     });
+
+    await this.audit.record(tx, {
+      companyId,
+      actorUserId: userId,
+      action: 'shift.version.create',
+      targetType: 'SHIFT_VERSION',
+      targetId: version.id,
+      changes: {
+        shiftId,
+        startTime: dto.startTime,
+        endTime: dto.endTime,
+        graceMinutes: dto.graceMinutes,
+        redPeriodMinutes: dto.redPeriodMinutes,
+        weekdays: dto.weekdays,
+        effectiveFrom: dto.effectiveFrom,
+        effectiveTo: dto.effectiveTo ?? null,
+        previousVersionId: prior[0]?.id ?? null,
+      },
+    });
+    return version;
   }
 }
 

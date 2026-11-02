@@ -10,6 +10,7 @@ import { ConfigurePointValuesDto } from './dto/configure-point-values.dto';
 import { CreatePointEntryDto } from './dto/create-point-entry.dto';
 import { ListPointEntriesQueryDto } from './dto/list-point-entries-query.dto';
 import { ReversePointEntryDto } from './dto/reverse-point-entry.dto';
+import { resolvePointValue } from './point-value';
 
 const VALUED_POINT_TYPES = [
   PointType.GREEN,
@@ -184,31 +185,8 @@ export class PointsService {
             throw new NotFoundException('Employee not found');
           }
 
-          const asOfDate = cairoDateOnly(new Date());
-          const pointValue =
-            dto.pointType === PointType.WHITE
-              ? null
-              : await tx.pointValueVersion.findFirst({
-                  where: {
-                    companyId,
-                    pointType: dto.pointType,
-                    effectiveFrom: { lte: asOfDate },
-                    OR: [
-                      { effectiveTo: null },
-                      { effectiveTo: { gte: asOfDate } },
-                    ],
-                  },
-                  orderBy: { effectiveFrom: 'desc' },
-                });
-          if (dto.pointType !== PointType.WHITE && !pointValue) {
-            throw new BadRequestException(
-              `No ${dto.pointType} value is configured for today.`,
-            );
-          }
-
-          const valuePerPointPiasters = pointValue
-            ? BigInt(pointValue.value.mul(100).toFixed(0))
-            : 0n;
+          const { pointValueVersionId, valuePerPointPiasters } =
+            await resolvePointValue(tx, companyId, dto.pointType, cairoDateOnly(new Date()));
           const entry = await tx.pointLedgerEntry.create({
             data: {
               companyId,
@@ -217,7 +195,7 @@ export class PointsService {
               entryKind: 'AWARD',
               direction: 1,
               quantity: dto.quantity,
-              pointValueVersionId: pointValue?.id,
+              pointValueVersionId,
               valuePerPointPiasters,
               sourceType: 'ADMIN',
               idempotencyKey: key,

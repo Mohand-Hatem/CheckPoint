@@ -32,6 +32,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /auth/login` | email + password → access + refresh |
 | `POST /auth/refresh` | rotate refresh token |
 | `POST /auth/logout` | revoke refresh family |
+| `POST /auth/invitations/accept` `{token,password}` | public; accept an invitation (§3 item 7) |
 | `PATCH /me/password` | change own password |
 | `GET /me` | profile, role, today's schedule summary |
 
@@ -56,18 +57,18 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 ### 2.3 Admin (`ADMIN`)
 | Group | Endpoints |
 |---|---|
-| Employees | `GET/POST /admin/users` · `GET/PATCH /admin/users/{id}` · `POST /admin/users/{id}/{disable, reactivate, reset-password}` · `PUT /admin/users/{id}/locations` · `POST /admin/users/{id}/salaries` |
+| Employees | `GET/POST /admin/employees` · `GET/PATCH /admin/employees/{id}` · `PATCH /admin/employees/{id}/status` `{active}` · `POST /admin/employees/{id}/invitation/{resend, revoke}` · `GET/POST /admin/users` · `GET/PATCH /admin/users/{id}` · `POST /admin/users/{id}/{disable, reactivate, reset-password}` · `PUT /admin/users/{id}/locations` · `POST /admin/users/{id}/salaries` |
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
 | Calendar | CRUD `/admin/holidays` · `GET/PUT /admin/settings/weekly_off_days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
-| Attendance | `GET /admin/attendance?userId=&from=&to=` · `POST /admin/attendance/manual-check-in` · `POST /admin/attendance/manual-check-out` · `POST /admin/attendance/{id}/correct` |
+| Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
 | Leave | `GET /admin/leaves?status=` · `POST /admin/leaves/{id}/{approve, reject, cancel-approval}` `{note}` |
 | Early leave | `GET /admin/early-leaves?status=` · `POST /admin/early-leaves/{id}/{approve, reject}` `{note}` |
 | Payroll | `GET /admin/payroll/months/{month}/preview` · `POST /admin/payroll/months/{month}/close` (no body; EGP only) · `GET /admin/payroll/months/{month}/records` · `POST /admin/payroll/adjustments` |
 | Fund | `GET /admin/fund/users/{id}` · `POST /admin/fund/adjustments` `{userId,amountEgp,reason}` + `Idempotency-Key` |
 | Payouts | `GET /admin/payouts?status=&userId=` · `POST /admin/payouts/{id}/inquire` · `POST /admin/payouts/{id}/resend` · `POST /admin/payouts/{id}/mark-paid` · `POST /admin/payouts/{id}/mark-failed` |
-| Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-logs?entity=&actor=&from=&to=` |
+| Settings / Audit | `GET/PATCH /admin/settings` · `GET /admin/audit-events?targetType=&targetId=&actorUserId=&from=&to=&page=&limit=` |
 
 ### 2.4 Webhooks
 | Path | Purpose |
@@ -82,6 +83,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 4. **Disable user** — revoke all families in the disabling transaction.
 5. **Password hashing** — argon2id with parameters from config; passwords never logged.
 6. **RBAC foundation** — `PermissionGuard` resolves `role → permissions` (cached in process memory, invalidated on role change). Permission names: `resource.action.scope` (e.g., `attendance.read.own`, `attendance.read.any`, `points.reverse.any`, `payroll.close.any`). Only `ADMIN` and `EMPLOYEE` rows are seeded (see `04-ARCHITECTURE.md` §11).
+7. **Invitations (FR-EMP-3)** — one transaction creates the inactive employee, its first shift assignment, the invitation (`token_hash` = SHA-256 of a random 256-bit token, 7-day expiry) and the audit row. After commit the API returns the link `${INVITE_URL_BASE}?token=…` and tries to email it with `@nestjs-modules/mailer` (SMTP, or `LogTransport` when `SMTP_HOST` is unset); the response carries `emailSent`. Accept hashes the token, claims the invitation with a conditional `UPDATE … WHERE status='PENDING' AND expires_at > now()` (single use under races), then creates the user (argon2id, role `EMPLOYEE`), links and activates the employee, in one transaction. Resend revokes the pending invitation and issues a new one; revoke sets `REVOKED`.
 
 ## 4. Attendance
 
@@ -153,9 +155,10 @@ stateDiagram-v2
 `attendance.status ∈ {CONFIRMED, ABSENT, EXEMPT}`; check-out is `check_out_at IS NOT NULL`. Verification state is separate (`PENDING/CONFIRMED/EXPIRED`).
 
 ### 4.7 Admin corrections
-`POST /admin/attendance/manual-check-in` (create `CONFIRMED` row, `source = ADMIN`), `manual-check-out`, and `POST /admin/attendance/{id}/correct` with `action ∈ {SET_CHECK_IN, SET_CHECK_OUT, EXEMPT}` + mandatory `reason`.
-**Transaction** (user lock, month open): reverse the current ATTENDANCE point (`reason_code = ATTENDANCE_CORRECTION`) and/or surplus OVERTIME points; recompute classification (same windows; ≥ absence threshold ⇒ BLACK) and overtime units; award the new point with `classification_rev + 1` (`EXEMPT` ⇒ no new point, status `EXEMPT`); undo affected offsets; run engine; write audit (before/after).
-`ATTENDANCE`/`OVERTIME` points are changed **only** through corrections (or leave approval); `POST /admin/points/{id}/reverse` on them ⇒ `USE_ATTENDANCE_CORRECTION`.
+`POST /admin/attendance/corrections` `{employeeId, workDate, action, at?, reason}` with `action ∈ {SET_CHECK_IN, SET_CHECK_OUT, EXEMPT}`; `reason` is mandatory. One endpoint replaces the earlier manual-check-in / manual-check-out / correct trio: if the day has no row yet it is created with the window snapshot (§4.1) from the employee's shift assignment and shift version for that date (a non-working weekday or no assignment ⇒ `400`).
+**Transaction:** reverse every un-reversed `ATTENDANCE` and `OVERTIME` entry of the day (compensating `REVERSAL` rows, `reason` = the correction reason; originals stay untouched); apply the change to `attendance_days`; recompute `classifyCheckIn` (a check-in at or after the absence threshold ⇒ BLACK) and `overtimeGreens = floor(minutes after scheduled_end / 60)`; award the new entries (`EXEMPT` ⇒ no new point, `classification = null`) with `source_type = ATTENDANCE`, `source_id = attendance_day.id`, value snapshot effective on `work_date`; write the audit row with before/after and the reason. The revision is the count of earlier `ATTENDANCE` awards for the day; the idempotency key `ATT:{dayId}:{rev}` makes a concurrent second correction fail with `409` instead of double-awarding.
+**Preserving the original:** the before/after snapshot lives in the append-only audit log and the earlier ledger entries are reversed, never edited; `GET /admin/attendance/{id}` shows both. Offsets and month lock are applied once the offset engine and payroll exist (Phase 4/6).
+`ATTENDANCE`/`OVERTIME` points are changed **only** through corrections (or leave approval); `POST /admin/points/{id}/reverse` accepts only `ADMIN`-source entries.
 
 ## 5. Points
 
@@ -347,7 +350,7 @@ Immutable rows (`type WALLET|BANK`, issuer, `account_encrypted` AES-256-GCM, `ac
 - Month Close is **not** a scheduled job (admin-triggered).
 
 ## 13. Audit
-`AuditService.record(tx, {actor, action, entity, entityId, before, after, requestId, ip})` is called inside the business transaction for **every admin mutation** and payout state event. Append-only (no UPDATE/DELETE grants + trigger).
+`AuditService.record(tx, {companyId, actorUserId, actorType, action, targetType, targetId, changes, reason})` is called inside the business transaction for **every admin mutation** (employees, users/salaries, shifts/versions/assignments, company policy, point values, point add/reverse, attendance corrections; excuses and offers when built). Admins read it through `GET /admin/audit-events` (`audit.read`, own company only). **Append-only in the database:** `prisma/sql/append-only.sql` adds `BEFORE UPDATE OR DELETE` triggers on `audit_events` and `point_ledger_entries` that raise an error; apply with `npm run db:guards` after `prisma db push` (db push cannot create triggers).
 
 ## 14. Transaction Boundaries
 
