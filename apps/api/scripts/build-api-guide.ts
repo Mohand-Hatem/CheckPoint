@@ -9,6 +9,7 @@
  */
 import { PrismaClient } from '@prisma/client';
 import { spawnSync } from 'child_process';
+import { DateTime } from 'luxon';
 import { mkdirSync, readFileSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
 import { provisionCompany } from '../src/company/provision-company';
@@ -270,7 +271,7 @@ async function main() {
   const inviteEmail = `newhire-${run}@acme.test`;
   const invite = await call({
     title: 'Invite',
-    why: 'The response contains the one-time `token` ONCE. Only its hash is stored. The Admin shares the token with the invitee.',
+    why: 'The response contains the one-time `token` and `invitationLink` ONCE. Only the token\'s hash is stored. When SMTP is configured the link is also emailed (`emailSent: true`); here SMTP is off, so the Admin shares the link.',
     method: 'POST', path: '/admin/invitations', token: admin.access, expect: 201,
     body: { email: inviteEmail, fullName: 'New Hire', employeeCode: `INV-${run}` },
   });
@@ -320,6 +321,77 @@ async function main() {
     method: 'POST', path: '/admin/users', token: e.access, expect: 403,
     body: { email: `x-${run}@acme.test`, fullName: 'X', employeeCode: `X-${run}`, password: PASSWORD, roleCode: 'ADMIN' },
   });
+
+  // ---------------------------------------------------------------- C2. shifts, points, attendance corrections
+  md.push('### Part C2: Shifts, points and attendance corrections (ADMIN)', '');
+  const policy = await call({
+    title: 'Company timezone',
+    why: 'Shift times are wall-clock times in this timezone; the API turns them into UTC instants for each date.',
+    method: 'GET', path: '/admin/company-policy', token: admin.access, expect: 200,
+  });
+  const shifts = await call({
+    title: 'List shifts',
+    why: 'Each shift has dated versions (start/end, grace and red-period minutes, weekdays 0 = Sunday). New employees start on the first active shift.',
+    method: 'GET', path: '/admin/shifts', token: admin.access, expect: 200,
+  });
+  await call({
+    title: 'Point values',
+    why: 'GREEN, RED and BLACK values in EGP from a date. Every ledger entry snapshots the value in force on its work date; WHITE is worth nothing.',
+    method: 'GET', path: '/admin/point-values', token: admin.access, expect: 200,
+  });
+  const hireList = await call({
+    title: 'Find the invited employee',
+    why: 'Employee records of my company. Accepting the invitation also created a shift assignment starting today, so attendance can find the shift.',
+    method: 'GET', path: `/admin/employees?search=INV-${run}`, token: admin.access, expect: 200,
+  });
+  const hireId = hireList.json.items[0].id as string;
+
+  // The next working date of the shift, so the guide works whatever day it runs.
+  const zone = policy.json.timezone as string;
+  const version = shifts.json[0].versions[0];
+  const workingDays = (version.weekdays as { weekday: number }[]).map((w) => w.weekday);
+  let day = DateTime.now().setZone(zone).startOf('day');
+  while (!workingDays.includes(day.weekday % 7)) day = day.plus({ days: 1 });
+  const workDate = day.toISODate()!;
+  const at = (time: string, minutes: number) =>
+    DateTime.fromISO(`${workDate}T${time.slice(11, 16)}`, { zone }).plus({ minutes }).toISO({ suppressMilliseconds: true })!;
+
+  const firstFix = await call({
+    title: 'Manual check-in (a correction)',
+    why: 'The employee forgot to scan. If the day has no record yet it is created from the shift snapshot, then classified: 30 minutes after the start is GREEN. One GREEN entry is written to the ledger. `reason` is mandatory.',
+    method: 'POST', path: '/admin/attendance/corrections', token: admin.access, expect: 201,
+    body: { employeeId: hireId, workDate, action: 'SET_CHECK_IN', at: at(version.startTime, 30), reason: 'Forgot to scan the QR' },
+  });
+  const dayId = firstFix.json.id as string;
+  await call({
+    title: 'Correct it: the real arrival was later',
+    why: 'Nothing is edited. The GREEN entry gets a compensating REVERSAL and a new RED entry is awarded (2½ hours after the start).',
+    method: 'POST', path: '/admin/attendance/corrections', token: admin.access, expect: 201,
+    body: { employeeId: hireId, workDate, action: 'SET_CHECK_IN', at: at(version.startTime, 150), reason: 'Camera shows a later arrival' },
+  });
+  await call({
+    title: 'Set the check-out after overtime',
+    why: 'Two full hours after the shift end earn 2 overtime GREENs, written as their own ledger entry next to the day\'s RED.',
+    method: 'POST', path: '/admin/attendance/corrections', token: admin.access, expect: 201,
+    body: { employeeId: hireId, workDate, action: 'SET_CHECK_OUT', at: at(version.endTime, 125), reason: 'Stayed for the stock count' },
+  });
+  await call({
+    title: 'A correction without a reason',
+    why: 'Rejected: every correction must say why.',
+    method: 'POST', path: '/admin/attendance/corrections', token: admin.access, expect: 400,
+    body: { employeeId: hireId, workDate, action: 'EXEMPT', reason: '' },
+  });
+  await call({
+    title: 'Open the day',
+    why: 'The day as it is now, every ledger entry it produced (originals and their reversals, so nothing is lost) and the correction history with before/after and reason.',
+    method: 'GET', path: `/admin/attendance/${dayId}`, token: admin.access, expect: 200,
+  });
+  const dayAudit = await call({
+    title: 'The same corrections in the audit log',
+    why: 'Each correction is one `attendance.correct` event, written in the same transaction as the change.',
+    method: 'GET', path: `/admin/audit-events?targetType=attendance_day&targetId=${dayId}`, token: admin.access, expect: 200,
+  });
+  check(dayAudit.json?.total === 3, 'three attendance.correct events');
 
   // ---------------------------------------------------------------- D. sessions
   md.push('### Part D: Tokens, refresh and theft detection', '');
