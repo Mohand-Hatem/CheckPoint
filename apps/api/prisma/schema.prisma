@@ -23,6 +23,18 @@ enum PointType {
   BLACK
 }
 
+enum WorkOfferType {
+  OFF_DAY_WORK
+  EARLY_WORK
+  OVERTIME
+}
+
+enum WorkOfferStatus {
+  ACTIVE
+  COMPLETED
+  CANCELLED
+}
+
 model Company {
   id                         String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   ownerUserId                String?                     @unique(map: "companies_owner_user_id_key") @map("owner_user_id") @db.Uuid
@@ -44,6 +56,7 @@ model Company {
   attendanceDays             AttendanceDay[]
   attendanceExcuses          AttendanceExcuse[]
   workOffers                 WorkOffer[]
+  workOfferRecipients        WorkOfferRecipient[]
   pointValueVersions         PointValueVersion[]
   pointLedgerEntries         PointLedgerEntry[]
   pointOffsetAllocations     PointOffsetAllocation[]
@@ -179,9 +192,11 @@ model Employee {
   shiftAssignments     ShiftAssignment[]
   attendanceDays       AttendanceDay[]
   workOffers           WorkOffer[]
+  workOfferRecipients  WorkOfferRecipient[]
   pointLedgerEntries   PointLedgerEntry[]
 
   @@unique([companyId, employeeNumber], map: "employees_company_employee_number_key")
+  @@unique([companyId, id], map: "employees_company_id_key")
   @@index([companyId], map: "employees_company_idx")
   @@map("employees")
 }
@@ -342,24 +357,41 @@ model AttendanceExcuse {
 model WorkOffer {
   id                String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   companyId         String                     @map("company_id") @db.Uuid
-  employeeId        String                     @map("employee_id") @db.Uuid
-  offerType         String                     @map("offer_type") @db.Text
+  employeeId        String?                    @map("employee_id") @db.Uuid
+  allEmployees      Boolean                    @default(false) @map("all_employees")
+  offerType         WorkOfferType              @map("offer_type")
   startsAt          DateTime                   @map("starts_at") @db.Timestamptz(6)
   endsAt            DateTime                   @map("ends_at") @db.Timestamptz(6)
-  status            String                     @default("ACTIVE") @db.Text
+  status            WorkOfferStatus            @default(ACTIVE)
   description       String                     @db.Text
   createdByUserId   String                     @map("created_by_user_id") @db.Uuid
   createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
   cancelledByUserId String?                    @map("cancelled_by_user_id") @db.Uuid
   cancelledAt       DateTime?                  @map("cancelled_at") @db.Timestamptz(6)
   company           Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee          Employee                   @relation(fields: [employeeId], references: [id])
+  employee          Employee?                  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
   createdBy         User                       @relation("OfferCreator", fields: [createdByUserId], references: [id])
   cancelledBy       User?                      @relation("OfferCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  recipients        WorkOfferRecipient[]
   calculation       AdditionalWorkCalculation?
 
-  @@index([companyId, employeeId, startsAt], map: "work_offers_employee_start_idx")
+  @@unique([companyId, id], map: "work_offers_company_id_key")
+  @@index([companyId, startsAt], map: "work_offers_company_start_idx")
+  @@index([companyId, employeeId], map: "work_offers_company_employee_idx")
   @@map("work_offers")
+}
+
+model WorkOfferRecipient {
+  companyId   String    @map("company_id") @db.Uuid
+  workOfferId String    @map("work_offer_id") @db.Uuid
+  employeeId  String    @map("employee_id") @db.Uuid
+  company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  workOffer   WorkOffer @relation(fields: [companyId, workOfferId], references: [companyId, id], onDelete: Restrict)
+  employee    Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict)
+
+  @@id([workOfferId, employeeId])
+  @@index([companyId, employeeId, workOfferId], map: "work_offer_recipients_employee_idx")
+  @@map("work_offer_recipients")
 }
 
 model PointValueVersion {

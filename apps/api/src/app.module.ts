@@ -17,6 +17,7 @@ import { PrismaModule } from './prisma/prisma.module';
 import { PointsModule } from './points/points.module';
 import { SchedulesModule } from './schedules/schedules.module';
 import { UsersModule } from './users/users.module';
+import { WorkOffersModule } from './work-offers/work-offers.module';
 
 @Module({
   imports: [
@@ -50,6 +51,7 @@ import { UsersModule } from './users/users.module';
     SchedulesModule,
     AttendanceModule,
     InvitationsModule,
+    WorkOffersModule,
   ],
   providers: [
     {

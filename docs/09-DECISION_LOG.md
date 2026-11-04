@@ -2,8 +2,8 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 1.2 |
-| **Date** | 2026-10-25 |
+| **Version** | 1.3 |
+| **Date** | 2026-11-03 |
 | **Scope** | Reconciles `docs/01` to `docs/08`, `README.md` and `AGENTS.md` with the planning spec, and records the agreed schema direction. Code changed so far: only the `PointType` enum in `schema.prisma`. |
 | **Business authority** | `planning/docs/planning/SYSTEM_SPECIFICATION.md` **v0.4.0**, approved by Mohand Hatem on 2026-10-25 (CHG-004), with `planning/PROJECT_BRIEF.md` v3.6. `planning/` is a **local workspace kept out of git** (renamed from `OpenAi Project Generator/`); this log is the shared record of what it decided. |
 | **Technical authority** | `docs/`; for existing tables, `apps/api/prisma/schema.prisma` is the base model and changes to it are additive. |
@@ -36,6 +36,7 @@
 | D-13 | WHITE is visibility only. Ledgers are append-only. No leave accrual or carry-over. | AC-REQ-012-03, REQ-017, REQ-021 | already consistent |
 | D-14 | Invitations: the Admin always gets the one-time link; it is also emailed when SMTP is configured, best-effort after commit. The employee is created when the invitation is accepted (REQ-032 as approved in v0.4.0). | REQ-032, AC-REQ-032-05 (spec CHG-005 draft) | 02 (FR-EMP-3), 05 §3, 08 §3.0 |
 | D-15 | Attendance corrections use one endpoint and keep the original through the append-only audit log plus reversing ledger entries (no corrections table). The point ledger is append-only by migration `20261102000000_point_ledger_append_only`, like the audit log. | REQ-016, REQ-028, AC-REQ-017-01 | 05 §4.7, §13 |
+| D-16 | Early-work/overtime offers are company-scoped and may target one or more active employees or all current and future employees. Employees can view them without accepting. API status is derived as `ACTIVE` before the interval ends, `COMPLETED` at/after the end, or `CANCELLED`; Admin cancellation is permitted only before the interval starts and is audited. | Explicit user approval in this session (2026-11-03); planning workspace unavailable | FR-CAL-4, 05 §2, 08 `work_offers` |
 
 No two CONFIRMED decisions conflict with each other.
 
@@ -144,6 +145,7 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-031 | FR-COMP-1; `08` §3.0, `companies`; planning TASK-043 / TEST-038 |
 | REQ-032 | FR-COMP-2; `08` `company_invitations`; planning TASK-044 / TEST-039 |
 | REQ-033 | FR-COMP-3; `08` §3.0; planning TASK-042, TASK-045 / TEST-040 |
+| REQ-034 | FR-CAL-4; `05` §2, `08` `work_offers` / `work_offer_recipients`; TEST-044 |
 | REQ-NFR-009 | FR-COMP-4; `08` §3.0; planning TASK-042 / TEST-041 |
 
 Phase-level mapping to planning tasks: `06-ROADMAP.md` "Traceability".
