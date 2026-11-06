@@ -373,7 +373,7 @@ model WorkOffer {
   createdBy         User                       @relation("OfferCreator", fields: [createdByUserId], references: [id])
   cancelledBy       User?                      @relation("OfferCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   recipients        WorkOfferRecipient[]
-  calculation       AdditionalWorkCalculation?
+  calculations      AdditionalWorkCalculation[]
 
   @@unique([companyId, id], map: "work_offers_company_id_key")
   @@index([companyId, startsAt], map: "work_offers_company_start_idx")
@@ -386,8 +386,8 @@ model WorkOfferRecipient {
   workOfferId String    @map("work_offer_id") @db.Uuid
   employeeId  String    @map("employee_id") @db.Uuid
   company     Company   @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  workOffer   WorkOffer @relation(fields: [companyId, workOfferId], references: [companyId, id], onDelete: Restrict)
-  employee    Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict)
+  workOffer   WorkOffer @relation(fields: [companyId, workOfferId], references: [companyId, id], onDelete: Restrict, map: "work_offer_recipients_company_work_offer_fkey")
+  employee    Employee  @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, map: "work_offer_recipients_company_employee_fkey")
 
   @@id([workOfferId, employeeId])
   @@index([companyId, employeeId, workOfferId], map: "work_offer_recipients_employee_idx")
@@ -463,7 +463,7 @@ model PointOffsetAllocation {
 model AdditionalWorkCalculation {
   id                  String        @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
   companyId           String        @map("company_id") @db.Uuid
-  workOfferId         String        @unique(map: "additional_work_calculations_work_offer_id_key") @map("work_offer_id") @db.Uuid
+  workOfferId         String        @map("work_offer_id") @db.Uuid
   attendanceDayId     String        @map("attendance_day_id") @db.Uuid
   eligibleMinutes     Int           @map("eligible_minutes")
   greenPointsAwarded  Int           @map("green_points_awarded")
@@ -477,6 +477,7 @@ model AdditionalWorkCalculation {
   attendanceDay       AttendanceDay @relation(fields: [attendanceDayId], references: [id])
   createdBy           User?         @relation("CalculationActor", fields: [createdByUserId], references: [id], onDelete: SetNull)
 
+  @@unique([workOfferId, attendanceDayId], map: "additional_work_calculations_offer_day_key")
   @@index([companyId, attendanceDayId], map: "additional_work_attendance_idx")
   @@map("additional_work_calculations")
 }

@@ -38,7 +38,7 @@ erDiagram
   EMPLOYEES ||--o{ ATTENDANCE_DAYS : records
   ATTENDANCE_DAYS ||--o| ATTENDANCE_EXCUSES : "excuse (unused in MVP)"
   EMPLOYEES ||--o{ WORK_OFFERS : "off-day exceptions"
-  WORK_OFFERS ||--o| ADDITIONAL_WORK_CALCULATIONS : "off-day pay"
+  WORK_OFFERS ||--o{ ADDITIONAL_WORK_CALCULATIONS : "off-day pay"
   EMPLOYEES ||--o{ POINT_LEDGER_ENTRIES : earns
   POINT_VALUE_VERSIONS ||--o{ POINT_LEDGER_ENTRIES : "value snapshot"
   POINT_LEDGER_ENTRIES ||--o{ POINT_OFFSET_ALLOCATIONS : "green or penalty"
@@ -194,8 +194,8 @@ Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| work_offer_id | uuid NN UNIQUE FK → work_offers | one calculation per offer |
-| attendance_day_id | uuid NN FK → attendance_days | |
+| work_offer_id | uuid NN FK → work_offers | an offer can cover many employees and days |
+| attendance_day_id | uuid NN FK → attendance_days | UNIQUE (work_offer_id, attendance_day_id): one calculation per offer per employee-day |
 | eligible_minutes | int NN | informational only |
 | green_points_awarded | int NN | always **1** (FR-CAL-3) |
 | salary | numeric(14,2) NN | snapshot of the version effective that day |
