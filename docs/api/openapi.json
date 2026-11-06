@@ -2858,6 +2858,355 @@
           "Auth"
         ]
       }
+    },
+    "/api/admin/work-offers": {
+      "get": {
+        "description": "Returns all work offers for the authenticated Admin’s company; status is computed from the interval and cancellation state.",
+        "operationId": "WorkOffersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkOfferResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List my company work offers",
+        "tags": [
+          "Admin · Work Offers"
+        ]
+      },
+      "post": {
+        "description": "Creates a company-scoped offer for selected employees or all current and future employees; no acceptance is required.",
+        "operationId": "WorkOffersController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateWorkOfferDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOfferResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "One or more selected employees are not active in this company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Create an early-work or overtime offer",
+        "tags": [
+          "Admin · Work Offers"
+        ]
+      }
+    },
+    "/api/admin/work-offers/{id}": {
+      "get": {
+        "description": "Returns 404 when the offer does not belong to the authenticated Admin’s company.",
+        "operationId": "WorkOffersController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOfferResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Offer not found in this company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Get one work offer",
+        "tags": [
+          "Admin · Work Offers"
+        ]
+      }
+    },
+    "/api/admin/work-offers/{id}/cancel": {
+      "patch": {
+        "description": "Cancels an offer only before startsAt; the mutation is company-scoped and audited.",
+        "operationId": "WorkOffersController_cancel",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkOfferResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Offer not found in this company."
+          },
+          "409": {
+            "description": "The offer has started, has completed, or was already cancelled."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Cancel a work offer before it starts",
+        "tags": [
+          "Admin · Work Offers"
+        ]
+      }
+    },
+    "/api/employee/work-offers": {
+      "get": {
+        "description": "Returns offers addressed to the authenticated employee or all employees in their company; no acceptance is required.",
+        "operationId": "EmployeeWorkOffersController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkOfferResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No active employee profile is associated with this account."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List my visible work offers",
+        "tags": [
+          "Employee · Work Offers"
+        ]
+      }
     }
   },
   "info": {
@@ -4083,6 +4432,133 @@
         "required": [
           "email",
           "message"
+        ]
+      },
+      "WorkOfferResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "offerType": {
+            "type": "string",
+            "enum": [
+              "OFF_DAY_WORK",
+              "EARLY_WORK",
+              "OVERTIME"
+            ]
+          },
+          "startsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "endsAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "ACTIVE",
+              "COMPLETED",
+              "CANCELLED"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "allEmployees": {
+            "type": "boolean"
+          },
+          "employeeIds": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "createdByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cancelledByUserId": {
+            "type": "object",
+            "format": "uuid",
+            "nullable": true
+          },
+          "cancelledAt": {
+            "type": "object",
+            "format": "date-time",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "offerType",
+          "startsAt",
+          "endsAt",
+          "status",
+          "description",
+          "allEmployees",
+          "employeeIds",
+          "createdByUserId",
+          "createdAt",
+          "cancelledByUserId",
+          "cancelledAt"
+        ]
+      },
+      "CreateWorkOfferDto": {
+        "type": "object",
+        "properties": {
+          "offerType": {
+            "type": "string",
+            "enum": [
+              "EARLY_WORK",
+              "OVERTIME"
+            ],
+            "example": "OVERTIME"
+          },
+          "startsAt": {
+            "type": "string",
+            "example": "2026-11-10T07:00:00Z",
+            "format": "date-time"
+          },
+          "endsAt": {
+            "type": "string",
+            "example": "2026-11-10T09:00:00Z",
+            "format": "date-time"
+          },
+          "description": {
+            "type": "string",
+            "example": "Please arrive early to help with opening."
+          },
+          "allEmployees": {
+            "type": "boolean",
+            "example": false,
+            "description": "When true, all current and future employees in the company can see this offer."
+          },
+          "employeeIds": {
+            "example": [
+              "c0ffee00-0000-4000-8000-000000000003"
+            ],
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "offerType",
+          "startsAt",
+          "endsAt",
+          "description",
+          "allEmployees"
         ]
       }
     }

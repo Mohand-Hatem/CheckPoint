@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 3.1 |
+| **Version** | 3.2 |
 | **Status** | Final draft — implementation-ready; open items marked `DECISION NEEDED (DN-xx)` |
-| **Last Updated** | 2026-10-22 |
-| **Source of Truth** | The finalization prompt ("**SoT**", section numbers cited as §n) overrides every older document. Where the SoT is silent, this PRD states the **provisional default** and tags it `DECISION NEEDED`. No other new rules are introduced. |
+| **Last Updated** | 2026-11-03 |
+| **Source of Truth** | The finalization prompt ("**SoT**", section numbers cited as §n) overrides every older document. Where the SoT is silent, this PRD states the **provisional default** and tags it `DECISION NEEDED`. D-16 records the user's explicit approval in this session for the Work Offer rule because the local planning workspace was unavailable. |
 | **Business authority** | Items marked CONFIRMED in `planning/docs/planning/SYSTEM_SPECIFICATION.md` (a local planning workspace, not pushed to GitHub) override this PRD. Their mapping to `FR-*` IDs, and every reconciliation decision, is in `09-DECISION_LOG.md`. |
 
 **Priority labels:** `MVP` (build now) · `Later` (planned, not now) · `Future` (design must not block it) · `Out of Scope`.
@@ -109,6 +109,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-CAL-1 | Weekly off days (setting) and holidays (table). A date is a **working day** iff it is not a weekly off day and not a holiday. | MVP |
 | FR-CAL-2 | Off-day-work exception granted by admin for (employee, date); admin-only, audited. Stored as a `work_offers` row with `offer_type = OFF_DAY_WORK`. | MVP |
 | FR-CAL-3 | Off-day work (CONFIRMED): on a granted exception day the employee may check in and out; the day yields **exactly 1 GREEN regardless of check-in time**, plus a **day's pay = monthly salary ÷ 30** (divisor always 30, 1× rate, rounded half-up to 0.01 EGP) using the salary version effective on that day. The pay is an earning line in the payroll preview, locked at Month Close; disbursement stays outside the system. | MVP |
+| FR-CAL-4 | An Admin may create an `EARLY_WORK` or `OVERTIME` offer for one or more active employees in their company, or all employees. An all-employees offer is visible to current and future employees in that company. Employees can view offers addressed to them without accepting. The offer is `ACTIVE` before its end, `COMPLETED` at/after its end, or `CANCELLED`; an Admin may cancel only before its start. All Admin mutations are audited and company-scoped. | MVP |
 | FR-LOC-1 | Location = lat/lng/radius; many-to-many with employees; per-location QR secret. | MVP |
 
 ### 4.3 Attendance

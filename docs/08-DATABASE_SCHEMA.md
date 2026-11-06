@@ -2,9 +2,9 @@
 
 | Field | Value |
 |---|---|
-| **Version** | 3.1 |
+| **Version** | 3.2 |
 | **Status** | Final draft. Sections 2 to 3.4 describe `apps/api/prisma/schema.prisma` (the 2026-10-22 model) plus additive **[ADD]** changes; §3.5 onward are later-phase tables. Reconciled with planning spec v0.3.0 (single-company behaviour, tenancy-ready data, EGP only); decisions in `09-DECISION_LOG.md`. |
-| **Last Updated** | 2026-10-22 |
+| **Last Updated** | 2026-11-03 |
 | **Source of Truth** | The finalization prompt ("SoT") overrides older documents. PostgreSQL is the single source of truth (SoT §20, §25). Only tables with real value are included. |
 
 ---
@@ -13,7 +13,7 @@
 - PKs: `uuid` (`gen_random_uuid()`), except `audit_logs`/`outbox_events` (`bigserial`) and `settings` (`key`), `payroll_months` (`month`).
 - Times: `timestamptz` (UTC). Business dates: `date` (Africa/Cairo calendar date). Months: `date` = first day of month.
 - Money: `NUMERIC(14,2)`, always EGP (CONFIRMED). There is no USD column, no FX rate and no conversion anywhere (DN-23: integer piasters were proposed, not adopted).
-- Enums (PostgreSQL `ENUM` or `text + CHECK`): `point_type` {GREEN, WHITE, RED, BLACK} · `entry_kind` {AWARD, REVERSAL} · `point_source` {ATTENDANCE, OVERTIME, ADMIN} · `attendance_status` {CONFIRMED, ABSENT, EXEMPT} · `verification_status` {PENDING, CONFIRMED, EXPIRED} · `leave_type` {ANNUAL, SICK, UNPAID} · `request_status` {PENDING, APPROVED, REJECTED, CANCELLED} · `offset_kind` {APPLY, UNDO} · `fund_tx_type` {MONTH_CLOSE_CREDIT, WITHDRAWAL, WITHDRAWAL_REFUND, ADJUSTMENT} · `payout_status` {PENDING, PROCESSING, PAID, FAILED} · `payout_provider` {PAYMOB, MANUAL} · `method_type` {WALLET, BANK} · `month_status` {OPEN, LOCKED}.
+- Enums (PostgreSQL `ENUM` or `text + CHECK`): `point_type` {GREEN, WHITE, RED, BLACK} · `work_offer_type` {OFF_DAY_WORK, EARLY_WORK, OVERTIME} · `work_offer_status` {ACTIVE, COMPLETED, CANCELLED} · `entry_kind` {AWARD, REVERSAL} · `point_source` {ATTENDANCE, OVERTIME, ADMIN} · `attendance_status` {CONFIRMED, ABSENT, EXEMPT} · `verification_status` {PENDING, CONFIRMED, EXPIRED} · `leave_type` {ANNUAL, SICK, UNPAID} · `request_status` {PENDING, APPROVED, REJECTED, CANCELLED} · `offset_kind` {APPLY, UNDO} · `fund_tx_type` {MONTH_CLOSE_CREDIT, WITHDRAWAL, WITHDRAWAL_REFUND, ADJUSTMENT} · `payout_status` {PENDING, PROCESSING, PAID, FAILED} · `payout_provider` {PAYMOB, MANUAL} · `method_type` {WALLET, BANK} · `month_status` {OPEN, LOCKED}.
 - Prisma note: partial unique indexes, CHECK and exclusion constraints and triggers are created by raw SQL in `apps/api/prisma/migrations` (`20261025000100_integrity_rules`, `20261025000200_audit_append_only`); the schema and the baseline migration come from `schema.prisma`. Never use `db push` on a shared database. Not yet created: the `point_state` view and the ledger triggers (Phase 4).
 - **Name map** (older names still used in `02`, `05`, `07` → schema names): `users` (employee fields) → `employees`; `attendance` → `attendance_days`; `point_transactions` → `point_ledger_entries`; `point_offsets` → `point_offset_allocations`; `audit_logs` → `audit_events`; `work_schedules` / `schedule_assignments` → `shift_versions` / `shift_assignments`; `off_day_work_exceptions` → `work_offers`; `employee_salaries` → `employee_compensation_versions`.
 - Extensions: `pgcrypto` (UUID), `btree_gist` (exclusion constraints).
@@ -38,7 +38,7 @@ erDiagram
   EMPLOYEES ||--o{ ATTENDANCE_DAYS : records
   ATTENDANCE_DAYS ||--o| ATTENDANCE_EXCUSES : "excuse (unused in MVP)"
   EMPLOYEES ||--o{ WORK_OFFERS : "off-day exceptions"
-  WORK_OFFERS ||--o| ADDITIONAL_WORK_CALCULATIONS : "off-day pay"
+  WORK_OFFERS ||--o{ ADDITIONAL_WORK_CALCULATIONS : "off-day pay"
   EMPLOYEES ||--o{ POINT_LEDGER_ENTRIES : earns
   POINT_VALUE_VERSIONS ||--o{ POINT_LEDGER_ENTRIES : "value snapshot"
   POINT_LEDGER_ENTRIES ||--o{ POINT_OFFSET_ALLOCATIONS : "green or penalty"
@@ -166,26 +166,36 @@ Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_
 - `employee_locations(employee_id, location_id)` PK both.
 - `holidays(id, holiday_date UNIQUE per company, name, created_by)`. Weekly off days live in `settings.weekly_off_days`.
 
-#### `work_offers` (the off-day-work exception record, FR-CAL-3)
+#### `work_offers` (off-day exceptions and early-work/overtime offers, FR-CAL-3/4)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| employee_id | uuid NN FK → employees | |
-| offer_type | text NN | MVP value: `OFF_DAY_WORK` only |
-| starts_at / ends_at | timestamptz NN | the Cairo off day granted |
-| status | text NN default `ACTIVE` | `ACTIVE` / `CANCELLED` |
+| company_id | uuid NN FK → companies | every read and mutation is scoped to this company |
+| employee_id | uuid nullable FK → employees | legacy/single-recipient target; null for multi-recipient or all-company offers |
+| all_employees | boolean NN default false | all-company offers are visible to current and future company employees |
+| offer_type | enum NN | `OFF_DAY_WORK`, `EARLY_WORK`, `OVERTIME` |
+| starts_at / ends_at | timestamptz NN | `ends_at` must be after `starts_at` |
+| status | enum NN default `ACTIVE` | persisted `ACTIVE` / `CANCELLED`; API derives `COMPLETED` when `ends_at <= now` |
 | description | text NN | admin reason (audited) |
 | created_by_user_id | uuid NN FK → users | admin who granted it |
 | cancelled_by_user_id / cancelled_at | uuid / timestamptz | |
 
-Rule: at most one `ACTIVE` offer per employee per Cairo date (service rule). A worked offer day yields **exactly 1 GREEN regardless of check-in time** and the day's pay below.
+`work_offer_recipients(company_id, work_offer_id, employee_id)` stores selected multi-employee targets, with composite foreign keys preventing cross-company recipients. Single-target offers use `employee_id`; all-company offers set `all_employees = true` and have no explicit targets. Early-work/overtime offers require no employee acceptance. Cancellation is allowed only before `starts_at`. Their API state is `ACTIVE` until `ends_at`, `COMPLETED` from `ends_at`, or `CANCELLED` after an Admin cancellation. The existing `OFF_DAY_WORK` exception and its pay calculation remain unchanged.
+
+#### `work_offer_recipients`
+| Column | Type | Notes |
+|---|---|---|
+| company_id | uuid NN FK → companies | |
+| work_offer_id | uuid NN FK → work_offers | |
+| employee_id | uuid NN FK → employees | |
+| PK | (work_offer_id, employee_id) | composite company-scoped FKs prevent cross-company targets |
 
 #### `additional_work_calculations` (the off-day pay record)
 | Column | Type | Notes |
 |---|---|---|
 | id | uuid PK | |
-| work_offer_id | uuid NN UNIQUE FK → work_offers | one calculation per offer |
-| attendance_day_id | uuid NN FK → attendance_days | |
+| work_offer_id | uuid NN FK → work_offers | an offer can cover many employees and days |
+| attendance_day_id | uuid NN FK → attendance_days | UNIQUE (work_offer_id, attendance_day_id): one calculation per offer per employee-day |
 | eligible_minutes | int NN | informational only |
 | green_points_awarded | int NN | always **1** (FR-CAL-3) |
 | salary | numeric(14,2) NN | snapshot of the version effective that day |

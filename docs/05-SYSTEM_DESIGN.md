@@ -44,6 +44,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /attendance/check-in/{verificationId}/confirm` `{qrToken}` | Step 2: QR ⇒ attendance `CONFIRMED` + point |
 | `POST /attendance/check-out` `{lat,lng,accuracy}` | Check-out + overtime Greens |
 | `GET /me/attendance?month=` | Attendance history |
+| `GET /employee/work-offers` | Work offers addressed to this employee or all employees in the company; no acceptance action |
 | `GET /me/points?month=&type=&page=` | Ledger entries with derived state (active / cancelled-by / reversed / consumed / settled) |
 | `GET /me/points/summary?month=` | Counts by type and state |
 | `GET /me/payroll-estimate?month=` | Monetary impact (same calculator as Month Close, flagged `estimate`) |
@@ -63,6 +64,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
 | Calendar | CRUD `/admin/holidays` · `GET/PUT /admin/settings/weekly_off_days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
+| Work Offers | `GET /admin/work-offers[/{id}]` · `POST /admin/work-offers` · `PATCH /admin/work-offers/{id}/cancel` |
 | Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
 | Leave | `GET /admin/leaves?status=` · `POST /admin/leaves/{id}/{approve, reject, cancel-approval}` `{note}` |
@@ -77,6 +79,8 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 - `upcomingSalary` is the version with the earliest `effective_from` after today, or `null`.
 - A version dated in the future never shows as current. Payroll still resolves its own version per month (payroll calculation).
 - `effective_to` is not written in the MVP: it is derived from the next version's start.
+
+**Work Offer lifecycle (REQ-034, FR-CAL-4).** `POST /admin/work-offers` accepts either a non-empty list of active employee IDs in the Admin's company or `allEmployees: true`, never both. Single-recipient offers use `employee_id`; multi-recipient offers use `work_offer_recipients`; all-company offers have no explicit recipient rows and remain visible to employees who join later. Employee visibility is resolved from the authenticated user's employee record and company. No acceptance or response state exists. The API derives `COMPLETED` when `ends_at <= now`; otherwise an uncancelled offer is `ACTIVE`. `PATCH /admin/work-offers/{id}/cancel` atomically changes `ACTIVE` to `CANCELLED` only while `starts_at > now`, and records the Admin mutation in the audit log.
 
 ### 2.4 Webhooks
 | Path | Purpose |
