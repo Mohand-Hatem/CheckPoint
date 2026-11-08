@@ -47,6 +47,8 @@ model Company {
   users                      User[]
   invitations                CompanyInvitation[]
   employees                  Employee[]
+  locations                  Location[]
+  employeeLocations          EmployeeLocation[]
   companyPolicyVersions      CompanyPolicyVersion[]
   compensationVersions       EmployeeSalaryVersion[]
   shifts                     Shift[]
@@ -193,12 +195,44 @@ model Employee {
   attendanceDays       AttendanceDay[]
   workOffers           WorkOffer[]
   workOfferRecipients  WorkOfferRecipient[]
+  locations            EmployeeLocation[]
   pointLedgerEntries   PointLedgerEntry[]
 
   @@unique([companyId, employeeNumber], map: "employees_company_employee_number_key")
   @@unique([companyId, id], map: "employees_company_id_key")
   @@index([companyId], map: "employees_company_idx")
   @@map("employees")
+}
+
+model Location {
+  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String             @map("company_id") @db.Uuid
+  name              String             @db.Text
+  latitude          Decimal            @db.Decimal(9, 6)
+  longitude         Decimal            @db.Decimal(9, 6)
+  radiusM           Int                @default(50) @map("radius_m")
+  qrSecret          Bytes?             @map("qr_secret")
+  active            Boolean            @default(true)
+  company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employeeLocations EmployeeLocation[]
+
+  @@unique([companyId, id], map: "locations_company_id_key")
+  @@index([companyId], map: "locations_company_idx")
+  @@map("locations")
+}
+
+model EmployeeLocation {
+  companyId  String   @map("company_id") @db.Uuid
+  employeeId String   @map("employee_id") @db.Uuid
+  locationId String   @map("location_id") @db.Uuid
+  company    Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee   Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict)
+  location   Location @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+
+  @@id([employeeId, locationId])
+  @@index([companyId, employeeId], map: "employee_locations_company_employee_idx")
+  @@index([companyId, locationId], map: "employee_locations_company_location_idx")
+  @@map("employee_locations")
 }
 
 model CompanyPolicyVersion {
@@ -355,23 +389,23 @@ model AttendanceExcuse {
 }
 
 model WorkOffer {
-  id                String                     @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  companyId         String                     @map("company_id") @db.Uuid
-  employeeId        String?                    @map("employee_id") @db.Uuid
-  allEmployees      Boolean                    @default(false) @map("all_employees")
-  offerType         WorkOfferType              @map("offer_type")
-  startsAt          DateTime                   @map("starts_at") @db.Timestamptz(6)
-  endsAt            DateTime                   @map("ends_at") @db.Timestamptz(6)
-  status            WorkOfferStatus            @default(ACTIVE)
-  description       String                     @db.Text
-  createdByUserId   String                     @map("created_by_user_id") @db.Uuid
-  createdAt         DateTime                   @default(now()) @map("created_at") @db.Timestamptz(6)
-  cancelledByUserId String?                    @map("cancelled_by_user_id") @db.Uuid
-  cancelledAt       DateTime?                  @map("cancelled_at") @db.Timestamptz(6)
-  company           Company                    @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee          Employee?                  @relation(fields: [employeeId], references: [id], onDelete: Restrict)
-  createdBy         User                       @relation("OfferCreator", fields: [createdByUserId], references: [id])
-  cancelledBy       User?                      @relation("OfferCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
+  id                String                      @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String                      @map("company_id") @db.Uuid
+  employeeId        String?                     @map("employee_id") @db.Uuid
+  allEmployees      Boolean                     @default(false) @map("all_employees")
+  offerType         WorkOfferType               @map("offer_type")
+  startsAt          DateTime                    @map("starts_at") @db.Timestamptz(6)
+  endsAt            DateTime                    @map("ends_at") @db.Timestamptz(6)
+  status            WorkOfferStatus             @default(ACTIVE)
+  description       String                      @db.Text
+  createdByUserId   String                      @map("created_by_user_id") @db.Uuid
+  createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
+  cancelledByUserId String?                     @map("cancelled_by_user_id") @db.Uuid
+  cancelledAt       DateTime?                   @map("cancelled_at") @db.Timestamptz(6)
+  company           Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee          Employee?                   @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+  createdBy         User                        @relation("OfferCreator", fields: [createdByUserId], references: [id])
+  cancelledBy       User?                       @relation("OfferCanceller", fields: [cancelledByUserId], references: [id], onDelete: SetNull)
   recipients        WorkOfferRecipient[]
   calculations      AdditionalWorkCalculation[]
 
