@@ -20,6 +20,9 @@ type CreateLocationInput = {
   radiusMeters: number;
 };
 
+const EARTH_RADIUS_M = 6_371_000;
+const toRad = (deg: number) => (deg * Math.PI) / 180;
+
 @Injectable()
 export class LocationService {
   private readonly logger = new Logger(LocationService.name);
@@ -272,5 +275,86 @@ export class LocationService {
       error instanceof Error ? error.stack : String(error),
     );
     throw new InternalServerErrorException(`Failed to ${operation} location`);
+  }
+
+  async isInAllowedLocation(
+    userId: string,
+    companyId: string,
+    operation: "CHECKIN" | "CHECKOUT",
+    point: { latitude: number; longitude: number },
+  ) {
+    try {
+      this.assertValidCoordinates(point.latitude, point.longitude);
+
+      // User.id -> Employee, and fetch only locations assigned to this employee
+      const employee = await this.prismaService.employee.findFirst({
+        where: { userId, companyId, isActive: true },
+        select: {
+          locations: {
+            where: { location: { active: true } },
+            select: {
+              location: {
+                select: {
+                  id: true,
+                  latitude: true,
+                  longitude: true,
+                  radiusM: true,
+                },
+              },
+            },
+          },
+        },
+      });
+
+      if (!employee || employee.locations.length === 0) {
+        throw new ForbiddenException("You have no assigned location");
+      }
+
+      // Check each assigned location against its OWN center and radius
+      const match = employee.locations
+        .map(({ location }) => ({
+          id: location.id,
+          radiusM: location.radiusM,
+          distanceM: this.distanceInMeters(
+            point.latitude,
+            point.longitude,
+            Number(location.latitude),
+            Number(location.longitude),
+          ),
+        }))
+        .find((l) => l.distanceM <= l.radiusM);
+
+      if (!match) {
+        throw new ForbiddenException(
+          `You are not in an allowed location to ${operation}`,
+        );
+      }
+
+      return {
+        allowed: true,
+        locationId: match.id,
+        distanceM: Math.round(match.distanceM),
+      };
+    } catch (error) {
+      this.handleLocationError("check allowed location", error);
+    }
+  }
+
+  private distanceInMeters(
+    employeeLat: number,
+    employeeLng: number,
+    companyLat: number,
+    companyLng: number,
+  ) {
+    const empDLat = toRad(companyLat - employeeLat);
+    const empDLng = toRad(companyLng - employeeLng);
+    const a =
+      Math.sin(empDLat / 2) * Math.sin(empDLat / 2) +
+      Math.cos(toRad(employeeLat)) *
+        Math.cos(toRad(companyLat)) *
+        Math.sin(empDLng / 2) *
+        Math.sin(empDLng / 2);
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return EARTH_RADIUS_M * c;
   }
 }
