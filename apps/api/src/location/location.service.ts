@@ -9,6 +9,7 @@ import {
   NotFoundException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
+import { randomBytes } from "crypto";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { UpdateLocationDto } from "./dto/update-location-dto";
@@ -81,6 +82,7 @@ export class LocationService {
             latitude: input.latitude,
             longitude: input.longitude,
             radiusM: input.radiusMeters,
+            qrSecret: randomBytes(32),
           },
         });
 
@@ -94,7 +96,7 @@ export class LocationService {
           changes: { ...input },
         });
 
-        return location;
+        return this.toResponse(location);
       });
     } catch (error) {
       this.handleLocationError("create", error);
