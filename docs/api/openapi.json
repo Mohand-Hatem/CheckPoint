@@ -1272,6 +1272,119 @@
         ]
       }
     },
+    "/api/admin/users/{id}/reset-password": {
+      "post": {
+        "description": "**Scenario:** an employee forgot their password. The Admin sets a one-time password and hands it over privately. In one audited transaction the password changes, `mustChangePassword` becomes true and **all their sessions end**. At the next sign-in they can only call `PATCH /me/password` until they choose their own. The password is never written to the audit log. An Admin changes their own password with `PATCH /me/password` instead (400 here).",
+        "operationId": "UsersController_resetPassword",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetPasswordResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user **in your company**. A user of another company gets the same answer, so nothing is revealed about it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "User with ID '00000000-0000-4000-8000-000000000000' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Reset a user password (FR-AUTH-5)",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
     "/api/admin/users/{id}/salaries": {
       "post": {
         "description": "**Scenario:** a raise. Salaries are versioned, never edited: the new row applies from `effectiveFrom`, which must be the 1st of a month. Sending the same date again replaces that one version. Amounts are EGP.",
@@ -4450,6 +4563,44 @@
           "currentSalary",
           "upcomingSalary",
           "salaries"
+        ]
+      },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "example": "Temp-Pass-2026",
+            "minLength": 6,
+            "description": "One-time password the Admin hands to the user; they must replace it at first sign-in."
+          }
+        },
+        "required": [
+          "password"
+        ]
+      },
+      "ResetPasswordResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": true,
+            "description": "Always true: the user must set their own password next."
+          },
+          "sessionsRevoked": {
+            "type": "number",
+            "example": 2,
+            "description": "Sessions (refresh tokens) that were ended."
+          }
+        },
+        "required": [
+          "success",
+          "mustChangePassword",
+          "sessionsRevoked"
         ]
       },
       "CreateSalaryDto": {

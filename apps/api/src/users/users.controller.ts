@@ -2,7 +2,9 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -30,6 +32,7 @@ import { ApiNeedsPermission, ApiProtected, ApiValidationError } from '../common/
 import { ErrorResponseDto } from '../common/dto/error-response.dto';
 import { CreateSalaryDto } from './dto/create-salary.dto';
 import { CreateUserDto } from './dto/create-user.dto';
+import { ResetPasswordDto, ResetPasswordResponseDto } from './dto/reset-password.dto';
 import { UpdateUserStatusDto } from './dto/update-user-status.dto';
 import {
   CreatedSalaryResponseDto,
@@ -150,6 +153,31 @@ export class UsersController {
     @Body() dto: UpdateUserStatusDto,
   ) {
     return this.usersService.updateUserStatus(admin.companyId, id, dto.active, admin.userId);
+  }
+
+  @Post(':id/reset-password')
+  @HttpCode(200)
+  @RequirePermission('users.write')
+  @ApiProtected()
+  @ApiNeedsPermission('users.write')
+  @ApiOperation({
+    summary: 'Reset a user password (FR-AUTH-5)',
+    description:
+      '**Scenario:** an employee forgot their password. The Admin sets a one-time password and hands it over privately. ' +
+      'In one audited transaction the password changes, `mustChangePassword` becomes true and **all their sessions end**. ' +
+      'At the next sign-in they can only call `PATCH /me/password` until they choose their own. The password is never written to the audit log. ' +
+      'An Admin changes their own password with `PATCH /me/password` instead (400 here).',
+  })
+  @ApiParam({ name: 'id', format: 'uuid', description: 'User id' })
+  @ApiOkResponse({ type: ResetPasswordResponseDto })
+  @ApiValidationError()
+  @ApiNotFoundResponse(notFoundInCompany)
+  async resetPassword(
+    @CurrentUser() admin: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ResetPasswordDto,
+  ) {
+    return this.usersService.resetPassword(admin.companyId, id, dto.password, admin.userId);
   }
 
   @Post(':id/salaries')

@@ -95,6 +95,58 @@ describe('UsersService (Unit)', () => {
     expect(service).toBeDefined();
   });
 
+  describe('resetPassword (FR-AUTH-5)', () => {
+    const adminId = 'admin-1';
+
+    it('sets a new one-time password, forces a change, ends sessions and audits without the password', async () => {
+      prisma.user.findFirst.mockResolvedValue({ id: 'user-2' });
+      prisma.refreshToken.updateMany.mockResolvedValue({ count: 3 });
+
+      await expect(service.resetPassword('company-1', 'user-2', 'Temp-Pass-9', adminId)).resolves.toEqual({
+        success: true,
+        mustChangePassword: true,
+        sessionsRevoked: 3,
+      });
+
+      expect(prisma.user.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: 'user-2', companyId: 'company-1' } }),
+      );
+      const data = prisma.user.update.mock.calls[0][0].data;
+      expect(data.mustChangePassword).toBe(true);
+      expect(await argon2.verify(data.passwordHash, 'Temp-Pass-9')).toBe(true);
+      expect(prisma.refreshToken.updateMany).toHaveBeenCalledWith({
+        where: { userId: 'user-2', revokedAt: null },
+        data: { revokedAt: expect.any(Date) },
+      });
+      expect(audit.record).toHaveBeenCalledWith(prisma, {
+        companyId: 'company-1',
+        actorUserId: adminId,
+        actorType: 'ADMIN',
+        action: 'user.password_reset',
+        targetType: 'user',
+        targetId: 'user-2',
+        changes: { mustChangePassword: true, sessionsRevoked: 3 },
+      });
+      expect(JSON.stringify(audit.record.mock.calls)).not.toContain('Temp-Pass-9');
+    });
+
+    it('answers 404 for a user outside the Admin company', async () => {
+      prisma.user.findFirst.mockResolvedValue(null);
+
+      await expect(service.resetPassword('company-1', 'other', 'Temp-Pass-9', adminId)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+
+    it('refuses to reset the Admin own password (use PATCH /me/password)', async () => {
+      await expect(service.resetPassword('company-1', adminId, 'Temp-Pass-9', adminId)).rejects.toThrow(
+        BadRequestException,
+      );
+      expect(prisma.user.update).not.toHaveBeenCalled();
+    });
+  });
+
   describe('createUser', () => {
     it('should throw ConflictException if email is already in use', async () => {
       prisma.user.findUnique.mockResolvedValueOnce({ id: 'existing-id' });
