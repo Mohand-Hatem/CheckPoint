@@ -51,6 +51,32 @@ describe("LocationService update/delete", () => {
     } as Record<string, any>;
   }
 
+  it("creates a location with a random QR secret that is never returned", async () => {
+    const db = createDb();
+    db.location.create = jest
+      .fn()
+      .mockImplementation(({ data }) => Promise.resolve({ id: locationId, active: true, ...data }));
+
+    const result = await createService(db).createLocation(userId, {
+      name: "Main Office",
+      latitude: 30.0444,
+      longitude: 31.2357,
+      radiusMeters: 50,
+    });
+
+    const { qrSecret } = db.location.create.mock.calls[0][0].data;
+    expect(Buffer.isBuffer(qrSecret) && qrSecret.length).toBe(32);
+    expect(result).not.toHaveProperty("qrSecret");
+    expect(result).toEqual({
+      id: locationId,
+      name: "Main Office",
+      latitude: 30.0444,
+      longitude: 31.2357,
+      radiusMeters: 50,
+      active: true,
+    });
+  });
+
   it("updates supplied fields within the Admin's company and audits before/after", async () => {
     const db = createDb();
 
