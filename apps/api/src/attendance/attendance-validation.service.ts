@@ -1,7 +1,7 @@
 import {
-  BadRequestException,
   ConflictException,
   Injectable,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 
@@ -30,21 +30,34 @@ export class AttendanceValidationService {
     companyId: string,
     employeeId: string,
     workDate: Date,
-  ): Promise<void> {
+  ) {
     const attendance = await this.prisma.attendanceDay.findUnique({
       where: {
         companyId_employeeId_workDate: { companyId, employeeId, workDate },
       },
-      select: { checkInAt: true, checkOutAt: true },
+      select: { id: true, checkInAt: true, checkOutAt: true, scheduledEndAt: true },
     });
 
     if (!attendance?.checkInAt) {
-      throw new BadRequestException(
-        "Employee must check in before checking out.",
-      );
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        message: "Employee must check in before checking out.",
+        error: "Unprocessable Entity",
+        code: "INVALID_STATE",
+      });
     }
     if (attendance.checkOutAt) {
-      throw new ConflictException("Employee has already checked out.");
+      throw alreadyCheckedOut();
     }
+    return attendance;
   }
+}
+
+export function alreadyCheckedOut() {
+  return new ConflictException({
+    statusCode: 409,
+    message: "Employee has already checked out.",
+    error: "Conflict",
+    code: "ALREADY_CHECKED_OUT",
+  });
 }

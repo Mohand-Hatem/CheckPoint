@@ -2,6 +2,7 @@ import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 
 const TIMEZONE_SETTING_KEY = 'timezone';
+const GPS_MAX_ACCURACY_SETTING_KEY = 'gps_max_accuracy_m';
 
 @Injectable()
 export class CompanyPolicyService {
@@ -38,6 +39,15 @@ export class CompanyPolicyService {
     }
 
     return timezone;
+  }
+
+  async getGpsMaxAccuracyM(companyId: string): Promise<number> {
+    const setting = await this.prisma.setting.findUnique({
+      where: { companyId_key: { companyId, key: GPS_MAX_ACCURACY_SETTING_KEY } },
+      select: { value: true },
+    });
+    // docs/08 §3.8 default, used when an older company has no row.
+    return typeof setting?.value === 'number' ? setting.value : 50;
   }
 
   async getCompanyDate(companyId: string, now = new Date()): Promise<Date> {
