@@ -41,6 +41,9 @@ jobs:
       - name: Typecheck TypeScript
         run: npx tsc --noEmit
 
+      - name: Lint (bug rules only)
+        run: npm run lint
+
       - name: Build NestJS API
         run: npm run build
 

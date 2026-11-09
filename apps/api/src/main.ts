@@ -33,4 +33,8 @@ async function bootstrap() {
   }
 }
 
-bootstrap();
+// A startup failure (e.g. invalid configuration) must stop the process with a clear message.
+bootstrap().catch((error: unknown) => {
+  console.error(error instanceof Error ? error.message : error);
+  process.exit(1);
+});
