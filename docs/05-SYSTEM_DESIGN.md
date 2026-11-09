@@ -63,7 +63,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Invitations | `POST/GET /admin/invitations` · `DELETE /admin/invitations/{id}` (revoke); the raw token and `invitationLink` are returned once on create, and the link is also emailed when SMTP is configured (`emailSent`, best-effort after commit; REQ-032, AC-REQ-032-05) |
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
-| Calendar | CRUD `/admin/holidays` · `GET/PUT /admin/settings/weekly_off_days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
+| Calendar | `GET/POST /admin/holidays` · `DELETE /admin/holidays/{id}` · `GET/PUT /admin/settings/weekly-off-days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
 | Work Offers | `GET /admin/work-offers[/{id}]` · `POST /admin/work-offers` · `PATCH /admin/work-offers/{id}/cancel` |
 | Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |

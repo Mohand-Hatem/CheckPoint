@@ -65,6 +65,7 @@ model Company {
   additionalWorkCalculations AdditionalWorkCalculation[]
   auditEvents                AuditEvent[]
   settings                   Setting[]
+  holidays                   Holiday[]
 
   @@map("companies")
 }
@@ -98,6 +99,7 @@ model User {
   auditEvents               AuditEvent[]                @relation("AuditActor")
   refreshTokens             RefreshToken[]
   updatedSettings           Setting[]                   @relation("SettingUpdatedBy")
+  createdHolidays           Holiday[]                   @relation("HolidayCreator")
 
   @@index([companyId], map: "users_company_idx")
   @@map("users")
@@ -564,4 +566,19 @@ model Setting {
 
   @@id([companyId, key])
   @@map("settings")
+}
+
+// FR-CAL-1: a date is a working day iff it is not a weekly off day (settings.weekly_off_days) and not a holiday.
+model Holiday {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  holidayDate     DateTime @map("holiday_date") @db.Date
+  name            String   @db.Text
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy       User?    @relation("HolidayCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, holidayDate], map: "holidays_company_date_key")
+  @@map("holidays")
 }

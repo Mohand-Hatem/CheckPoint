@@ -161,10 +161,10 @@ Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_
 #### `shift_assignments`
 `id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. No overlapping assignments per employee (exclusion constraint `shift_assignments_no_overlap_excl`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction; schedule assignment delegates employee ownership checks and pointer updates to `EmployeesService`. Every new employee (direct create or accepted invitation) gets an initial assignment row, so attendance can find the shift for any date.
 
-#### `locations`, `employee_locations`, `holidays` (Phase 2, not in the schema yet)
-- `locations(id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea, active)`.
-- `employee_locations(employee_id, location_id)` PK both.
-- `holidays(id, holiday_date UNIQUE per company, name, created_by)`. Weekly off days live in `settings.weekly_off_days`.
+#### `locations`, `employee_locations`, `holidays` (Phase 2)
+- `locations(id, company_id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea NN (random, never returned), active)` — migration `20261108000000_locations`.
+- `employee_locations(company_id, employee_id, location_id)` PK (employee_id, location_id); replaced as a whole by `PUT /admin/users/{id}/locations`.
+- `holidays(id, company_id, holiday_date date, name NN not blank, created_by_user_id, created_at)`, UNIQUE (company_id, holiday_date) — migration `20261109000000_holidays`. Weekly off days live in `settings.weekly_off_days` (default `["FRI","SAT"]`).
 
 #### `work_offers` (off-day exceptions and early-work/overtime offers, FR-CAL-3/4)
 | Column | Type | Notes |
