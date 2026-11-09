@@ -63,7 +63,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Invitations | `POST/GET /admin/invitations` · `DELETE /admin/invitations/{id}` (revoke); the raw token and `invitationLink` are returned once on create, and the link is also emailed when SMTP is configured (`emailSent`, best-effort after commit; REQ-032, AC-REQ-032-05) |
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
-| Calendar | `GET/POST /admin/holidays` · `DELETE /admin/holidays/{id}` · `GET/PUT /admin/settings/weekly-off-days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
+| Calendar | `GET/POST /admin/holidays` · `DELETE /admin/holidays/{id}` · `GET/PUT /admin/settings/weekly-off-days` · off-day-work exceptions via `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) and `PATCH /admin/work-offers/{id}/cancel` (D-20) |
 | Work Offers | `GET /admin/work-offers[/{id}]` · `POST /admin/work-offers` · `PATCH /admin/work-offers/{id}/cancel` |
 | Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
@@ -126,7 +126,7 @@ shift_end     = date + end_time
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).
 9. Nothing is awarded; **GPS alone never confirms attendance.**
 
-**Built so far (D-19):** steps 1, 3 and 5-9 plus the existing-attendance `409`; the working-day check (step 4) comes with the off-day rule, leave checks with Phase 5, and `CLOSED` still records BLACK until the Phase 4 absence sweeper.
+**Built so far (D-19, D-20):** steps 1 and 3-9 plus the existing-attendance `409`; step 4 checks the working day and off-day-work exceptions (`422 NOT_A_WORKING_DAY`), while leave checks come with Phase 5 and `CLOSED` still records BLACK until the Phase 4 absence sweeper.
 
 ### 4.3 Check-in — step 2 (QR confirmation)
 1. Load verification (must belong to caller). `CONFIRMED` ⇒ `409`; `EXPIRED` or `expires_at ≤ now` ⇒ `410 VERIFICATION_EXPIRED` (row marked `EXPIRED` by the sweeper, or lazily).

@@ -28,6 +28,7 @@ import {
   overtimeGreens,
   ShiftTimes,
 } from '../attendance/attendance-rules';
+import { CalendarService } from '../calendar/calendar.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
@@ -44,6 +45,7 @@ type CheckInPoint = {
 };
 
 const VERIFICATION_TTL_MS = 15 * 60_000; // FR-ATT-1: the QR must be scanned within 15 minutes
+const OFF_DAY_WORK = 'OFF_DAY_WORK'; // attendance_days.check_in_result of an off-day-work exception day (FR-CAL-3)
 
 const toVerificationResponse = (verification: AttendanceVerification) => ({
   verificationId: verification.id,
@@ -64,6 +66,7 @@ export class CheckService {
     private readonly workOffers: WorkOffersService,
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
+    private readonly calendar: CalendarService,
   ) {}
 
   async checkInAsUser(companyId: string, userId: string, position: PositionDto) {
@@ -183,6 +186,27 @@ export class CheckService {
     );
     const windows = computeWindows(workDate, shift, timezone);
     const dateKey = workDate.toISOString().slice(0, 10);
+    const base = { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment };
+    const dayAward = (type: PointType): CheckInPoint => ({
+      pointType: type,
+      quantity: 1,
+      reason: `Attendance check-in classified as ${type}.`,
+      idempotencyKey: `ATT:${employeeId}:${dateKey}`,
+    });
+
+    if (!(await this.calendar.isWorkingDay(companyId, workDate))) {
+      // FR-CAL-2/3: only an off-day-work exception opens a weekly off day or holiday; then GREEN whatever the time.
+      if (!(await this.coveringOffer(companyId, userId, checkInTime, WorkOfferType.OFF_DAY_WORK))) {
+        throw new UnprocessableEntityException({
+          statusCode: 422,
+          message: 'Today is not a working day and you have no off-day-work exception.',
+          error: 'Unprocessable Entity',
+          code: 'NOT_A_WORKING_DAY',
+        });
+      }
+      return { ...base, result: PointType.GREEN, checkInResult: OFF_DAY_WORK, awards: [dayAward(PointType.GREEN)] };
+    }
+
     let result = classifyCheckIn(checkInTime, windows);
     const awards: CheckInPoint[] = [];
 
@@ -212,14 +236,9 @@ export class CheckService {
         });
       }
     }
-    awards.unshift({
-      pointType: result,
-      quantity: 1,
-      reason: `Attendance check-in classified as ${result}.`,
-      idempotencyKey: `ATT:${employeeId}:${dateKey}`,
-    });
+    awards.unshift(dayAward(result));
 
-    return { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment, result, awards };
+    return { ...base, result, checkInResult: result as string, awards };
   }
 
   private async recordCheckIn(
@@ -228,7 +247,7 @@ export class CheckService {
     locationId: string,
     now: Date,
   ) {
-    const { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment, result, awards } = plan;
+    const { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment, result, checkInResult, awards } = plan;
     return this.prisma.$transaction(async (tx) => {
       // Only the request that flips PENDING to CONFIRMED may record the day, so a double scan cannot award twice.
       const { count } = await tx.attendanceVerification.updateMany({
@@ -250,7 +269,7 @@ export class CheckService {
           redPeriodEndAt: windows.redPeriodEndAt,
           scheduledEndAt: windows.scheduledEndAt,
           checkInAt: checkInTime,
-          checkInResult: result,
+          checkInResult,
           classification: result,
         },
         tx,
@@ -283,7 +302,7 @@ export class CheckService {
         targetId: attendance.id,
         changes: {
           checkInAt: checkInTime.toISOString(),
-          checkInResult: result,
+          checkInResult,
           classification: result,
           locationId,
           verificationId,
@@ -302,7 +321,8 @@ export class CheckService {
     const day = await this.attendanceValidation.assertCanCheckOut(companyId, employeeId, workDate);
     const location = await this.assertAtAllowedLocation(companyId, userId, 'CHECKOUT', position);
     // shortcut: an approved early leave must force 0 here (FR-ATT-5); early-leave requests arrive in Phase 5.
-    const overtime = overtimeGreens(checkOutAt, day.scheduledEndAt);
+    // DN-20: an off-day-work day earns no overtime GREENs.
+    const overtime = day.checkInResult === OFF_DAY_WORK ? 0 : overtimeGreens(checkOutAt, day.scheduledEndAt);
 
     return this.prisma.$transaction(async (tx) => {
       // Only the request that flips check_out_at from NULL may continue, so retries and races cannot award twice.
@@ -396,14 +416,18 @@ export class CheckService {
     checkInTime: Date,
     scheduledStartAt: Date,
   ): Promise<number | null> {
-    const offers = await this.workOffers.listForEmployee(companyId, userId);
-    const offer = offers.find(
-      (item) =>
-        item.offerType === WorkOfferType.EARLY_WORK &&
-        item.status === WorkOfferStatus.ACTIVE &&
-        item.startsAt <= checkInTime &&
-        checkInTime < item.endsAt,
-    );
+    const offer = await this.coveringOffer(companyId, userId, checkInTime, WorkOfferType.EARLY_WORK);
     return offer ? beforeTimeGreens(checkInTime, scheduledStartAt) : null;
+  }
+
+  private async coveringOffer(companyId: string, userId: string, at: Date, type: WorkOfferType) {
+    const offers = await this.workOffers.listForEmployee(companyId, userId);
+    return offers.find(
+      (item) =>
+        item.offerType === type &&
+        item.status === WorkOfferStatus.ACTIVE &&
+        item.startsAt <= at &&
+        at < item.endsAt,
+    );
   }
 }

@@ -10,6 +10,13 @@ describe("CreateWorkOfferDto (AC-REQ-034-01)", () => {
     description: "Additional work",
   };
 
+  it("accepts an OFF_DAY_WORK exception (FR-CAL-2) and rejects unknown types", () => {
+    const valid = (offerType: string) =>
+      validateSync(plainToInstance(CreateWorkOfferDto, { ...base, offerType, allEmployees: true })).length === 0;
+    expect(valid("OFF_DAY_WORK")).toBe(true);
+    expect(valid("HOLIDAY_WORK")).toBe(false);
+  });
+
   it("accepts all-company targeting without employee IDs", () => {
     const dto = plainToInstance(CreateWorkOfferDto, {
       ...base,

@@ -74,6 +74,7 @@ describe("AttendanceValidationService (TEST-045)", () => {
       id: true,
       checkInAt: true,
       checkOutAt: true,
+      checkInResult: true,
       scheduledEndAt: true,
     });
   });

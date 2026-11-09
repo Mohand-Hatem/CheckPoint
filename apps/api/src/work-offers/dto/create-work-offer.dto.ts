@@ -14,9 +14,14 @@ import {
 } from "class-validator";
 
 export class CreateWorkOfferDto {
-  @ApiProperty({ enum: ["EARLY_WORK", "OVERTIME"], example: "OVERTIME" })
-  @IsIn(["EARLY_WORK", "OVERTIME"])
-  offerType!: "EARLY_WORK" | "OVERTIME";
+  @ApiProperty({
+    enum: ["EARLY_WORK", "OVERTIME", "OFF_DAY_WORK"],
+    example: "OVERTIME",
+    description:
+      "OFF_DAY_WORK (FR-CAL-2) lets the employees check in on a weekly off day or holiday at any time between startsAt and endsAt; the day counts as GREEN.",
+  })
+  @IsIn(["EARLY_WORK", "OVERTIME", "OFF_DAY_WORK"])
+  offerType!: "EARLY_WORK" | "OVERTIME" | "OFF_DAY_WORK";
 
   @ApiProperty({ example: "2026-11-10T07:00:00Z", format: "date-time" })
   @IsDateString({ strict: true })

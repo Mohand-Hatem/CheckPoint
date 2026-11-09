@@ -66,6 +66,9 @@ describe('Two-step check-in (e2e, FR-ATT-1/2)', () => {
       },
     });
 
+    // Every weekday is a working day for this company, so the run does not depend on today's weekday.
+    await prisma.setting.update({ where: { companyId_key: { companyId, key: 'weekly_off_days' } }, data: { value: [] } });
+
     const moduleFixture: TestingModule = await Test.createTestingModule({ imports: [AppModule] }).compile();
     app = moduleFixture.createNestApplication();
     app.setGlobalPrefix('api');
@@ -163,5 +166,42 @@ describe('Two-step check-in (e2e, FR-ATT-1/2)', () => {
 
     const fresh = (await step1(second.token).expect(201)).body;
     expect(fresh.verificationId).not.toBe(a.body.verificationId);
+  });
+
+  it('a weekly off day needs an OFF_DAY_WORK exception, and then counts as GREEN (FR-CAL-1/2/3)', async () => {
+    const email = `ci-off-${run}@ci.test`;
+    const userId = (
+      await http()
+        .post('/api/admin/users')
+        .set(auth(adminToken))
+        .send({ email, fullName: 'Off Day', employeeCode: `CI-OFF-${run}`, password: PASSWORD, roleCode: 'EMPLOYEE' })
+        .expect(201)
+    ).body.id;
+    await prisma.user.update({ where: { id: userId }, data: { mustChangePassword: false } });
+    const employeeId = (await prisma.employee.findFirstOrThrow({ where: { userId }, select: { id: true } })).id;
+    await http().put(`/api/admin/users/${userId}/locations`).set(auth(adminToken)).send({ locationIds: [officeId] }).expect(200);
+    const token = await login(email);
+
+    const today = ['SUN', 'MON', 'TUE', 'WED', 'THU', 'FRI', 'SAT'][workDate.getUTCDay()];
+    await http().put('/api/admin/settings/weekly-off-days').set(auth(adminToken)).send({ days: [today] }).expect(200);
+    expect((await step1(token).expect(422)).body.code).toBe('NOT_A_WORKING_DAY');
+
+    await http()
+      .post('/api/admin/work-offers')
+      .set(auth(adminToken))
+      .send({
+        offerType: 'OFF_DAY_WORK',
+        startsAt: new Date(Date.now() - 60 * 60_000).toISOString(),
+        endsAt: new Date(Date.now() + 2 * 60 * 60_000).toISOString(),
+        description: 'Inventory day',
+        allEmployees: false,
+        employeeIds: [employeeId],
+      })
+      .expect(201);
+
+    const { verificationId } = (await step1(token).expect(201)).body;
+    await confirm(token, verificationId, await kioskToken(officeId)).expect(201);
+    const day = await dayOf(employeeId);
+    expect(day).toMatchObject({ checkInResult: 'OFF_DAY_WORK', classification: 'GREEN' });
   });
 });

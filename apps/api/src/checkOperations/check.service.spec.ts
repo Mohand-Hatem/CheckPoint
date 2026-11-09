@@ -9,6 +9,7 @@ import { LocationService } from '../location/location.service';
 import { PointsService } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
+import { CalendarService } from '../calendar/calendar.service';
 import { CheckService } from './check.service';
 
 const companyId = 'company-1';
@@ -34,6 +35,7 @@ describe('CheckService', () => {
   let locations: { isInAllowedLocation: jest.Mock; verifyQrToken: jest.Mock };
   let points: { addPointEntryForSource: jest.Mock };
   let workOffers: { listForEmployee: jest.Mock };
+  let calendar: { isWorkingDay: jest.Mock };
   let audit: { record: jest.Mock };
   let prisma: {
     $transaction: jest.Mock;
@@ -121,6 +123,7 @@ describe('CheckService', () => {
       }),
     };
     workOffers = { listForEmployee: jest.fn().mockResolvedValue([]) };
+    calendar = { isWorkingDay: jest.fn().mockResolvedValue(true) };
     audit = { record: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
     prisma = {
       $transaction: jest.fn(
@@ -140,6 +143,7 @@ describe('CheckService', () => {
       workOffers as unknown as WorkOffersService,
       audit as unknown as AuditService,
       prisma as unknown as PrismaService,
+      calendar as unknown as CalendarService,
     );
   });
 
@@ -448,6 +452,73 @@ describe('CheckService', () => {
         expect.objectContaining({ where: { id: 'ver-1', companyId, employeeId } }),
       );
       expect(attendanceDay.recordAttendanceDay).toHaveBeenCalled();
+    });
+  });
+
+  describe('weekly off days and holidays (FR-CAL-1/2/3)', () => {
+    const offDayOffer = (overrides: Record<string, unknown> = {}) => ({
+      offerType: 'OFF_DAY_WORK',
+      status: 'ACTIVE',
+      startsAt: new Date('2025-03-10T05:00:00.000Z'),
+      endsAt: new Date('2025-03-10T20:00:00.000Z'),
+      ...overrides,
+    });
+
+    beforeEach(() => calendar.isWorkingDay.mockResolvedValue(false));
+
+    it('rejects step 1 with 422 NOT_A_WORKING_DAY when no off-day exception covers the moment', async () => {
+      workOffers.listForEmployee.mockResolvedValue([
+        offDayOffer({ status: 'CANCELLED' }),
+        offDayOffer({ offerType: 'OVERTIME' }),
+        offDayOffer({ startsAt: new Date('2025-03-10T10:00:00.000Z') }),
+      ]);
+
+      await expect(service.checkIn(companyId, employeeId, POSITION)).rejects.toMatchObject({
+        status: 422,
+        response: expect.objectContaining({ code: 'NOT_A_WORKING_DAY' }),
+      });
+      expect(calendar.isWorkingDay).toHaveBeenCalledWith(companyId, workDate);
+      expect(verifications.create).not.toHaveBeenCalled();
+    });
+
+    it('allows a check-in at any time inside an active OFF_DAY_WORK offer, even before the shift window', async () => {
+      workOffers.listForEmployee.mockResolvedValue([offDayOffer()]);
+      jest.setSystemTime(new Date('2025-03-10T06:00:00.000Z'));
+
+      await expect(service.checkIn(companyId, employeeId, POSITION)).resolves.toMatchObject({ status: 'PENDING' });
+    });
+
+    it('records the off day as GREEN with exactly 1 GREEN, whatever the time (FR-CAL-3)', async () => {
+      workOffers.listForEmployee.mockResolvedValue([
+        offDayOffer(),
+        { offerType: 'EARLY_WORK', status: 'ACTIVE', startsAt: new Date('2025-03-10T05:00:00.000Z'), endsAt: new Date('2025-03-10T09:00:00.000Z') },
+      ]);
+
+      await confirmAt('2025-03-10T13:30:00.000Z'); // would be BLACK on a working day
+
+      expect(attendanceDay.recordAttendanceDay).toHaveBeenCalledWith(
+        expect.objectContaining({ checkInResult: 'OFF_DAY_WORK', classification: PointType.GREEN }),
+        transaction,
+      );
+      expect(points.addPointEntryForSource).toHaveBeenCalledTimes(1);
+      expect(points.addPointEntryForSource).toHaveBeenCalledWith(
+        expect.objectContaining({ pointType: PointType.GREEN, quantity: 1 }),
+        transaction,
+      );
+    });
+
+    it('awards no overtime at checkout on an off-day-work day (DN-20)', async () => {
+      validation.assertCanCheckOut.mockResolvedValue({
+        id: 'attendance-1',
+        checkInAt: new Date('2025-03-10T09:10:00.000Z'),
+        checkOutAt: null,
+        checkInResult: 'OFF_DAY_WORK',
+        scheduledEndAt: new Date('2025-03-10T16:00:00.000Z'),
+      });
+      jest.setSystemTime(new Date('2025-03-10T19:30:00.000Z'));
+
+      await expect(service.checkOut(companyId, employeeId, POSITION)).resolves.toMatchObject({ overtimeGreens: 0 });
+      expect(points.addPointEntryForSource).not.toHaveBeenCalled();
     });
   });
 

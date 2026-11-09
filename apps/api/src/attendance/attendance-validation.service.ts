@@ -35,7 +35,7 @@ export class AttendanceValidationService {
       where: {
         companyId_employeeId_workDate: { companyId, employeeId, workDate },
       },
-      select: { id: true, checkInAt: true, checkOutAt: true, scheduledEndAt: true },
+      select: { id: true, checkInAt: true, checkOutAt: true, checkInResult: true, scheduledEndAt: true },
     });
 
     if (!attendance?.checkInAt) {
