@@ -18,8 +18,18 @@ type CreateLocationInput = {
   name: string;
   latitude: number;
   longitude: number;
-  radiusMeters: number;
+  radiusMeters?: number;
 };
+
+// Public fields only: qrSecret is never selected for a response.
+const LOCATION_VIEW = {
+  id: true,
+  name: true,
+  latitude: true,
+  longitude: true,
+  radiusM: true,
+  active: true,
+} as const;
 
 const EARTH_RADIUS_M = 6_371_000;
 const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -68,7 +78,95 @@ export class LocationService {
     return user.companyId;
   }
 
+  async listLocations(companyId: string) {
+    const locations = await this.prismaService.location.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: LOCATION_VIEW,
+    });
+    return locations.map((location) => this.toResponse(location));
+  }
+
+  async getLocation(companyId: string, locationId: string) {
+    const location = await this.prismaService.location.findFirst({
+      where: { id: locationId, companyId },
+      select: LOCATION_VIEW,
+    });
+    if (!location) throw new NotFoundException("Location not found");
+    return this.toResponse(location);
+  }
+
+  async listUserLocations(companyId: string, targetUserId: string) {
+    const employeeId = await this.employeeIdOf(this.prismaService, companyId, targetUserId);
+    const rows = await this.prismaService.employeeLocation.findMany({
+      where: { companyId, employeeId },
+      select: { location: { select: LOCATION_VIEW } },
+      orderBy: { location: { name: "asc" } },
+    });
+    return rows.map((row) => this.toResponse(row.location));
+  }
+
+  /** FR-LOC-1: replace the whole set of locations an employee may check in/out at. */
+  async setUserLocations(
+    companyId: string,
+    adminUserId: string,
+    targetUserId: string,
+    locationIds: string[],
+  ) {
+    const ids = [...new Set(locationIds)];
+    return this.prismaService.$transaction(async (tx) => {
+      const employeeId = await this.employeeIdOf(tx, companyId, targetUserId);
+      const locations = await tx.location.findMany({
+        where: { id: { in: ids }, companyId, active: true },
+        orderBy: { name: "asc" },
+        select: LOCATION_VIEW,
+      });
+      if (locations.length !== ids.length) {
+        throw new BadRequestException(
+          "Every location must be an active location of your company",
+        );
+      }
+
+      const before = await tx.employeeLocation.findMany({
+        where: { companyId, employeeId },
+        select: { locationId: true },
+      });
+      await tx.employeeLocation.deleteMany({ where: { companyId, employeeId } });
+      if (ids.length) {
+        await tx.employeeLocation.createMany({
+          data: ids.map((locationId) => ({ companyId, employeeId, locationId })),
+        });
+      }
+
+      await this.auditService.record(tx, {
+        companyId,
+        actorUserId: adminUserId,
+        actorType: "ADMIN",
+        action: "user.locations_set",
+        targetType: "user",
+        targetId: targetUserId,
+        changes: { before: before.map((row) => row.locationId), after: ids },
+      });
+      return locations.map((location) => this.toResponse(location));
+    });
+  }
+
+  private async employeeIdOf(
+    db: Prisma.TransactionClient,
+    companyId: string,
+    userId: string,
+  ) {
+    const employee = await db.employee.findFirst({
+      where: { userId, companyId },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundException(`User with ID '${userId}' not found`);
+    return employee.id;
+  }
+
   async createLocation(userId: string, input: CreateLocationInput) {
+    const name = input.name.trim();
+    if (!name) throw new BadRequestException("Location name is required");
     this.assertValidCoordinates(input.latitude, input.longitude);
 
     try {
@@ -78,10 +176,10 @@ export class LocationService {
         const location = await tx.location.create({
           data: {
             companyId,
-            name: input.name,
+            name,
             latitude: input.latitude,
             longitude: input.longitude,
-            radiusM: input.radiusMeters,
+            radiusM: input.radiusMeters ?? 50,
             qrSecret: randomBytes(32),
           },
         });
@@ -93,7 +191,7 @@ export class LocationService {
           action: "CREATE_LOCATION",
           targetType: "LOCATION",
           targetId: location.id,
-          changes: { ...input },
+          changes: this.toResponse(location),
         });
 
         return this.toResponse(location);

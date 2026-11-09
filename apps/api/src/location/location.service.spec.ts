@@ -77,6 +77,129 @@ describe("LocationService update/delete", () => {
     });
   });
 
+  it("creates with a trimmed name and the 50 m default radius, and rejects a blank name", async () => {
+    const db = createDb();
+    db.location.create = jest
+      .fn()
+      .mockImplementation(({ data }) => Promise.resolve({ id: locationId, active: true, ...data }));
+    const service = createService(db);
+
+    await service.createLocation(userId, { name: "  Branch  ", latitude: 30.1, longitude: 31.2 });
+    expect(db.location.create.mock.calls[0][0].data).toMatchObject({ name: "Branch", radiusM: 50 });
+
+    await expect(
+      service.createLocation(userId, { name: "  ", latitude: 30.1, longitude: 31.2 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("lists only the company's locations, by name, without QR secrets", async () => {
+    const db = createDb();
+    db.location.findMany = jest.fn().mockResolvedValue([
+      { id: locationId, name: "Main Office", latitude: 30.0444, longitude: 31.2357, radiusM: 50, active: true },
+    ]);
+
+    await expect(createService(db).listLocations(companyId)).resolves.toEqual([
+      { id: locationId, name: "Main Office", latitude: 30.0444, longitude: 31.2357, radiusMeters: 50, active: true },
+    ]);
+    expect(db.location.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId }, orderBy: { name: "asc" } }),
+    );
+    expect(db.location.findMany.mock.calls[0][0].select.qrSecret).toBeUndefined();
+  });
+
+  it("returns 404 for one location outside the company", async () => {
+    await expect(createService(createDb(null)).getLocation(companyId, locationId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  describe("employee location assignments (FR-LOC-1)", () => {
+    const targetUserId = "c0ffee00-0000-4000-8000-000000000009";
+    const employeeId = "c0ffee00-0000-4000-8000-00000000000e";
+    const otherLocationId = "c0ffee00-0000-4000-8000-000000000004";
+    const row = (id: string, name: string) => ({ id, name, latitude: 30, longitude: 31, radiusM: 50, active: true });
+
+    function assignDb(found: Record<string, unknown>[]) {
+      const db = createDb();
+      db.employee = { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) };
+      db.employeeLocation = {
+        findMany: jest.fn().mockResolvedValue([{ locationId: otherLocationId }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: found.length }),
+      };
+      db.location.findMany = jest.fn().mockResolvedValue(found);
+      return db;
+    }
+
+    it("replaces the employee's locations in one audited transaction", async () => {
+      const db = assignDb([row(locationId, "Main Office")]);
+
+      await expect(
+        createService(db).setUserLocations(companyId, userId, targetUserId, [locationId]),
+      ).resolves.toEqual([
+        { id: locationId, name: "Main Office", latitude: 30, longitude: 31, radiusMeters: 50, active: true },
+      ]);
+
+      expect(db.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: targetUserId, companyId } }),
+      );
+      expect(db.location.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: [locationId] }, companyId, active: true } }),
+      );
+      expect(db.employeeLocation.deleteMany).toHaveBeenCalledWith({ where: { companyId, employeeId } });
+      expect(db.employeeLocation.createMany).toHaveBeenCalledWith({
+        data: [{ companyId, employeeId, locationId }],
+      });
+      expect(db.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          companyId,
+          actorUserId: userId,
+          action: "user.locations_set",
+          targetType: "user",
+          targetId: targetUserId,
+          changes: { before: [otherLocationId], after: [locationId] },
+        }),
+      });
+    });
+
+    it("clears every assignment with an empty list", async () => {
+      const db = assignDb([]);
+      await expect(createService(db).setUserLocations(companyId, userId, targetUserId, [])).resolves.toEqual([]);
+      expect(db.employeeLocation.deleteMany).toHaveBeenCalled();
+      expect(db.employeeLocation.createMany).not.toHaveBeenCalled();
+    });
+
+    it("rejects a location that is unknown, inactive or in another company, changing nothing", async () => {
+      const db = assignDb([row(locationId, "Main Office")]);
+
+      await expect(
+        createService(db).setUserLocations(companyId, userId, targetUserId, [locationId, otherLocationId]),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(db.employeeLocation.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 when the user is not an employee of the company", async () => {
+      const db = assignDb([]);
+      db.employee.findFirst.mockResolvedValue(null);
+
+      await expect(
+        createService(db).setUserLocations(companyId, userId, targetUserId, []),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(createService(db).listUserLocations(companyId, targetUserId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("lists the employee's current locations", async () => {
+      const db = assignDb([]);
+      db.employeeLocation.findMany.mockResolvedValue([{ location: row(locationId, "Main Office") }]);
+
+      await expect(createService(db).listUserLocations(companyId, targetUserId)).resolves.toEqual([
+        { id: locationId, name: "Main Office", latitude: 30, longitude: 31, radiusMeters: 50, active: true },
+      ]);
+    });
+  });
+
   it("updates supplied fields within the Admin's company and audits before/after", async () => {
     const db = createDb();
 
