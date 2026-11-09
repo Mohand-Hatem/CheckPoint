@@ -7,7 +7,7 @@ import {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { LocationService } from "./location.service";
-import { isValidQrToken } from "./qr-token";
+import { isValidQrToken, qrSlot, signQrToken } from "./qr-token";
 
 describe("LocationService update/delete", () => {
   const userId = "c0ffee00-0000-4000-8000-000000000001";
@@ -158,6 +158,46 @@ describe("LocationService update/delete", () => {
           qrDb({ id: locationId, active: true, qrSecret: secret }, "bad"),
         ).getQrToken(companyId, locationId);
         expect(isValidQrToken(fallback.token, secret, now, 30)).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("verifyQrToken accepts a current token of the expected location", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const db = qrDb({ id: locationId, active: true, qrSecret: secret });
+        const token = signQrToken(secret, locationId, qrSlot(now, 30));
+        await expect(createService(db).verifyQrToken(companyId, locationId, token)).resolves.toBeUndefined();
+        expect(db.location.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: locationId, companyId, active: true } }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("verifyQrToken: QR_LOCATION_MISMATCH for another location, QR_TOKEN_INVALID otherwise", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const service = createService(qrDb({ id: locationId, active: true, qrSecret: secret }));
+        const other = "c0ffee00-0000-4000-8000-000000000004";
+        const expectCode = (promise: Promise<unknown>, code: string) =>
+          expect(promise).rejects.toMatchObject({ status: 422, response: expect.objectContaining({ code }) });
+
+        await expectCode(
+          service.verifyQrToken(companyId, locationId, signQrToken(secret, other, qrSlot(now, 30))),
+          "QR_LOCATION_MISMATCH",
+        );
+        await expectCode(service.verifyQrToken(companyId, locationId, "garbage"), "QR_TOKEN_INVALID");
+        await expectCode(
+          service.verifyQrToken(companyId, locationId, signQrToken(secret, locationId, qrSlot(now, 30) - 2)),
+          "QR_TOKEN_INVALID",
+        );
+        await expectCode(
+          createService(qrDb(null)).verifyQrToken(companyId, locationId, signQrToken(secret, locationId, qrSlot(now, 30))),
+          "QR_TOKEN_INVALID",
+        );
       } finally {
         jest.useRealTimers();
       }

@@ -7,13 +7,14 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { UpdateLocationDto } from "./dto/update-location-dto";
-import { qrSlot, signQrToken } from "./qr-token";
+import { isValidQrToken, parseQrToken, qrSlot, signQrToken } from "./qr-token";
 
 type CreateLocationInput = {
   name: string;
@@ -112,6 +113,26 @@ export class LocationService {
       token: signQrToken(Buffer.from(location.qrSecret), location.id, slot),
       validUntil: new Date((slot + 1) * rotation * 1000),
     };
+  }
+
+  /** docs/05 §4.3 step 2: the scanned token must be a live token of the verification's location. */
+  async verifyQrToken(companyId: string, expectedLocationId: string, token: string): Promise<void> {
+    const qrError = (code: string, message: string) =>
+      new UnprocessableEntityException({ statusCode: 422, message, error: "Unprocessable Entity", code });
+    const parsed = parseQrToken(token);
+    if (parsed && parsed.locationId !== expectedLocationId) {
+      throw qrError("QR_LOCATION_MISMATCH", "This QR code belongs to another location. Scan the code at the location you checked in at.");
+    }
+    const location = parsed
+      ? await this.prismaService.location.findFirst({
+          where: { id: expectedLocationId, companyId, active: true },
+          select: { qrSecret: true },
+        })
+      : null;
+    const rotation = location ? await this.qrRotationSeconds(companyId) : 0;
+    if (!location || !isValidQrToken(token, Buffer.from(location.qrSecret), Date.now(), rotation)) {
+      throw qrError("QR_TOKEN_INVALID", "The QR code is invalid or too old. Scan the code currently shown on the kiosk.");
+    }
   }
 
   async qrRotationSeconds(companyId: string): Promise<number> {

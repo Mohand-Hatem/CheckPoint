@@ -22,7 +22,7 @@ export class AttendanceValidationService {
     });
 
     if (attendance?.checkInAt) {
-      throw new ConflictException("Employee has already checked in.");
+      throw alreadyCheckedIn();
     }
   }
 
@@ -51,6 +51,15 @@ export class AttendanceValidationService {
     }
     return attendance;
   }
+}
+
+export function alreadyCheckedIn() {
+  return new ConflictException({
+    statusCode: 409,
+    message: "Employee has already checked in.",
+    error: "Conflict",
+    code: "ALREADY_CHECKED_IN",
+  });
 }
 
 export function alreadyCheckedOut() {

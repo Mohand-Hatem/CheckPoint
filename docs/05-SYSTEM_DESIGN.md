@@ -126,6 +126,8 @@ shift_end     = date + end_time
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).
 9. Nothing is awarded; **GPS alone never confirms attendance.**
 
+**Built so far (D-19):** steps 1, 3 and 5-9 plus the existing-attendance `409`; the working-day check (step 4) comes with the off-day rule, leave checks with Phase 5, and `CLOSED` still records BLACK until the Phase 4 absence sweeper.
+
 ### 4.3 Check-in — step 2 (QR confirmation)
 1. Load verification (must belong to caller). `CONFIRMED` ⇒ `409`; `EXPIRED` or `expires_at ≤ now` ⇒ `410 VERIFICATION_EXPIRED` (row marked `EXPIRED` by the sweeper, or lazily).
 2. Validate `qrToken` (§4.5). Location must equal `verification.location_id` else `QR_LOCATION_MISMATCH`.

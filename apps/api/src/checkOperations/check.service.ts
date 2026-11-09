@@ -1,14 +1,23 @@
 import {
   BadRequestException,
   ForbiddenException,
+  GoneException,
   Injectable,
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PointType, WorkOfferStatus, WorkOfferType } from '@prisma/client';
+import {
+  AttendanceVerification,
+  PointType,
+  Prisma,
+  VerificationStatus,
+  WorkOfferStatus,
+  WorkOfferType,
+} from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AttendanceDayService } from '../attendance/attendance-day.service';
 import {
+  alreadyCheckedIn,
   alreadyCheckedOut,
   AttendanceValidationService,
 } from '../attendance/attendance-validation.service';
@@ -34,6 +43,15 @@ type CheckInPoint = {
   idempotencyKey: string;
 };
 
+const VERIFICATION_TTL_MS = 15 * 60_000; // FR-ATT-1: the QR must be scanned within 15 minutes
+
+const toVerificationResponse = (verification: AttendanceVerification) => ({
+  verificationId: verification.id,
+  locationId: verification.locationId,
+  status: verification.status,
+  expiresAt: verification.expiresAt,
+});
+
 @Injectable()
 export class CheckService {
   constructor(
@@ -52,12 +70,89 @@ export class CheckService {
     return this.checkIn(companyId, await this.employeeIdFor(companyId, userId), position);
   }
 
+  async confirmCheckInAsUser(companyId: string, userId: string, verificationId: string, qrToken: string) {
+    return this.confirmCheckIn(companyId, await this.employeeIdFor(companyId, userId), verificationId, qrToken);
+  }
+
   async checkOutAsUser(companyId: string, userId: string, position: PositionDto) {
     return this.checkOut(companyId, await this.employeeIdFor(companyId, userId), position);
   }
 
+  /** Step 1 (docs/05 §4.2): GPS + geofence create a 15-minute PENDING verification. Nothing is awarded. */
   async checkIn(companyId: string, employeeId: string, position: PositionDto) {
-    const checkInTime = new Date();
+    const now = new Date();
+    const plan = await this.planCheckIn(companyId, employeeId, now);
+    const { workDate } = plan;
+    await this.attendanceValidation.assertCanCheckIn(companyId, employeeId, workDate);
+
+    const live = { companyId, employeeId, workDate, status: VerificationStatus.PENDING, expiresAt: { gt: now } };
+    const existing = await this.prisma.attendanceVerification.findFirst({ where: live });
+    if (existing) return toVerificationResponse(existing);
+
+    const location = await this.assertAtAllowedLocation(companyId, plan.userId, 'CHECKIN', position);
+    try {
+      const created = await this.prisma.$transaction(async (tx) => {
+        // An expired PENDING row would block the one-pending-per-day index.
+        await tx.attendanceVerification.updateMany({
+          where: { companyId, employeeId, workDate, status: VerificationStatus.PENDING, expiresAt: { lte: now } },
+          data: { status: VerificationStatus.EXPIRED },
+        });
+        return tx.attendanceVerification.create({
+          data: {
+            companyId,
+            employeeId,
+            workDate,
+            locationId: location.locationId,
+            startedAt: now,
+            expiresAt: new Date(now.getTime() + VERIFICATION_TTL_MS),
+            latitude: position.lat,
+            longitude: position.lng,
+            accuracyM: position.accuracy,
+          },
+        });
+      });
+      return toVerificationResponse(created);
+    } catch (error) {
+      if (!(error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002')) throw error;
+      // A concurrent request created the pending row first: answer with it.
+      const winner = await this.prisma.attendanceVerification.findFirst({ where: live });
+      if (!winner) throw error;
+      return toVerificationResponse(winner);
+    }
+  }
+
+  /** Step 2 (docs/05 §4.3): the kiosk QR confirms the verification and records the day at the step-1 time. */
+  async confirmCheckIn(companyId: string, employeeId: string, verificationId: string, qrToken: string) {
+    const now = new Date();
+    const verification = await this.prisma.attendanceVerification.findFirst({
+      where: { id: verificationId, companyId, employeeId },
+    });
+    if (!verification) throw new NotFoundException('Verification not found');
+    if (verification.status === VerificationStatus.CONFIRMED) throw alreadyCheckedIn();
+    if (verification.status === VerificationStatus.EXPIRED || verification.expiresAt <= now) {
+      await this.prisma.attendanceVerification.updateMany({
+        where: { id: verification.id, status: VerificationStatus.PENDING },
+        data: { status: VerificationStatus.EXPIRED },
+      });
+      throw new GoneException({
+        statusCode: 410,
+        message: 'The check-in expired. Check in with GPS again, then scan the QR code within 15 minutes.',
+        error: 'Gone',
+        code: 'VERIFICATION_EXPIRED',
+      });
+    }
+    await this.locations.verifyQrToken(companyId, verification.locationId, qrToken);
+    return this.recordCheckIn(
+      await this.planCheckIn(companyId, employeeId, verification.startedAt),
+      verification.id,
+      verification.locationId,
+      now,
+    );
+  }
+
+  /** Classification and points for a check-in at `at` (D-17 early-work rule included). Writes nothing. */
+  private async planCheckIn(companyId: string, employeeId: string, at: Date) {
+    const checkInTime = at;
     const { employee, userId } = await this.activeEmployee(companyId, employeeId);
 
     const timezone = await this.companyPolicy.getTimezone(
@@ -68,13 +163,6 @@ export class CheckService {
       companyId,
       checkInTime,
     );
-    await this.attendanceValidation.assertCanCheckIn(
-      companyId,
-      employeeId,
-      workDate,
-    );
-
-    const location = await this.assertAtAllowedLocation(companyId, userId, 'CHECKIN', position);
 
     const shift = employee.currentShift.versions.find(
       (version) =>
@@ -131,7 +219,24 @@ export class CheckService {
       idempotencyKey: `ATT:${employeeId}:${dateKey}`,
     });
 
+    return { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment, result, awards };
+  }
+
+  private async recordCheckIn(
+    plan: Awaited<ReturnType<CheckService['planCheckIn']>>,
+    verificationId: string,
+    locationId: string,
+    now: Date,
+  ) {
+    const { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment, result, awards } = plan;
     return this.prisma.$transaction(async (tx) => {
+      // Only the request that flips PENDING to CONFIRMED may record the day, so a double scan cannot award twice.
+      const { count } = await tx.attendanceVerification.updateMany({
+        where: { id: verificationId, status: VerificationStatus.PENDING },
+        data: { status: VerificationStatus.CONFIRMED, confirmedAt: now },
+      });
+      if (count === 0) throw alreadyCheckedIn();
+
       const attendance = await this.attendanceDay.recordAttendanceDay(
         {
           companyId,
@@ -180,7 +285,8 @@ export class CheckService {
           checkInAt: checkInTime.toISOString(),
           checkInResult: result,
           classification: result,
-          locationId: location.locationId,
+          locationId,
+          verificationId,
           pointEntryIds: pointEntries.map((entry) => entry.id),
         },
       });

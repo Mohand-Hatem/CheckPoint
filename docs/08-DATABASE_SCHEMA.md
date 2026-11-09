@@ -226,8 +226,8 @@ Payroll sums `pay_pounds` into `payroll_records.off_day_pay`.
 Constraint: `UNIQUE (company_id, employee_id, work_date)`. The snapshot columns mean a later shift change never re-classifies a past day.
 Phase 3 adds the remaining check-in evidence columns from the earlier design: check-in/out location, latitude/longitude, accuracy, `confirmed_at`, `overtime_greens`, `left_early`, `early_leave_request_id`, `entry_source`, `classification_rev`.
 
-#### `attendance_verifications` (Phase 3, not in the schema yet)
-GPS-validated attempts awaiting QR: `employee_id`, `work_date`, `location_id`, status `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min`, `confirmed_at`, coordinates, `accuracy_m`. Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'`.
+#### `attendance_verifications` (Phase 3, migration `20261109010000_attendance_verifications`)
+GPS-validated attempts awaiting QR: `company_id`, `employee_id`, `work_date`, `location_id` (company-scoped FKs), status enum `VerificationStatus` `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min` (CHECK `expires_at > started_at`), `confirmed_at` (set iff `CONFIRMED`, CHECK), `latitude`/`longitude` numeric(9,6), `accuracy_m` numeric(7,2). Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'` (`attendance_verifications_one_pending_key`, migration only; Prisma cannot express it).
 
 #### `attendance_excuses` (unused in MVP)
 `attendance_day_id` UNIQUE, `submitted_by_user_id`, `employee_reason`, status (`PENDING`), `decided_by_user_id`, `decision_reason`, `decided_at`. No spec requirement defines an employee excuse flow (**DN-26**); no MVP endpoint writes it.
