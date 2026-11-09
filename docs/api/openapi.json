@@ -2671,6 +2671,79 @@
         ]
       }
     },
+    "/api/me/attendance": {
+      "get": {
+        "description": "Only the signed-in employee's own days, oldest first: check-in and check-out times, the result and the day's point colour. Defaults to the current company month.",
+        "operationId": "MyAttendanceController_list",
+        "parameters": [
+          {
+            "name": "month",
+            "required": false,
+            "in": "query",
+            "description": "Month (YYYY-MM); default: the current company month.",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAttendanceResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My attendance history for one month (FR-ATT-7)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
     "/api/admin/invitations": {
       "post": {
         "description": "**Scenario:** an Admin invites a new hire. The response contains the one-time `token` **once**; only its hash is stored. When SMTP is configured the link is also emailed after the invitation is saved (`emailSent`); otherwise share `invitationLink` yourself. The invitee redeems it at `POST /auth/invitations/accept`. It is single-use and expires after 7 days.\n\n**Rules:** the email must not have an account anywhere; the employee code must be free in this company; only one pending invitation per email or code.",
@@ -5767,6 +5840,83 @@
       "CorrectAttendanceDto": {
         "type": "object",
         "properties": {}
+      },
+      "MyAttendanceDayDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-11-02"
+          },
+          "checkInAt": {
+            "type": "object",
+            "nullable": true,
+            "example": "2026-11-02T06:10:00.000Z"
+          },
+          "checkOutAt": {
+            "type": "object",
+            "nullable": true,
+            "example": "2026-11-02T14:05:00.000Z"
+          },
+          "checkInResult": {
+            "type": "string",
+            "example": "GREEN",
+            "description": "GREEN / WHITE / RED / BLACK, OFF_DAY_WORK, CORRECTED, EXEMPT or SCHEDULED."
+          },
+          "classification": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "GREEN",
+              "WHITE",
+              "RED",
+              "BLACK"
+            ]
+          },
+          "scheduledStartAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-02T06:00:00.000Z"
+          },
+          "scheduledEndAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-02T14:00:00.000Z"
+          }
+        },
+        "required": [
+          "id",
+          "workDate",
+          "checkInAt",
+          "checkOutAt",
+          "checkInResult",
+          "classification",
+          "scheduledStartAt",
+          "scheduledEndAt"
+        ]
+      },
+      "MyAttendanceResponseDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyAttendanceDayDto"
+            }
+          }
+        },
+        "required": [
+          "month",
+          "days"
+        ]
       },
       "CreateInvitationDto": {
         "type": "object",

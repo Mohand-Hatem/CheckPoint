@@ -204,4 +204,17 @@ describe('Two-step check-in (e2e, FR-ATT-1/2)', () => {
     const day = await dayOf(employeeId);
     expect(day).toMatchObject({ checkInResult: 'OFF_DAY_WORK', classification: 'GREEN' });
   });
+
+  it('GET /me/attendance shows each employee only their own days (FR-ATT-7)', async () => {
+    const today = workDate.toISOString().slice(0, 10);
+    const mine = await http().get('/api/me/attendance').set(auth(adminToken)).expect(200);
+    expect(mine.body.month).toBe(today.slice(0, 7));
+    expect(mine.body.days).toEqual([
+      expect.objectContaining({ workDate: today, classification: 'GREEN', checkInAt: expect.any(String) }),
+    ]);
+
+    // The second employee's verification expired, so they have no day this month.
+    expect((await http().get('/api/me/attendance').set(auth(second.token)).expect(200)).body.days).toEqual([]);
+    await http().get('/api/me/attendance?month=2026-13').set(auth(adminToken)).expect(400);
+  });
 });
