@@ -135,6 +135,191 @@ describe('PointsService', () => {
     );
   });
 
+  it('records an attendance award in the caller transaction with an idempotency key', async () => {
+    const entry = {
+      id: entryId,
+      companyId,
+      employeeId,
+      pointType: PointType.GREEN,
+      entryKind: 'AWARD',
+      quantity: 1,
+      reason: 'Attendance check-in',
+      sourceType: 'ATTENDANCE',
+      sourceId: 'c0ffee00-0000-4000-8000-000000000007',
+      direction: 1,
+      valuePerPointPiasters: 100000n,
+    };
+    const tx = {
+      pointLedgerEntry: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(entry),
+      },
+      employee: { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) },
+      pointValueVersion: {
+        findFirst: jest.fn().mockResolvedValue({
+          id: 'value-green',
+          value: new Prisma.Decimal('1000'),
+        }),
+      },
+    } as Record<string, any>;
+    const service = createService(tx);
+
+    await expect(
+      service.addPointEntryForSource(
+        {
+          companyId,
+          employeeId,
+          pointType: PointType.GREEN,
+          quantity: 1,
+          sourceType: 'ATTENDANCE',
+          sourceId: entry.sourceId,
+          idempotencyKey: 'attendance:day-1:check-in',
+          reason: 'Attendance check-in',
+          asOfDate: new Date('2026-11-08T00:00:00.000Z'),
+        },
+        tx as unknown as Prisma.TransactionClient,
+      ),
+    ).resolves.toMatchObject({
+      id: entryId,
+      valuePerPointPiasters: '100000',
+    });
+
+    expect(tx.pointLedgerEntry.create.mock.calls[0][0].data).toMatchObject({
+      sourceType: 'ATTENDANCE',
+      sourceId: entry.sourceId,
+      idempotencyKey: 'attendance:day-1:check-in',
+      createdByUserId: null,
+    });
+  });
+
+  it('opens a transaction when recording an automatic award without a client', async () => {
+    const tx = {
+      pointLedgerEntry: {
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue({
+          id: entryId,
+          valuePerPointPiasters: 0n,
+        }),
+      },
+      employee: { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) },
+      pointValueVersion: { findFirst: jest.fn() },
+    };
+    const service = createService(tx);
+
+    await service.addPointEntryForSource({
+      companyId,
+      employeeId,
+      pointType: PointType.WHITE,
+      quantity: 1,
+      sourceType: 'ATTENDANCE',
+      sourceId: entryId,
+      idempotencyKey: 'attendance:white:1',
+      reason: 'Attendance visibility record',
+      asOfDate: new Date('2026-11-08T00:00:00.000Z'),
+    });
+
+    expect(tx.pointLedgerEntry.create).toHaveBeenCalledTimes(1);
+    expect(tx.pointValueVersion.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('replays the same automatic award for a repeated idempotency key', async () => {
+    const existing = {
+      id: entryId,
+      companyId,
+      employeeId,
+      pointType: PointType.GREEN,
+      quantity: 1,
+      reason: 'Attendance check-in',
+      entryKind: 'AWARD',
+      sourceType: 'ATTENDANCE',
+      sourceId: 'c0ffee00-0000-4000-8000-000000000007',
+      direction: 1,
+      valuePerPointPiasters: 100000n,
+    };
+    const tx = {
+      pointLedgerEntry: {
+        findUnique: jest.fn().mockResolvedValue(existing),
+        create: jest.fn(),
+      },
+      employee: { findFirst: jest.fn() },
+      pointValueVersion: { findFirst: jest.fn() },
+    } as Record<string, any>;
+    const service = createService(tx);
+
+    await expect(
+      service.addPointEntryForSource(
+        {
+          companyId,
+          employeeId,
+          pointType: PointType.GREEN,
+          quantity: 1,
+          sourceType: 'ATTENDANCE',
+          sourceId: existing.sourceId,
+          idempotencyKey: idempotencyKey,
+          reason: existing.reason,
+          asOfDate: new Date('2026-11-08T00:00:00.000Z'),
+        },
+        tx as unknown as Prisma.TransactionClient,
+      ),
+    ).resolves.toMatchObject({ id: entryId });
+    expect(tx.pointLedgerEntry.create).not.toHaveBeenCalled();
+  });
+
+  it('reverses an automatic award by appending a linked compensating row', async () => {
+    const award = {
+      id: entryId,
+      companyId,
+      employeeId,
+      pointType: PointType.GREEN,
+      entryKind: 'AWARD',
+      quantity: 2,
+      sourceType: 'OVERTIME',
+      sourceId: 'c0ffee00-0000-4000-8000-000000000007',
+      pointValueVersionId: 'c0ffee00-0000-4000-8000-000000000005',
+      valuePerPointPiasters: 100000n,
+    };
+    const reversal = {
+      id: 'c0ffee00-0000-4000-8000-000000000006',
+      entryKind: 'REVERSAL',
+      direction: -1,
+      quantity: 2,
+      valuePerPointPiasters: 100000n,
+    };
+    const tx = {
+      pointLedgerEntry: {
+        findFirst: jest.fn().mockResolvedValue(award),
+        findUnique: jest.fn().mockResolvedValue(null),
+        create: jest.fn().mockResolvedValue(reversal),
+      },
+    } as Record<string, any>;
+    const service = createService(tx);
+
+    await expect(
+      service.reversePointEntryForSource(
+        {
+          companyId,
+          entryId,
+          reason: '  Correcting check-out  ',
+          createdByUserId: adminUserId,
+        },
+        tx as unknown as Prisma.TransactionClient,
+      ),
+    ).resolves.toMatchObject({
+      entryKind: 'REVERSAL',
+      valuePerPointPiasters: '100000',
+    });
+
+    expect(tx.pointLedgerEntry.create.mock.calls[0][0].data).toMatchObject({
+      sourceType: 'OVERTIME',
+      sourceId: award.sourceId,
+      reversesEntryId: entryId,
+      idempotencyKey: `source-reversal:${entryId}`,
+      reason: 'Correcting check-out',
+      direction: -1,
+      quantity: 2,
+    });
+  });
+
   it('TEST-PTS-03 (FR-PTS-7): rejects non-positive configured EGP values', async () => {
     const dto = Object.assign(new ConfigurePointValuesDto(), {
       greenEgp: 0,

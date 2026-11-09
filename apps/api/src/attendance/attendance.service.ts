@@ -3,17 +3,21 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { AttendanceDay, PointType, Prisma } from '@prisma/client';
-import { AuditService } from '../audit/audit.service';
-import { CompanyPolicyService } from '../company/company-policy.service';
-import { resolvePointValue } from '../points/point-value';
-import { PrismaService } from '../prisma/prisma.service';
-import { classifyCheckIn, computeWindows, overtimeGreens } from './attendance-rules';
-import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
-import { ListAttendanceQuery } from './dto/list-attendance.query';
+} from "@nestjs/common";
+import { AttendanceDay, PointType, Prisma } from "@prisma/client";
+import { AuditService } from "../audit/audit.service";
+import { CompanyPolicyService } from "../company/company-policy.service";
+import { resolvePointValue } from "../points/point-value";
+import { PrismaService } from "../prisma/prisma.service";
+import {
+  classifyCheckIn,
+  computeWindows,
+  overtimeGreens,
+} from "./attendance-rules";
+import { CorrectAttendanceDto } from "./dto/correct-attendance.dto";
+import { ListAttendanceQuery } from "./dto/list-attendance.query";
 
-const ATTENDANCE_SOURCES = ['ATTENDANCE', 'OVERTIME'];
+const ATTENDANCE_SOURCES = ["ATTENDANCE", "OVERTIME"];
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 @Injectable()
@@ -38,16 +42,25 @@ export class AttendanceService {
     const [items, total] = await this.prisma.$transaction([
       this.prisma.attendanceDay.findMany({
         where,
-        orderBy: [{ workDate: 'desc' }, { createdAt: 'desc' }],
+        orderBy: [{ workDate: "desc" }, { createdAt: "desc" }],
         skip: (query.page - 1) * query.limit,
         take: query.limit,
-        include: { employee: { select: { id: true, employeeNumber: true, fullName: true } } },
+        include: {
+          employee: {
+            select: { id: true, employeeNumber: true, fullName: true },
+          },
+        },
       }),
       this.prisma.attendanceDay.count({ where }),
     ]);
     return {
       items,
-      pagination: { page: query.page, limit: query.limit, total, totalPages: Math.ceil(total / query.limit) },
+      pagination: {
+        page: query.page,
+        limit: query.limit,
+        total,
+        totalPages: Math.ceil(total / query.limit),
+      },
     };
   }
 
@@ -55,38 +68,55 @@ export class AttendanceService {
   async findOne(companyId: string, id: string) {
     const day = await this.prisma.attendanceDay.findFirst({
       where: { id, companyId },
-      include: { employee: { select: { id: true, employeeNumber: true, fullName: true } } },
+      include: {
+        employee: {
+          select: { id: true, employeeNumber: true, fullName: true },
+        },
+      },
     });
     if (!day) {
-      throw new NotFoundException('Attendance day not found');
+      throw new NotFoundException("Attendance day not found");
     }
     const [entries, corrections] = await Promise.all([
       this.prisma.pointLedgerEntry.findMany({
-        where: { companyId, sourceId: id, sourceType: { in: ATTENDANCE_SOURCES } },
-        orderBy: { createdAt: 'asc' },
+        where: {
+          companyId,
+          sourceId: id,
+          sourceType: { in: ATTENDANCE_SOURCES },
+        },
+        orderBy: { createdAt: "asc" },
       }),
       this.prisma.auditEvent.findMany({
-        where: { companyId, targetType: 'attendance_day', targetId: id },
-        orderBy: { createdAt: 'asc' },
+        where: { companyId, targetType: "attendance_day", targetId: id },
+        orderBy: { createdAt: "asc" },
         include: { actor: { select: { id: true, email: true } } },
       }),
     ]);
     return {
       ...day,
-      pointEntries: entries.map((e) => ({ ...e, valuePerPointPiasters: e.valuePerPointPiasters.toString() })),
+      pointEntries: entries.map((e) => ({
+        ...e,
+        valuePerPointPiasters: e.valuePerPointPiasters.toString(),
+      })),
       corrections,
     };
   }
 
-  async correct(companyId: string, adminUserId: string, dto: CorrectAttendanceDto) {
+  async correct(
+    companyId: string,
+    adminUserId: string,
+    dto: CorrectAttendanceDto,
+  ) {
     const reason = dto.reason.trim();
     if (!reason) {
-      throw new BadRequestException('A reason is required to correct attendance.');
+      throw new BadRequestException(
+        "A reason is required to correct attendance.",
+      );
     }
     const workDate = parseDate(dto.workDate);
-    const at = dto.action === 'EXEMPT' ? null : new Date(dto.at ?? '');
+    const at = dto.action === "EXEMPT" ? null : new Date(dto.at ?? "");
     if (at && Number.isNaN(at.getTime())) {
-      throw new BadRequestException('`at` must be a valid ISO date-time.');
+      throw new BadRequestException("`at` must be a valid ISO date-time.");
     }
 
     const employee = await this.prisma.employee.findFirst({
@@ -94,7 +124,7 @@ export class AttendanceService {
       select: { id: true },
     });
     if (!employee) {
-      throw new NotFoundException('Employee not found');
+      throw new NotFoundException("Employee not found");
     }
 
     try {
@@ -102,7 +132,11 @@ export class AttendanceService {
         const day =
           (await tx.attendanceDay.findUnique({
             where: {
-              companyId_employeeId_workDate: { companyId, employeeId: employee.id, workDate },
+              companyId_employeeId_workDate: {
+                companyId,
+                employeeId: employee.id,
+                workDate,
+              },
             },
           })) ??
           (await tx.attendanceDay.create({
@@ -114,19 +148,23 @@ export class AttendanceService {
             },
           }));
 
-        const checkInAt = dto.action === 'SET_CHECK_IN' ? at : day.checkInAt;
-        const checkOutAt = dto.action === 'SET_CHECK_OUT' ? at : day.checkOutAt;
+        const checkInAt = dto.action === "SET_CHECK_IN" ? at : day.checkInAt;
+        const checkOutAt = dto.action === "SET_CHECK_OUT" ? at : day.checkOutAt;
         let classification: PointType | null = null;
-        if (dto.action !== 'EXEMPT') {
+        if (dto.action !== "EXEMPT") {
           if (!checkInAt) {
-            throw new BadRequestException('Set a check-in before the check-out.');
+            throw new BadRequestException(
+              "Set a check-in before the check-out.",
+            );
           }
           if (checkOutAt && checkOutAt <= checkInAt) {
-            throw new BadRequestException('Check-out must be after check-in.');
+            throw new BadRequestException("Check-out must be after check-in.");
           }
           const result = classifyCheckIn(checkInAt, day);
-          if (result === 'NOT_OPEN') {
-            throw new BadRequestException('The check-in is before the shift opens.');
+          if (result === "NOT_OPEN") {
+            throw new BadRequestException(
+              "The check-in is before the shift opens.",
+            );
           }
           classification = result;
         }
@@ -137,7 +175,7 @@ export class AttendanceService {
             companyId,
             sourceId: day.id,
             sourceType: { in: ATTENDANCE_SOURCES },
-            entryKind: 'AWARD',
+            entryKind: "AWARD",
             reversalEntries: { none: {} },
           },
         });
@@ -147,7 +185,7 @@ export class AttendanceService {
               companyId,
               employeeId: employee.id,
               pointType: entry.pointType,
-              entryKind: 'REVERSAL',
+              entryKind: "REVERSAL",
               direction: -1,
               quantity: entry.quantity,
               pointValueVersionId: entry.pointValueVersionId,
@@ -165,15 +203,25 @@ export class AttendanceService {
         // Revision number makes a concurrent correction clash on the unique key (→ 409).
         const rev =
           (await tx.pointLedgerEntry.count({
-            where: { companyId, sourceId: day.id, sourceType: 'ATTENDANCE', entryKind: 'AWARD' },
+            where: {
+              companyId,
+              sourceId: day.id,
+              sourceType: "ATTENDANCE",
+              entryKind: "AWARD",
+            },
           })) + 1;
-        const award = async (sourceType: string, pointType: PointType, quantity: number, key: string) =>
+        const award = async (
+          sourceType: string,
+          pointType: PointType,
+          quantity: number,
+          key: string,
+        ) =>
           tx.pointLedgerEntry.create({
             data: {
               companyId,
               employeeId: employee.id,
               pointType,
-              entryKind: 'AWARD',
+              entryKind: "AWARD",
               direction: 1,
               quantity,
               ...(await resolvePointValue(tx, companyId, pointType, workDate)),
@@ -186,10 +234,17 @@ export class AttendanceService {
           });
 
         if (classification) {
-          await award('ATTENDANCE', classification, 1, `ATT:${day.id}:${rev}`);
-          const overtime = checkOutAt ? overtimeGreens(checkOutAt, day.scheduledEndAt) : 0;
+          await award("ATTENDANCE", classification, 1, `ATT:${day.id}:${rev}`);
+          const overtime = checkOutAt
+            ? overtimeGreens(checkOutAt, day.scheduledEndAt)
+            : 0;
           if (overtime > 0) {
-            await award('OVERTIME', PointType.GREEN, overtime, `OT:${day.id}:${rev}`);
+            await award(
+              "OVERTIME",
+              PointType.GREEN,
+              overtime,
+              `OT:${day.id}:${rev}`,
+            );
           }
         }
 
@@ -199,16 +254,16 @@ export class AttendanceService {
             checkInAt,
             checkOutAt,
             classification,
-            checkInResult: dto.action === 'EXEMPT' ? 'EXEMPT' : 'CORRECTED',
+            checkInResult: dto.action === "EXEMPT" ? "EXEMPT" : "CORRECTED",
           },
         });
 
         await this.audit.record(tx, {
           companyId,
           actorUserId: adminUserId,
-          actorType: 'ADMIN',
-          action: 'attendance.correct',
-          targetType: 'attendance_day',
+          actorType: "ADMIN",
+          action: "attendance.correct",
+          targetType: "attendance_day",
           targetId: day.id,
           reason,
           changes: {
@@ -224,9 +279,12 @@ export class AttendanceService {
         return updated;
       });
     } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === "P2002"
+      ) {
         throw new ConflictException(
-          'This day was corrected at the same time by someone else. Reload and try again.',
+          "This day was corrected at the same time by someone else. Reload and try again.",
         );
       }
       throw error;
@@ -254,8 +312,13 @@ export class AttendanceService {
         where: { companyId, shiftId: assignment.shiftId, ...covers },
         include: { weekdays: true },
       }));
-    if (!assignment || !version?.weekdays.some((w) => w.weekday === workDate.getUTCDay())) {
-      throw new BadRequestException('This date is not a working day for the employee.');
+    if (
+      !assignment ||
+      !version?.weekdays.some((w) => w.weekday === workDate.getUTCDay())
+    ) {
+      throw new BadRequestException(
+        "This date is not a working day for the employee.",
+      );
     }
     const timezone = await this.companyPolicy.getTimezone(companyId, workDate);
     return {
@@ -277,8 +340,12 @@ function snapshot(day: AttendanceDay) {
 
 function parseDate(value: string) {
   const date = new Date(`${value}T00:00:00.000Z`);
-  if (!DATE_ONLY.test(value) || Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new BadRequestException('Dates must be valid YYYY-MM-DD values.');
+  if (
+    !DATE_ONLY.test(value) ||
+    Number.isNaN(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== value
+  ) {
+    throw new BadRequestException("Dates must be valid YYYY-MM-DD values.");
   }
   return date;
 }

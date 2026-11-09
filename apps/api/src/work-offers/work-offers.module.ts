@@ -10,5 +10,6 @@ import { WorkOffersService } from "./work-offers.service";
   imports: [PrismaModule],
   controllers: [WorkOffersController, EmployeeWorkOffersController],
   providers: [WorkOffersService],
+  exports: [WorkOffersService],
 })
 export class WorkOffersModule {}

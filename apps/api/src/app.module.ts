@@ -19,6 +19,7 @@ import { SchedulesModule } from './schedules/schedules.module';
 import { UsersModule } from './users/users.module';
 import { WorkOffersModule } from './work-offers/work-offers.module';
 import { LocationModule } from './location/location.module';
+import { CheckModule } from './checkOperations/check.module';
 
 @Module({
   imports: [
@@ -54,6 +55,7 @@ import { LocationModule } from './location/location.module';
     InvitationsModule,
     WorkOffersModule,
     LocationModule,
+    CheckModule,
   ],
   providers: [
     {
