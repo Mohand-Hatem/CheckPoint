@@ -3,15 +3,20 @@ import {
   ForbiddenException,
   Injectable,
   NotFoundException,
+  UnprocessableEntityException,
 } from '@nestjs/common';
 import { PointType, WorkOfferStatus, WorkOfferType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AttendanceDayService } from '../attendance/attendance-day.service';
-import { AttendanceValidationService } from '../attendance/attendance-validation.service';
+import {
+  alreadyCheckedOut,
+  AttendanceValidationService,
+} from '../attendance/attendance-validation.service';
 import {
   beforeTimeGreens,
   classifyCheckIn,
   computeWindows,
+  overtimeGreens,
   ShiftTimes,
 } from '../attendance/attendance-rules';
 import { CompanyPolicyService } from '../company/company-policy.service';
@@ -20,6 +25,7 @@ import { LocationService } from '../location/location.service';
 import { PointsService } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
+import { PositionDto } from './dto/check.dto';
 
 type CheckInPoint = {
   pointType: PointType;
@@ -42,32 +48,17 @@ export class CheckService {
     private readonly prisma: PrismaService,
   ) {}
 
-  async checkInAsUser(
-    companyId: string,
-    userId: string,
-    employeeLocation: { latitude: number; longitude: number },
-  ) {
-    const employee = await this.prisma.employee.findFirst({
-      where: { companyId, userId },
-      select: { id: true },
-    });
-    if (!employee) {
-      throw new NotFoundException('No employee profile is linked to this account.');
-    }
-    return this.checkIn(companyId, employee.id, employeeLocation);
+  async checkInAsUser(companyId: string, userId: string, position: PositionDto) {
+    return this.checkIn(companyId, await this.employeeIdFor(companyId, userId), position);
   }
 
-  async checkIn(
-    companyId: string,
-    employeeId: string,
-    employeeLocation: { latitude: number; longitude: number },
-  ) {
+  async checkOutAsUser(companyId: string, userId: string, position: PositionDto) {
+    return this.checkOut(companyId, await this.employeeIdFor(companyId, userId), position);
+  }
+
+  async checkIn(companyId: string, employeeId: string, position: PositionDto) {
     const checkInTime = new Date();
-    const employee = await this.employees.findOne(companyId, employeeId);
-    if (!employee.isActive || !employee.user?.id || !employee.user.isActive) {
-      throw new ForbiddenException('An active employee login is required.');
-    }
-    const userId = employee.user.id;
+    const { employee, userId } = await this.activeEmployee(companyId, employeeId);
 
     const timezone = await this.companyPolicy.getTimezone(
       companyId,
@@ -83,12 +74,7 @@ export class CheckService {
       workDate,
     );
 
-    const location = await this.locations.isInAllowedLocation(
-      userId,
-      companyId,
-      'CHECKIN',
-      employeeLocation,
-    );
+    const location = await this.assertAtAllowedLocation(companyId, userId, 'CHECKIN', position);
 
     const shift = employee.currentShift.versions.find(
       (version) =>
@@ -200,6 +186,100 @@ export class CheckService {
       });
 
       return { attendance, pointEntries };
+    });
+  }
+
+  async checkOut(companyId: string, employeeId: string, position: PositionDto) {
+    const checkOutAt = new Date();
+    const { userId } = await this.activeEmployee(companyId, employeeId);
+    const workDate = await this.companyPolicy.getCompanyDate(companyId, checkOutAt);
+    const day = await this.attendanceValidation.assertCanCheckOut(companyId, employeeId, workDate);
+    const location = await this.assertAtAllowedLocation(companyId, userId, 'CHECKOUT', position);
+    // shortcut: an approved early leave must force 0 here (FR-ATT-5); early-leave requests arrive in Phase 5.
+    const overtime = overtimeGreens(checkOutAt, day.scheduledEndAt);
+
+    return this.prisma.$transaction(async (tx) => {
+      // Only the request that flips check_out_at from NULL may continue, so retries and races cannot award twice.
+      const { count } = await tx.attendanceDay.updateMany({
+        where: { id: day.id, companyId, employeeId, checkOutAt: null },
+        data: { checkOutAt },
+      });
+      if (count === 0) throw alreadyCheckedOut();
+
+      const pointEntry =
+        overtime > 0
+          ? await this.points.addPointEntryForSource(
+              {
+                companyId,
+                employeeId,
+                pointType: PointType.GREEN,
+                quantity: overtime,
+                reason: `Overtime: ${overtime} full hour(s) after the shift end.`,
+                idempotencyKey: `OT:${day.id}:checkout`,
+                sourceType: 'OVERTIME',
+                sourceId: day.id,
+                createdByUserId: userId,
+                asOfDate: workDate,
+              },
+              tx,
+            )
+          : null;
+
+      await this.audit.record(tx, {
+        companyId,
+        actorUserId: userId,
+        actorType: 'EMPLOYEE',
+        action: 'attendance.check_out',
+        targetType: 'attendance_day',
+        targetId: day.id,
+        changes: {
+          checkOutAt: checkOutAt.toISOString(),
+          overtimeGreens: overtime,
+          locationId: location.locationId,
+          pointEntryId: pointEntry?.id ?? null,
+        },
+      });
+
+      return { checkOutAt, overtimeGreens: overtime };
+    });
+  }
+
+  private async employeeIdFor(companyId: string, userId: string) {
+    const employee = await this.prisma.employee.findFirst({
+      where: { companyId, userId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee profile is linked to this account.');
+    }
+    return employee.id;
+  }
+
+  private async activeEmployee(companyId: string, employeeId: string) {
+    const employee = await this.employees.findOne(companyId, employeeId);
+    if (!employee.isActive || !employee.user?.id || !employee.user.isActive) {
+      throw new ForbiddenException('An active employee login is required.');
+    }
+    return { employee, userId: employee.user.id };
+  }
+
+  private async assertAtAllowedLocation(
+    companyId: string,
+    userId: string,
+    operation: 'CHECKIN' | 'CHECKOUT',
+    position: PositionDto,
+  ) {
+    if (position.accuracy > (await this.companyPolicy.getGpsMaxAccuracyM(companyId))) {
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        message: 'GPS accuracy is too low. Move to an open area and try again.',
+        error: 'Unprocessable Entity',
+        code: 'GPS_ACCURACY_TOO_LOW',
+      });
+    }
+    return this.locations.isInAllowedLocation(userId, companyId, operation, {
+      latitude: position.lat,
+      longitude: position.lng,
     });
   }
 

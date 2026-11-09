@@ -1,5 +1,5 @@
 import "reflect-metadata";
-import { BadRequestException, ConflictException } from "@nestjs/common";
+import { ConflictException } from "@nestjs/common";
 import { PrismaService } from "../prisma/prisma.service";
 import { AttendanceValidationService } from "./attendance-validation.service";
 
@@ -9,10 +9,7 @@ describe("AttendanceValidationService (TEST-045)", () => {
   const workDate = new Date("2026-11-08T00:00:00.000Z");
 
   function createService(
-    attendance: {
-      checkInAt: Date | null;
-      checkOutAt: Date | null;
-    } | null,
+    attendance: Record<string, unknown> | null,
   ) {
     const prisma = {
       attendanceDay: {
@@ -47,26 +44,41 @@ describe("AttendanceValidationService (TEST-045)", () => {
     ).rejects.toBeInstanceOf(ConflictException);
   });
 
-  it("requires a prior check-in before checkout", async () => {
-    const { service } = createService(null);
+  it.each([
+    ["no attendance row", null],
+    ["a day without a check-in", { checkInAt: null, checkOutAt: null }],
+  ])("REQ-014 FR-ATT-5: checkout with %s answers 422 INVALID_STATE", async (_name, day) => {
+    const { service } = createService(day);
 
     await expect(
       service.assertCanCheckOut(companyId, employeeId, workDate),
-    ).rejects.toBeInstanceOf(BadRequestException);
+    ).rejects.toMatchObject({
+      status: 422,
+      response: expect.objectContaining({ code: "INVALID_STATE" }),
+    });
   });
 
-  it("allows checkout after check-in when no checkout is recorded", async () => {
-    const { service } = createService({
+  it("REQ-014 FR-ATT-5: allows checkout after check-in and returns the day", async () => {
+    const day = {
+      id: "day-1",
       checkInAt: new Date("2026-11-08T06:00:00.000Z"),
       checkOutAt: null,
-    });
+      scheduledEndAt: new Date("2026-11-08T14:00:00.000Z"),
+    };
+    const { service, prisma } = createService(day);
 
     await expect(
       service.assertCanCheckOut(companyId, employeeId, workDate),
-    ).resolves.toBeUndefined();
+    ).resolves.toEqual(day);
+    expect(prisma.attendanceDay.findUnique.mock.calls[0][0].select).toEqual({
+      id: true,
+      checkInAt: true,
+      checkOutAt: true,
+      scheduledEndAt: true,
+    });
   });
 
-  it("rejects a second checkout", async () => {
+  it("REQ-014 FR-ATT-5: a second checkout answers 409 ALREADY_CHECKED_OUT", async () => {
     const { service } = createService({
       checkInAt: new Date("2026-11-08T06:00:00.000Z"),
       checkOutAt: new Date("2026-11-08T14:00:00.000Z"),
@@ -74,6 +86,9 @@ describe("AttendanceValidationService (TEST-045)", () => {
 
     await expect(
       service.assertCanCheckOut(companyId, employeeId, workDate),
-    ).rejects.toBeInstanceOf(ConflictException);
+    ).rejects.toMatchObject({
+      status: 409,
+      response: expect.objectContaining({ code: "ALREADY_CHECKED_OUT" }),
+    });
   });
 });

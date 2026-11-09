@@ -16,15 +16,18 @@ const employeeId = 'employee-1';
 const userId = 'user-1';
 const workDate = new Date('2025-03-10T00:00:00.000Z');
 const fixedTime = '2025-03-10T09:30:00.000Z';
+const POSITION = { lat: 30, lng: 31, accuracy: 10 };
 
 describe('CheckService.checkIn', () => {
   let service: CheckService;
-  let validation: { assertCanCheckIn: jest.Mock };
+  let validation: { assertCanCheckIn: jest.Mock; assertCanCheckOut: jest.Mock };
   let attendanceDay: { recordAttendanceDay: jest.Mock };
   let companyPolicy: {
     getTimezone: jest.Mock;
     getCompanyDate: jest.Mock;
+    getGpsMaxAccuracyM: jest.Mock;
   };
+  let updateMany: jest.Mock;
   let employees: { findOne: jest.Mock };
   let locations: { isInAllowedLocation: jest.Mock };
   let points: { addPointEntryForSource: jest.Mock };
@@ -37,8 +40,17 @@ describe('CheckService.checkIn', () => {
     jest.useFakeTimers();
     jest.setSystemTime(new Date(fixedTime));
 
-    transaction = {} as Prisma.TransactionClient;
-    validation = { assertCanCheckIn: jest.fn() };
+    updateMany = jest.fn().mockResolvedValue({ count: 1 });
+    transaction = { attendanceDay: { updateMany } } as unknown as Prisma.TransactionClient;
+    validation = {
+      assertCanCheckIn: jest.fn(),
+      assertCanCheckOut: jest.fn().mockResolvedValue({
+        id: 'attendance-1',
+        checkInAt: new Date('2025-03-10T09:10:00.000Z'),
+        checkOutAt: null,
+        scheduledEndAt: new Date('2025-03-10T16:00:00.000Z'),
+      }),
+    };
     attendanceDay = {
       recordAttendanceDay: jest.fn().mockResolvedValue({
         id: 'attendance-1',
@@ -48,6 +60,7 @@ describe('CheckService.checkIn', () => {
     companyPolicy = {
       getTimezone: jest.fn().mockResolvedValue('UTC'),
       getCompanyDate: jest.fn().mockResolvedValue(workDate),
+      getGpsMaxAccuracyM: jest.fn().mockResolvedValue(50),
     };
     employees = {
       findOne: jest.fn().mockResolvedValue({
@@ -126,10 +139,7 @@ describe('CheckService.checkIn', () => {
   ])('records a %s check-in and awards that point', async (_name, time, type) => {
     jest.setSystemTime(new Date(time));
 
-    const result = await service.checkIn(companyId, employeeId, {
-      latitude: 30,
-      longitude: 31,
-    });
+    const result = await service.checkIn(companyId, employeeId, POSITION);
 
     expect(attendanceDay.recordAttendanceDay).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -172,7 +182,7 @@ describe('CheckService.checkIn', () => {
 
   async function expectNotOpen() {
     await expect(
-      service.checkIn(companyId, employeeId, { latitude: 30, longitude: 31 }),
+      service.checkIn(companyId, employeeId, POSITION),
     ).rejects.toMatchObject({
       status: 400,
       response: expect.objectContaining({ code: 'CHECKIN_NOT_OPEN' }),
@@ -206,10 +216,7 @@ describe('CheckService.checkIn', () => {
       earlyOffer(),
     ]);
 
-    const result = await service.checkIn(companyId, employeeId, {
-      latitude: 30,
-      longitude: 31,
-    });
+    const result = await service.checkIn(companyId, employeeId, POSITION);
 
     expect(attendanceDay.recordAttendanceDay).toHaveBeenCalledWith(
       expect.objectContaining({ checkInResult: 'GREEN', classification: PointType.GREEN }),
@@ -240,7 +247,7 @@ describe('CheckService.checkIn', () => {
     });
 
     await expect(
-      service.checkIn(companyId, employeeId, { latitude: 30, longitude: 31 }),
+      service.checkIn(companyId, employeeId, POSITION),
     ).rejects.toMatchObject({ status: 400 });
     expect(attendanceDay.recordAttendanceDay).not.toHaveBeenCalled();
   });
@@ -248,7 +255,7 @@ describe('CheckService.checkIn', () => {
   it('checkInAsUser checks in the employee that belongs to the logged-in user', async () => {
     prisma.employee = { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) };
 
-    await service.checkInAsUser(companyId, userId, { latitude: 30, longitude: 31 });
+    await service.checkInAsUser(companyId, userId, POSITION);
 
     expect(prisma.employee.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({ where: { companyId, userId } }),
@@ -261,9 +268,30 @@ describe('CheckService.checkIn', () => {
     prisma.employee = { findFirst: jest.fn().mockResolvedValue(null) };
 
     await expect(
-      service.checkInAsUser(companyId, userId, { latitude: 30, longitude: 31 }),
+      service.checkInAsUser(companyId, userId, POSITION),
     ).rejects.toBeInstanceOf(NotFoundException);
     expect(employees.findOne).not.toHaveBeenCalled();
+  });
+
+  it('passes the GPS position to the geofence check', async () => {
+    await service.checkIn(companyId, employeeId, POSITION);
+    expect(locations.isInAllowedLocation).toHaveBeenCalledWith(
+      userId,
+      companyId,
+      'CHECKIN',
+      { latitude: 30, longitude: 31 },
+    );
+  });
+
+  it('rejects a check-in whose GPS accuracy is worse than the company limit', async () => {
+    await expect(
+      service.checkIn(companyId, employeeId, { ...POSITION, accuracy: 51 }),
+    ).rejects.toMatchObject({
+      status: 422,
+      response: expect.objectContaining({ code: 'GPS_ACCURACY_TOO_LOW' }),
+    });
+    expect(locations.isInAllowedLocation).not.toHaveBeenCalled();
+    expect(attendanceDay.recordAttendanceDay).not.toHaveBeenCalled();
   });
 
   it('propagates duplicate check-in validation errors', async () => {
@@ -271,10 +299,7 @@ describe('CheckService.checkIn', () => {
     validation.assertCanCheckIn.mockRejectedValue(error);
 
     await expect(
-      service.checkIn(companyId, employeeId, {
-        latitude: 30,
-        longitude: 31,
-      }),
+      service.checkIn(companyId, employeeId, POSITION),
     ).rejects.toBe(error);
     expect(locations.isInAllowedLocation).not.toHaveBeenCalled();
   });
@@ -284,11 +309,140 @@ describe('CheckService.checkIn', () => {
     locations.isInAllowedLocation.mockRejectedValue(error);
 
     await expect(
-      service.checkIn(companyId, employeeId, {
-        latitude: 30,
-        longitude: 31,
-      }),
+      service.checkIn(companyId, employeeId, POSITION),
     ).rejects.toBe(error);
     expect(attendanceDay.recordAttendanceDay).not.toHaveBeenCalled();
+  });
+
+  describe('checkOut (REQ-014, FR-ATT-5)', () => {
+    const checkOut = () => service.checkOut(companyId, employeeId, POSITION);
+
+    it('records a server-time checkout and awards whole-hour overtime GREENs atomically', async () => {
+      jest.setSystemTime(new Date('2025-03-10T18:30:00.000Z'));
+
+      await expect(checkOut()).resolves.toEqual({
+        checkOutAt: new Date('2025-03-10T18:30:00.000Z'),
+        overtimeGreens: 2,
+      });
+
+      expect(validation.assertCanCheckOut).toHaveBeenCalledWith(companyId, employeeId, workDate);
+      expect(locations.isInAllowedLocation).toHaveBeenCalledWith(
+        userId,
+        companyId,
+        'CHECKOUT',
+        { latitude: 30, longitude: 31 },
+      );
+      expect(updateMany).toHaveBeenCalledWith({
+        where: { id: 'attendance-1', companyId, employeeId, checkOutAt: null },
+        data: { checkOutAt: new Date('2025-03-10T18:30:00.000Z') },
+      });
+      expect(points.addPointEntryForSource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          companyId,
+          employeeId,
+          pointType: PointType.GREEN,
+          quantity: 2,
+          sourceType: 'OVERTIME',
+          sourceId: 'attendance-1',
+          idempotencyKey: 'OT:attendance-1:checkout',
+          asOfDate: workDate,
+        }),
+        transaction,
+      );
+      expect(audit.record).toHaveBeenCalledWith(
+        transaction,
+        expect.objectContaining({
+          actorType: 'EMPLOYEE',
+          action: 'attendance.check_out',
+          targetId: 'attendance-1',
+        }),
+      );
+    });
+
+    it.each([
+      ['15:00 (before shift end)', '2025-03-10T15:00:00.000Z', 0],
+      ['16:59', '2025-03-10T16:59:00.000Z', 0],
+      ['17:00', '2025-03-10T17:00:00.000Z', 1],
+      ['17:59', '2025-03-10T17:59:00.000Z', 1],
+      ['18:00', '2025-03-10T18:00:00.000Z', 2],
+    ])('shift end 16:00, checkout at %s gives %i overtime GREEN', async (_label, time, greens) => {
+      jest.setSystemTime(new Date(time));
+
+      await expect(checkOut()).resolves.toEqual({
+        checkOutAt: new Date(time),
+        overtimeGreens: greens,
+      });
+      expect(updateMany).toHaveBeenCalled();
+      expect(points.addPointEntryForSource).toHaveBeenCalledTimes(greens ? 1 : 0);
+    });
+
+    it('answers the validation error (INVALID_STATE / ALREADY_CHECKED_OUT) and writes nothing', async () => {
+      const error = new Error('no check-in');
+      validation.assertCanCheckOut.mockRejectedValue(error);
+
+      await expect(checkOut()).rejects.toBe(error);
+      expect(locations.isInAllowedLocation).not.toHaveBeenCalled();
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+    });
+
+    it('rejects poor GPS accuracy and writes nothing', async () => {
+      await expect(
+        service.checkOut(companyId, employeeId, { ...POSITION, accuracy: 80 }),
+      ).rejects.toMatchObject({
+        status: 422,
+        response: expect.objectContaining({ code: 'GPS_ACCURACY_TOO_LOW' }),
+      });
+      expect(updateMany).not.toHaveBeenCalled();
+    });
+
+    it('rejects a position outside every assigned location and writes nothing', async () => {
+      const error = new ForbiddenException('Outside allowed location');
+      locations.isInAllowedLocation.mockRejectedValue(error);
+
+      await expect(checkOut()).rejects.toBe(error);
+      expect(updateMany).not.toHaveBeenCalled();
+      expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+    });
+
+    it('answers 409 ALREADY_CHECKED_OUT when a concurrent request checked out first', async () => {
+      jest.setSystemTime(new Date('2025-03-10T18:30:00.000Z'));
+      updateMany.mockResolvedValue({ count: 0 });
+
+      await expect(checkOut()).rejects.toMatchObject({
+        status: 409,
+        response: expect.objectContaining({ code: 'ALREADY_CHECKED_OUT' }),
+      });
+      expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+    });
+
+    it('fails the whole checkout when the ledger write fails', async () => {
+      jest.setSystemTime(new Date('2025-03-10T18:30:00.000Z'));
+      const error = new Error('ledger down');
+      points.addPointEntryForSource.mockRejectedValue(error);
+
+      await expect(checkOut()).rejects.toBe(error);
+      expect(prisma.$transaction).toHaveBeenCalledTimes(1);
+      expect(audit.record).not.toHaveBeenCalled();
+    });
+
+    it('requires an active employee login', async () => {
+      const employee = await employees.findOne();
+      employees.findOne.mockResolvedValue({ ...employee, user: { id: userId, isActive: false } });
+
+      await expect(checkOut()).rejects.toBeInstanceOf(ForbiddenException);
+      expect(validation.assertCanCheckOut).not.toHaveBeenCalled();
+    });
+
+    it('checkOutAsUser checks out the employee linked to the login', async () => {
+      prisma.employee = { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) };
+
+      await service.checkOutAsUser(companyId, userId, POSITION);
+
+      expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { companyId, userId } }),
+      );
+      expect(validation.assertCanCheckOut).toHaveBeenCalledWith(companyId, employeeId, workDate);
+    });
   });
 });

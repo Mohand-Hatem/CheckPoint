@@ -3384,7 +3384,7 @@
     },
     "/api/employee/attendance/check-in": {
       "post": {
-        "description": "Checks the logged-in employee in at their current GPS position. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment; then the day is GREEN plus one GREEN per full hour before the shift start. A second check-in the same day answers 409.",
+        "description": "Checks the logged-in employee in at their current GPS position. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment; then the day is GREEN plus one GREEN per full hour before the shift start. GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW. A second check-in the same day answers 409.",
         "operationId": "CheckController_checkIn",
         "parameters": [],
         "requestBody": {
@@ -3392,7 +3392,7 @@
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/CheckInDto"
+                "$ref": "#/components/schemas/PositionDto"
               }
             }
           }
@@ -3446,6 +3446,16 @@
                 }
               }
             }
+          },
+          "422": {
+            "description": "GPS_ACCURACY_TOO_LOW.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
           }
         },
         "security": [
@@ -3457,6 +3467,113 @@
           }
         ],
         "summary": "Check in for today",
+        "tags": [
+          "Employee · Attendance"
+        ]
+      }
+    },
+    "/api/employee/attendance/check-out": {
+      "post": {
+        "description": "Records the checkout at server time on today's attendance day and awards one OVERTIME GREEN per full hour after the scheduled shift end. The client cannot send a time or overtime amount. Requires GPS accuracy within the company limit and a position inside an assigned location.",
+        "operationId": "CheckController_checkOut",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PositionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckOutResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.checkin` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.checkin",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_CHECKED_OUT.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "INVALID_STATE (no check-in today) or GPS_ACCURACY_TOO_LOW.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Check out for today (REQ-014, FR-ATT-5)",
         "tags": [
           "Employee · Attendance"
         ]
@@ -4884,25 +5001,54 @@
           "active"
         ]
       },
-      "CheckInDto": {
+      "PositionDto": {
         "type": "object",
         "properties": {
-          "latitude": {
+          "lat": {
             "type": "number",
             "example": 30.0444,
             "minimum": -90,
-            "maximum": 90
+            "maximum": 90,
+            "description": "Latitude in degrees."
           },
-          "longitude": {
+          "lng": {
             "type": "number",
             "example": 31.2357,
             "minimum": -180,
-            "maximum": 180
+            "maximum": 180,
+            "description": "Longitude in degrees."
+          },
+          "accuracy": {
+            "type": "number",
+            "example": 10,
+            "minimum": 0,
+            "description": "GPS accuracy radius in meters; must not exceed the company's gps_max_accuracy_m."
           }
         },
         "required": [
-          "latitude",
-          "longitude"
+          "lat",
+          "lng",
+          "accuracy"
+        ]
+      },
+      "CheckOutResponseDto": {
+        "type": "object",
+        "properties": {
+          "checkOutAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-08T15:00:00.000Z",
+            "description": "Server time of the checkout."
+          },
+          "overtimeGreens": {
+            "type": "number",
+            "example": 1,
+            "description": "Overtime GREEN points awarded (whole hours after the shift end)."
+          }
+        },
+        "required": [
+          "checkOutAt",
+          "overtimeGreens"
         ]
       }
     }
