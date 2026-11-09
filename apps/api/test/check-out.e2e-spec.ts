@@ -115,6 +115,7 @@ describe('Employee checkout (e2e, REQ-014, FR-ATT-5)', () => {
 
       const day = await prisma.attendanceDay.findFirstOrThrow({ where: { companyId, employeeId, workDate } });
       expect(day.checkOutAt?.getTime()).toBe(checkOutAt);
+      expect(day).toMatchObject({ overtimeGreens: 2, leftEarly: false });
     });
 
     it('answers 409 ALREADY_CHECKED_OUT on a second checkout and awards nothing more', async () => {

@@ -161,10 +161,10 @@ Rule: `0 < early_minutes < grace_minutes < red_period_minutes` and `start + red_
 #### `shift_assignments`
 `id`, `employee_id`, `shift_id`, `effective_from` date NN, `effective_to` date (null = open), `assigned_by_user_id`. No overlapping assignments per employee (exclusion constraint `shift_assignments_no_overlap_excl`). Changing shifts updates `employees.current_shift_id` and closes/creates assignment rows in one transaction; schedule assignment delegates employee ownership checks and pointer updates to `EmployeesService`. Every new employee (direct create or accepted invitation) gets an initial assignment row, so attendance can find the shift for any date.
 
-#### `locations`, `employee_locations`, `holidays` (Phase 2, not in the schema yet)
-- `locations(id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea, active)`.
-- `employee_locations(employee_id, location_id)` PK both.
-- `holidays(id, holiday_date UNIQUE per company, name, created_by)`. Weekly off days live in `settings.weekly_off_days`.
+#### `locations`, `employee_locations`, `holidays` (Phase 2)
+- `locations(id, company_id, name, latitude/longitude numeric(9,6), radius_m int default 50, qr_secret bytea NN (random, never returned), active)` — migration `20261108000000_locations`.
+- `employee_locations(company_id, employee_id, location_id)` PK (employee_id, location_id); replaced as a whole by `PUT /admin/users/{id}/locations`.
+- `holidays(id, company_id, holiday_date date, name NN not blank, created_by_user_id, created_at)`, UNIQUE (company_id, holiday_date) — migration `20261109000000_holidays`. Weekly off days live in `settings.weekly_off_days` (default `["FRI","SAT"]`).
 
 #### `work_offers` (off-day exceptions and early-work/overtime offers, FR-CAL-3/4)
 | Column | Type | Notes |
@@ -224,10 +224,10 @@ Payroll sums `pay_pounds` into `payroll_records.off_day_pay`.
 | classification | `PointType` | **[ADD]** the single point of the day (GREEN/WHITE/RED/BLACK); null while undecided or exempt |
 
 Constraint: `UNIQUE (company_id, employee_id, work_date)`. The snapshot columns mean a later shift change never re-classifies a past day.
-Phase 3 adds the remaining check-in evidence columns from the earlier design: check-in/out location, latitude/longitude, accuracy, `confirmed_at`, `overtime_greens`, `left_early`, `early_leave_request_id`, `entry_source`, `classification_rev`.
+Phase 3 evidence: `left_early` bool NN default false (checkout before `scheduled_end_at`, DN-08, no penalty) and `overtime_greens` int NN default 0 CHECK ≥ 0 are on `attendance_days` (migration `20261109020000_attendance_checkout_evidence`); the check-in location, coordinates, accuracy and `confirmed_at` live on the confirmed `attendance_verifications` row. Still open for later phases: `early_leave_request_id` (Phase 5), `entry_source` and `classification_rev` (corrections use the ledger revision key instead).
 
-#### `attendance_verifications` (Phase 3, not in the schema yet)
-GPS-validated attempts awaiting QR: `employee_id`, `work_date`, `location_id`, status `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min`, `confirmed_at`, coordinates, `accuracy_m`. Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'`.
+#### `attendance_verifications` (Phase 3, migration `20261109010000_attendance_verifications`)
+GPS-validated attempts awaiting QR: `company_id`, `employee_id`, `work_date`, `location_id` (company-scoped FKs), status enum `VerificationStatus` `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min` (CHECK `expires_at > started_at`), `confirmed_at` (set iff `CONFIRMED`, CHECK), `latitude`/`longitude` numeric(9,6), `accuracy_m` numeric(7,2). Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'` (`attendance_verifications_one_pending_key`, migration only; Prisma cannot express it).
 
 #### `attendance_excuses` (unused in MVP)
 `attendance_day_id` UNIQUE, `submitted_by_user_id`, `employee_reason`, status (`PENDING`), `decided_by_user_id`, `decision_reason`, `decided_at`. No spec requirement defines an employee excuse flow (**DN-26**); no MVP endpoint writes it.

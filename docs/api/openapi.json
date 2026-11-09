@@ -1,6 +1,39 @@
 {
   "openapi": "3.0.0",
   "paths": {
+    "/api/health/live": {
+      "get": {
+        "operationId": "HealthController_live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ \"status\": \"ok\" }"
+          }
+        },
+        "summary": "Liveness: the process is up (no dependencies checked)",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "operationId": "HealthController_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ \"status\": \"ok\", \"database\": \"up\" }"
+          },
+          "503": {
+            "description": "The database is unreachable."
+          }
+        },
+        "summary": "Readiness: the API can reach its database",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
     "/api/admin/audit-events": {
       "get": {
         "description": "**Scenario:** an Admin asks \"who did what?\". Every admin mutation (create user, activate/deactivate, salary, invitations) and security event (password change, company provisioning) is recorded with who did it, which record it touched, and what changed. Newest first, paginated, filterable.\n\n**Rules:** only your own company's events are ever returned. The log is append-only (the database refuses edits and deletes) and never contains passwords, hashes or tokens.",
@@ -1234,6 +1267,119 @@
           }
         ],
         "summary": "Activate or deactivate a user",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
+    "/api/admin/users/{id}/reset-password": {
+      "post": {
+        "description": "**Scenario:** an employee forgot their password. The Admin sets a one-time password and hands it over privately. In one audited transaction the password changes, `mustChangePassword` becomes true and **all their sessions end**. At the next sign-in they can only call `PATCH /me/password` until they choose their own. The password is never written to the audit log. An Admin changes their own password with `PATCH /me/password` instead (400 here).",
+        "operationId": "UsersController_resetPassword",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ResetPasswordDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ResetPasswordResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No such user **in your company**. A user of another company gets the same answer, so nothing is revealed about it.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 404,
+                  "message": "User with ID '00000000-0000-4000-8000-000000000000' not found",
+                  "error": "Not Found"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Reset a user password (FR-AUTH-5)",
         "tags": [
           "Admin · Users"
         ]
@@ -2525,6 +2671,79 @@
         ]
       }
     },
+    "/api/me/attendance": {
+      "get": {
+        "description": "Only the signed-in employee's own days, oldest first: check-in and check-out times, the result and the day's point colour. Defaults to the current company month.",
+        "operationId": "MyAttendanceController_list",
+        "parameters": [
+          {
+            "name": "month",
+            "required": false,
+            "in": "query",
+            "description": "Month (YYYY-MM); default: the current company month.",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyAttendanceResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My attendance history for one month (FR-ATT-7)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
     "/api/admin/invitations": {
       "post": {
         "description": "**Scenario:** an Admin invites a new hire. The response contains the one-time `token` **once**; only its hash is stored. When SMTP is configured the link is also emailed after the invitation is saved (`emailSent`); otherwise share `invitationLink` yourself. The invitee redeems it at `POST /auth/invitations/accept`. It is single-use and expires after 7 days.\n\n**Rules:** the email must not have an account anywhere; the employee code must be free in this company; only one pending invitation per email or code.",
@@ -3208,7 +3427,300 @@
         ]
       }
     },
+    "/api/admin/locations": {
+      "post": {
+        "description": "Adds a geofence (center and radius, default 50 m) where employees can check in and out. A random QR secret is generated and never returned. The creation is audited.",
+        "operationId": "LocationController_create",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateLocationDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Create a company location (FR-LOC-1)",
+        "tags": [
+          "Admin · Locations"
+        ]
+      },
+      "get": {
+        "operationId": "LocationController_list",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List the company's locations (active and inactive), by name",
+        "tags": [
+          "Admin · Locations"
+        ]
+      }
+    },
+    "/api/admin/locations/{id}/qr-token": {
+      "get": {
+        "description": "Signed with the location's secret and valid for the current and the next rotation period (qr_rotation_seconds, default 30 s). Show a new token by `validUntil`. Tokens are never stored; an inactive location answers 409.",
+        "operationId": "LocationController_qrToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QrTokenResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Location not found in this company."
+          },
+          "409": {
+            "description": "Location is inactive."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Current rotating QR token for the kiosk (docs/05 §4.5)",
+        "tags": [
+          "Admin · Locations"
+        ]
+      }
+    },
     "/api/admin/locations/{id}": {
+      "get": {
+        "operationId": "LocationController_findOne",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LocationResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Location not found in this company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "One company location",
+        "tags": [
+          "Admin · Locations"
+        ]
+      },
       "patch": {
         "description": "Updates the supplied name, coordinates, radius, or active state for a location in the Admin's company. The change is audited.",
         "operationId": "LocationController_update",
@@ -3382,9 +3894,187 @@
         ]
       }
     },
+    "/api/admin/users/{id}/locations": {
+      "get": {
+        "operationId": "UserLocationsController_list",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No employee with this user id in your company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Locations where this employee may check in and out",
+        "tags": [
+          "Admin · Users"
+        ]
+      },
+      "put": {
+        "description": "Sets the complete list of locations where the employee may check in and out; an empty list removes all. Every id must be an active location of your company, otherwise nothing changes (400). Audited with before/after.",
+        "operationId": "UserLocationsController_set",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "description": "User id",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SetUserLocationsDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/LocationResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `users.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): users.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No employee with this user id in your company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Replace an employee's locations (FR-LOC-1)",
+        "tags": [
+          "Admin · Users"
+        ]
+      }
+    },
     "/api/employee/attendance/check-in": {
       "post": {
-        "description": "Checks the logged-in employee in at their current GPS position. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment; then the day is GREEN plus one GREEN per full hour before the shift start. GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW. A second check-in the same day answers 409.",
+        "description": "Validates the logged-in employee's GPS position and starts a check-in that must be confirmed by scanning the kiosk QR code within 15 minutes (step 2). **Nothing is recorded or awarded yet.** Calling again while a check-in is pending returns the same one. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment. GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW; already checked in today answers 409 ALREADY_CHECKED_IN.",
         "operationId": "CheckController_checkIn",
         "parameters": [],
         "requestBody": {
@@ -3393,6 +4083,113 @@
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/PositionDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CheckInStartedResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.checkin` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.checkin",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_CHECKED_IN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "GPS_ACCURACY_TOO_LOW.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Check in, step 1: GPS (FR-ATT-1)",
+        "tags": [
+          "Employee · Attendance"
+        ]
+      }
+    },
+    "/api/employee/attendance/check-in/confirm": {
+      "post": {
+        "description": "Confirms a pending check-in with the QR token shown on the kiosk of the same location. The day is recorded at the step-1 time and its points are awarded. Expired (over 15 minutes) answers 410 VERIFICATION_EXPIRED; a bad or old token 422 QR_TOKEN_INVALID; a token of another location 422 QR_LOCATION_MISMATCH; already confirmed 409 ALREADY_CHECKED_IN.",
+        "operationId": "CheckController_confirm",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ConfirmCheckInDto"
               }
             }
           }
@@ -3447,8 +4244,38 @@
               }
             }
           },
+          "404": {
+            "description": "No such pending check-in for this employee.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "ALREADY_CHECKED_IN.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "VERIFICATION_EXPIRED.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                }
+              }
+            }
+          },
           "422": {
-            "description": "GPS_ACCURACY_TOO_LOW.",
+            "description": "QR_TOKEN_INVALID or QR_LOCATION_MISMATCH.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3466,7 +4293,7 @@
             "cookie-auth": []
           }
         ],
-        "summary": "Check in for today",
+        "summary": "Check in, step 2: scan the kiosk QR (FR-ATT-2)",
         "tags": [
           "Employee · Attendance"
         ]
@@ -3576,6 +4403,383 @@
         "summary": "Check out for today (REQ-014, FR-ATT-5)",
         "tags": [
           "Employee · Attendance"
+        ]
+      }
+    },
+    "/api/admin/holidays": {
+      "get": {
+        "operationId": "CalendarController_listHolidays",
+        "parameters": [
+          {
+            "name": "year",
+            "required": false,
+            "in": "query",
+            "description": "Only holidays in this calendar year.",
+            "schema": {
+              "example": 2026,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HolidayResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List the company's holidays (optionally one year), by date",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      },
+      "post": {
+        "description": "No attendance is expected on a holiday. One holiday per date per company; the change is audited.",
+        "operationId": "CalendarController_createHoliday",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHolidayDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolidayResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The company already has a holiday on that date."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Add a holiday (FR-CAL-1)",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      }
+    },
+    "/api/admin/holidays/{id}": {
+      "delete": {
+        "operationId": "CalendarController_deleteHoliday",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolidayResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Holiday not found in this company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Remove a holiday (audited)",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      }
+    },
+    "/api/admin/settings/weekly-off-days": {
+      "get": {
+        "operationId": "CalendarController_getWeeklyOffDays",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyOffDaysDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Weekly off days of the company",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      },
+      "put": {
+        "description": "Duplicates are ignored and the days are stored in week order. All seven days off is refused (400). Audited.",
+        "operationId": "CalendarController_setWeeklyOffDays",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeeklyOffDaysDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyOffDaysDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Replace the weekly off days (FR-CAL-1)",
+        "tags": [
+          "Admin · Calendar"
         ]
       }
     }
@@ -4419,6 +5623,44 @@
           "salaries"
         ]
       },
+      "ResetPasswordDto": {
+        "type": "object",
+        "properties": {
+          "password": {
+            "type": "string",
+            "example": "Temp-Pass-2026",
+            "minLength": 6,
+            "description": "One-time password the Admin hands to the user; they must replace it at first sign-in."
+          }
+        },
+        "required": [
+          "password"
+        ]
+      },
+      "ResetPasswordResponseDto": {
+        "type": "object",
+        "properties": {
+          "success": {
+            "type": "boolean",
+            "example": true
+          },
+          "mustChangePassword": {
+            "type": "boolean",
+            "example": true,
+            "description": "Always true: the user must set their own password next."
+          },
+          "sessionsRevoked": {
+            "type": "number",
+            "example": 2,
+            "description": "Sessions (refresh tokens) that were ended."
+          }
+        },
+        "required": [
+          "success",
+          "mustChangePassword",
+          "sessionsRevoked"
+        ]
+      },
       "CreateSalaryDto": {
         "type": "object",
         "properties": {
@@ -4598,6 +5840,95 @@
       "CorrectAttendanceDto": {
         "type": "object",
         "properties": {}
+      },
+      "MyAttendanceDayDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-11-02"
+          },
+          "checkInAt": {
+            "type": "object",
+            "nullable": true,
+            "example": "2026-11-02T06:10:00.000Z"
+          },
+          "checkOutAt": {
+            "type": "object",
+            "nullable": true,
+            "example": "2026-11-02T14:05:00.000Z"
+          },
+          "checkInResult": {
+            "type": "string",
+            "example": "GREEN",
+            "description": "GREEN / WHITE / RED / BLACK, OFF_DAY_WORK, CORRECTED, EXEMPT or SCHEDULED."
+          },
+          "classification": {
+            "type": "string",
+            "nullable": true,
+            "enum": [
+              "GREEN",
+              "WHITE",
+              "RED",
+              "BLACK"
+            ]
+          },
+          "scheduledStartAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-02T06:00:00.000Z"
+          },
+          "scheduledEndAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-02T14:00:00.000Z"
+          },
+          "leftEarly": {
+            "type": "boolean",
+            "example": false,
+            "description": "Checked out before the shift end (shown for information, no penalty)."
+          },
+          "overtimeGreens": {
+            "type": "number",
+            "example": 1,
+            "description": "Overtime GREENs awarded at checkout."
+          }
+        },
+        "required": [
+          "id",
+          "workDate",
+          "checkInAt",
+          "checkOutAt",
+          "checkInResult",
+          "classification",
+          "scheduledStartAt",
+          "scheduledEndAt",
+          "leftEarly",
+          "overtimeGreens"
+        ]
+      },
+      "MyAttendanceResponseDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "days": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyAttendanceDayDto"
+            }
+          }
+        },
+        "required": [
+          "month",
+          "days"
+        ]
       },
       "CreateInvitationDto": {
         "type": "object",
@@ -4890,9 +6221,11 @@
             "type": "string",
             "enum": [
               "EARLY_WORK",
-              "OVERTIME"
+              "OVERTIME",
+              "OFF_DAY_WORK"
             ],
-            "example": "OVERTIME"
+            "example": "OVERTIME",
+            "description": "OFF_DAY_WORK (FR-CAL-2) lets the employees check in on a weekly off day or holiday at any time between startsAt and endsAt; the day counts as GREEN."
           },
           "startsAt": {
             "type": "string",
@@ -4932,7 +6265,7 @@
           "allEmployees"
         ]
       },
-      "UpdateLocationDto": {
+      "CreateLocationDto": {
         "type": "object",
         "properties": {
           "name": {
@@ -4953,15 +6286,17 @@
           },
           "radiusMeters": {
             "type": "number",
-            "example": 75,
-            "minimum": 1
-          },
-          "active": {
-            "type": "boolean",
-            "example": true,
-            "description": "Set false to deactivate, or true to reactivate the location."
+            "example": 50,
+            "minimum": 1,
+            "default": 50,
+            "description": "Geofence radius in meters."
           }
-        }
+        },
+        "required": [
+          "name",
+          "latitude",
+          "longitude"
+        ]
       },
       "LocationResponseDto": {
         "type": "object",
@@ -5001,6 +6336,75 @@
           "active"
         ]
       },
+      "QrTokenResponseDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "v1.00000000-0000-4000-8000-000000000000.59216880.Q2hlY2tQb2ludCBkZW1vIHNpZ25hdHVyZSBvbmx5Lg"
+          },
+          "validUntil": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-09T10:00:30.000Z",
+            "description": "Show a new token by this time; this one is still accepted for one more period."
+          }
+        },
+        "required": [
+          "token",
+          "validUntil"
+        ]
+      },
+      "UpdateLocationDto": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "example": "Main Office"
+          },
+          "latitude": {
+            "type": "number",
+            "example": 30.0444,
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "example": 31.2357,
+            "minimum": -180,
+            "maximum": 180
+          },
+          "radiusMeters": {
+            "type": "number",
+            "example": 75,
+            "minimum": 1
+          },
+          "active": {
+            "type": "boolean",
+            "example": true,
+            "description": "Set false to deactivate, or true to reactivate the location."
+          }
+        }
+      },
+      "SetUserLocationsDto": {
+        "type": "object",
+        "properties": {
+          "locationIds": {
+            "example": [
+              "00000000-0000-4000-8000-000000000000"
+            ],
+            "description": "The complete new set; an empty list removes every assignment.",
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        },
+        "required": [
+          "locationIds"
+        ]
+      },
       "PositionDto": {
         "type": "object",
         "properties": {
@@ -5031,6 +6435,54 @@
           "accuracy"
         ]
       },
+      "CheckInStartedResponseDto": {
+        "type": "object",
+        "properties": {
+          "verificationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "Send this with the scanned QR token to confirm."
+          },
+          "locationId": {
+            "type": "string",
+            "format": "uuid",
+            "description": "The location whose kiosk QR code must be scanned."
+          },
+          "status": {
+            "type": "string",
+            "example": "PENDING"
+          },
+          "expiresAt": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-09T08:45:00.000Z",
+            "description": "Scan the QR code before this time."
+          }
+        },
+        "required": [
+          "verificationId",
+          "locationId",
+          "status",
+          "expiresAt"
+        ]
+      },
+      "ConfirmCheckInDto": {
+        "type": "object",
+        "properties": {
+          "verificationId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "qrToken": {
+            "type": "string",
+            "example": "v1.00000000-0000-4000-8000-000000000000.59216880.Q2hlY2tQb2ludCBkZW1vIHNpZ25hdHVyZSBvbmx5Lg"
+          }
+        },
+        "required": [
+          "verificationId",
+          "qrToken"
+        ]
+      },
       "CheckOutResponseDto": {
         "type": "object",
         "properties": {
@@ -5049,6 +6501,74 @@
         "required": [
           "checkOutAt",
           "overtimeGreens"
+        ]
+      },
+      "HolidayResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "example": "2026-12-25"
+          },
+          "name": {
+            "type": "string",
+            "example": "Christmas"
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "name"
+        ]
+      },
+      "CreateHolidayDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-12-25",
+            "description": "Company-local date (YYYY-MM-DD)."
+          },
+          "name": {
+            "type": "string",
+            "example": "Christmas"
+          }
+        },
+        "required": [
+          "date",
+          "name"
+        ]
+      },
+      "WeeklyOffDaysDto": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "array",
+            "example": [
+              "FRI",
+              "SAT"
+            ],
+            "description": "Days with no attendance expected; at least one day must remain a working day.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SUN",
+                "MON",
+                "TUE",
+                "WED",
+                "THU",
+                "FRI",
+                "SAT"
+              ]
+            }
+          }
+        },
+        "required": [
+          "days"
         ]
       }
     }

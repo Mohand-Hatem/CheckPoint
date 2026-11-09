@@ -9,23 +9,23 @@
 
 A phase is **complete only when every Definition of Done (DoD) item is checked by a passing test or a signed artifact.**
 
-## Status (2026-11-02, `main` at PR #10)
+## Status (2026-11-09, branch `phase-0-1-2-3-completed`)
 
-Only the backend API exists so far; `apps/web` and `apps/mobile` are empty. "Done" below means built, unit-tested and covered by the CI end-to-end job on PostgreSQL. No phase has met its full DoD yet.
+Only the backend API exists so far; `apps/web` and `apps/mobile` are empty. "Done" below means built, unit-tested and covered by the end-to-end suite on PostgreSQL. The **backend** task lists of Phases 1-3 are done; no phase meets its full DoD yet, because every phase also has web/mobile work (deliberately a later, separate track) and Phase 0 has business items.
 
 | Phase | Done | Not done yet |
 |---|---|---|
-| 0 Decisions | Spec v0.4.0 approved (multi-company MVP); invitation email decided (CHG-005, awaiting approval) | Legal review of deductions (GAP-001), Paymob account, fees and minimum (GAP-008), Green-vs-penalty economy (GAP-018), per-company settings (GAP-027) |
-| 1 Foundation | Login, rotating refresh with reuse detection, logout, cookie auth with CSRF, forced password change, login throttling; RBAC; multi-company isolation and provisioning command; users and 1st-of-month salary versions; employees (list, edit, activate/deactivate); invitations with email; append-only audit log with read endpoint; Prisma migrations; Swagger and `openapi.json`; Pino logging; Docker Compose; CI (unit + e2e) | Settings service, injectable `Clock`, BullMQ wiring, Next.js admin shell, Expo mobile shell |
-| 2 Schedules / calendar / locations | Company timezone policy versions; shifts, shift versions with weekdays, assignments (no overlaps, history kept) | Holidays, off-day-work offers, locations and geofences, rotating QR tokens, `/kiosk` |
-| 3 Attendance | Window and classification rules (`attendance-rules.ts`, DST-safe) ready for check-in to reuse | Check-in step 1 (GPS) and step 2 (QR), check-out, verification expiry job, mobile screens |
-| 4 Points | Point values (EGP, effective-dated); ledger add and reverse with mandatory reason; ledger append-only by migration | `point_state` view, offset engine, absence sweeper (BLACK at 12:00), locked-month guard |
-| 5 Leave / corrections | Admin attendance corrections (`POST /admin/attendance/corrections`): compensating ledger entries, overtime Greens, audited before/after | Leave and early-leave requests, approvals, notifications |
-| 6 Payroll / fund | — | Everything |
+| 0 Decisions | Spec v0.4.0 approved (multi-company MVP); DN register with provisional defaults; client stack (DN-16); hosting (DN-19) | **Owner actions:** legal review of deductions (DN-01/GAP-001), Paymob sandbox + production application (DN-15/GAP-008), seed data reviewed by an admin, GPS threshold 50 m vs 30 m (DN-14), written sign-off on the remaining provisional DN defaults |
+| 1 Foundation | Auth (login, rotating refresh with reuse detection, logout, cookie auth with CSRF, forced password change, throttling, **admin password reset**); RBAC; multi-company isolation and provisioning; users, salaries, employees, invitations; append-only audit (**rollback proof test**); **health `/api/health/live` + `/ready`, request IDs, startup config validation**; Swagger/`openapi.json`; Pino; Docker Compose (**API image fixed, healthy**); CI (unit in UTC **and Pacific/Auckland**, **lint**, e2e) | Settings service (settings are read where needed), Next.js admin shell, Expo mobile shell. BullMQ and an injectable `Clock` moved to Phase 4 (D-19) |
+| 2 Schedules / calendar / locations | Timezone policy; shifts, versions, assignments; **locations: create/list/edit/deactivate, employee assignment; holidays + weekly off days + `isWorkingDay`; off-day-work exceptions via work offers (D-20); rotating HMAC QR tokens + `GET …/qr-token`**; server-timezone independence proven in CI | `/kiosk` page, admin pages, mobile permission onboarding (web/mobile track) |
+| 3 Attendance | **Two-step check-in (GPS → 15-min verification → kiosk QR confirm, D-19); off-day rule; checkout with whole-hour overtime and `left_early` (D-18); `ATTENDANCE_CLOSED`; employee history `GET /me/attendance`** | Live admin feed, kiosk scan animation, mobile screens (web/mobile track); verification sweeper job (Phase 4, D-19); check-in after the late period records BLACK until the Phase 4 absence sweeper (D-19) |
+| 4 Points | Point values (EGP, effective-dated); ledger add and reverse with mandatory reason; ledger append-only by migration | `point_state` view, offset engine, absence sweeper (BLACK at 12:00) with BullMQ, locked-month guard, employee point queries |
+| 5 Leave / corrections | Admin attendance corrections (compensating ledger entries, overtime Greens, audited before/after) | Leave and early-leave requests, approvals, early-leave effect at checkout, notifications |
+| 6 Payroll / fund | — | Everything (incl. off-day pay salary ÷ 30 from `OFF_DAY_WORK` days) |
 | 7 Paymob | — | Everything |
 | 8 Hardening / pilot | — | Everything |
 
-**Next, in dependency order:** Phase 2 remainder (locations, geofence, QR tokens, holidays, off-day offers) → Phase 3 check-in API on top of `attendance-rules.ts` → Phase 4 offset engine and absence sweeper (needs BullMQ) → Phase 5 leave. The web and mobile shells can start in parallel at any time.
+**Next, in dependency order:** Phase 4 (offset engine, absence sweeper with BullMQ, then switch late check-ins to `ATTENDANCE_CLOSED`) → Phase 5 leave and early leave → Phase 6 payroll. The web and mobile shells can start in parallel at any time.
 
 **Open housekeeping:** approve spec v0.4.1 in `planning/docs/planning/SPEC_APPROVAL.md`; baseline the shared Neon dev database onto migrations (it was built with `db push`, see the README).
 

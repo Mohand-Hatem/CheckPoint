@@ -19,7 +19,6 @@ const ROOT = join(__dirname, '..', '..', '..');
 const PASSWORD = 'Password123!';
 const run = Date.now();
 
-type Json = Record<string, any> | any[] | null;
 interface Step {
   title: string;
   why: string;

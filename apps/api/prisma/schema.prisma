@@ -65,6 +65,8 @@ model Company {
   additionalWorkCalculations AdditionalWorkCalculation[]
   auditEvents                AuditEvent[]
   settings                   Setting[]
+  holidays                   Holiday[]
+  attendanceVerifications    AttendanceVerification[]
 
   @@map("companies")
 }
@@ -98,6 +100,7 @@ model User {
   auditEvents               AuditEvent[]                @relation("AuditActor")
   refreshTokens             RefreshToken[]
   updatedSettings           Setting[]                   @relation("SettingUpdatedBy")
+  createdHolidays           Holiday[]                   @relation("HolidayCreator")
 
   @@index([companyId], map: "users_company_idx")
   @@map("users")
@@ -196,6 +199,7 @@ model Employee {
   workOffers           WorkOffer[]
   workOfferRecipients  WorkOfferRecipient[]
   locations            EmployeeLocation[]
+  attendanceVerifications AttendanceVerification[]
   pointLedgerEntries   PointLedgerEntry[]
 
   @@unique([companyId, employeeNumber], map: "employees_company_employee_number_key")
@@ -215,6 +219,7 @@ model Location {
   active            Boolean            @default(true)
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employeeLocations EmployeeLocation[]
+  verifications     AttendanceVerification[]
 
   @@unique([companyId, id], map: "locations_company_id_key")
   @@index([companyId], map: "locations_company_idx")
@@ -356,6 +361,8 @@ model AttendanceDay {
   checkOutAt        DateTime?                   @map("check_out_at") @db.Timestamptz(6)
   checkInResult     String                      @default("SCHEDULED") @map("check_in_result") @db.Text
   classification    PointType?
+  leftEarly         Boolean                     @default(false) @map("left_early")
+  overtimeGreens    Int                         @default(0) @map("overtime_greens")
   createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   company           Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)
@@ -564,4 +571,48 @@ model Setting {
 
   @@id([companyId, key])
   @@map("settings")
+}
+
+enum VerificationStatus {
+  PENDING
+  CONFIRMED
+  EXPIRED
+}
+
+// FR-ATT-1/2 (docs/05 §4.2-4.3): a GPS-validated check-in waiting for the kiosk QR scan.
+// The migration adds a partial unique index: one PENDING row per employee and work date.
+model AttendanceVerification {
+  id          String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId   String             @map("company_id") @db.Uuid
+  employeeId  String             @map("employee_id") @db.Uuid
+  workDate    DateTime           @map("work_date") @db.Date
+  locationId  String             @map("location_id") @db.Uuid
+  status      VerificationStatus @default(PENDING)
+  startedAt   DateTime           @map("started_at") @db.Timestamptz(6)
+  expiresAt   DateTime           @map("expires_at") @db.Timestamptz(6)
+  confirmedAt DateTime?          @map("confirmed_at") @db.Timestamptz(6)
+  latitude    Decimal            @db.Decimal(9, 6)
+  longitude   Decimal            @db.Decimal(9, 6)
+  accuracyM   Decimal            @map("accuracy_m") @db.Decimal(7, 2)
+  company     Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee    Employee           @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, map: "attendance_verifications_company_employee_fkey")
+  location    Location           @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict, map: "attendance_verifications_company_location_fkey")
+
+  @@index([companyId, employeeId, workDate], map: "attendance_verifications_employee_date_idx")
+  @@map("attendance_verifications")
+}
+
+// FR-CAL-1: a date is a working day iff it is not a weekly off day (settings.weekly_off_days) and not a holiday.
+model Holiday {
+  id              String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId       String   @map("company_id") @db.Uuid
+  holidayDate     DateTime @map("holiday_date") @db.Date
+  name            String   @db.Text
+  createdByUserId String?  @map("created_by_user_id") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  company         Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  createdBy       User?    @relation("HolidayCreator", fields: [createdByUserId], references: [id], onDelete: SetNull)
+
+  @@unique([companyId, holidayDate], map: "holidays_company_date_key")
+  @@map("holidays")
 }

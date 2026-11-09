@@ -7,19 +7,31 @@ import {
   InternalServerErrorException,
   Logger,
   NotFoundException,
+  UnprocessableEntityException,
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { randomBytes } from "crypto";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { UpdateLocationDto } from "./dto/update-location-dto";
+import { isValidQrToken, parseQrToken, qrSlot, signQrToken } from "./qr-token";
 
 type CreateLocationInput = {
   name: string;
   latitude: number;
   longitude: number;
-  radiusMeters: number;
+  radiusMeters?: number;
 };
+
+// Public fields only: qrSecret is never selected for a response.
+const LOCATION_VIEW = {
+  id: true,
+  name: true,
+  latitude: true,
+  longitude: true,
+  radiusM: true,
+  active: true,
+} as const;
 
 const EARTH_RADIUS_M = 6_371_000;
 const toRad = (deg: number) => (deg * Math.PI) / 180;
@@ -68,7 +80,142 @@ export class LocationService {
     return user.companyId;
   }
 
+  async listLocations(companyId: string) {
+    const locations = await this.prismaService.location.findMany({
+      where: { companyId },
+      orderBy: { name: "asc" },
+      select: LOCATION_VIEW,
+    });
+    return locations.map((location) => this.toResponse(location));
+  }
+
+  async getLocation(companyId: string, locationId: string) {
+    const location = await this.prismaService.location.findFirst({
+      where: { id: locationId, companyId },
+      select: LOCATION_VIEW,
+    });
+    if (!location) throw new NotFoundException("Location not found");
+    return this.toResponse(location);
+  }
+
+  /** docs/05 §4.5: the kiosk shows this token; it is accepted until the end of the next slot. */
+  async getQrToken(companyId: string, locationId: string) {
+    const location = await this.prismaService.location.findFirst({
+      where: { id: locationId, companyId },
+      select: { id: true, active: true, qrSecret: true },
+    });
+    if (!location) throw new NotFoundException("Location not found");
+    if (!location.active) throw new ConflictException("Location is inactive");
+
+    const rotation = await this.qrRotationSeconds(companyId);
+    const slot = qrSlot(Date.now(), rotation);
+    return {
+      token: signQrToken(Buffer.from(location.qrSecret), location.id, slot),
+      validUntil: new Date((slot + 1) * rotation * 1000),
+    };
+  }
+
+  /** docs/05 §4.3 step 2: the scanned token must be a live token of the verification's location. */
+  async verifyQrToken(companyId: string, expectedLocationId: string, token: string): Promise<void> {
+    const qrError = (code: string, message: string) =>
+      new UnprocessableEntityException({ statusCode: 422, message, error: "Unprocessable Entity", code });
+    const parsed = parseQrToken(token);
+    if (parsed && parsed.locationId !== expectedLocationId) {
+      throw qrError("QR_LOCATION_MISMATCH", "This QR code belongs to another location. Scan the code at the location you checked in at.");
+    }
+    const location = parsed
+      ? await this.prismaService.location.findFirst({
+          where: { id: expectedLocationId, companyId, active: true },
+          select: { qrSecret: true },
+        })
+      : null;
+    const rotation = location ? await this.qrRotationSeconds(companyId) : 0;
+    if (!location || !isValidQrToken(token, Buffer.from(location.qrSecret), Date.now(), rotation)) {
+      throw qrError("QR_TOKEN_INVALID", "The QR code is invalid or too old. Scan the code currently shown on the kiosk.");
+    }
+  }
+
+  async qrRotationSeconds(companyId: string): Promise<number> {
+    const setting = await this.prismaService.setting.findUnique({
+      where: { companyId_key: { companyId, key: "qr_rotation_seconds" } },
+      select: { value: true },
+    });
+    const value = setting?.value;
+    // docs/08 §3.8 default, used when the setting is missing or not a positive whole number.
+    return Number.isInteger(value) && (value as number) > 0 ? (value as number) : 30;
+  }
+
+  async listUserLocations(companyId: string, targetUserId: string) {
+    const employeeId = await this.employeeIdOf(this.prismaService, companyId, targetUserId);
+    const rows = await this.prismaService.employeeLocation.findMany({
+      where: { companyId, employeeId },
+      select: { location: { select: LOCATION_VIEW } },
+      orderBy: { location: { name: "asc" } },
+    });
+    return rows.map((row) => this.toResponse(row.location));
+  }
+
+  /** FR-LOC-1: replace the whole set of locations an employee may check in/out at. */
+  async setUserLocations(
+    companyId: string,
+    adminUserId: string,
+    targetUserId: string,
+    locationIds: string[],
+  ) {
+    const ids = [...new Set(locationIds)];
+    return this.prismaService.$transaction(async (tx) => {
+      const employeeId = await this.employeeIdOf(tx, companyId, targetUserId);
+      const locations = await tx.location.findMany({
+        where: { id: { in: ids }, companyId, active: true },
+        orderBy: { name: "asc" },
+        select: LOCATION_VIEW,
+      });
+      if (locations.length !== ids.length) {
+        throw new BadRequestException(
+          "Every location must be an active location of your company",
+        );
+      }
+
+      const before = await tx.employeeLocation.findMany({
+        where: { companyId, employeeId },
+        select: { locationId: true },
+      });
+      await tx.employeeLocation.deleteMany({ where: { companyId, employeeId } });
+      if (ids.length) {
+        await tx.employeeLocation.createMany({
+          data: ids.map((locationId) => ({ companyId, employeeId, locationId })),
+        });
+      }
+
+      await this.auditService.record(tx, {
+        companyId,
+        actorUserId: adminUserId,
+        actorType: "ADMIN",
+        action: "user.locations_set",
+        targetType: "user",
+        targetId: targetUserId,
+        changes: { before: before.map((row) => row.locationId), after: ids },
+      });
+      return locations.map((location) => this.toResponse(location));
+    });
+  }
+
+  private async employeeIdOf(
+    db: Prisma.TransactionClient,
+    companyId: string,
+    userId: string,
+  ) {
+    const employee = await db.employee.findFirst({
+      where: { userId, companyId },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundException(`User with ID '${userId}' not found`);
+    return employee.id;
+  }
+
   async createLocation(userId: string, input: CreateLocationInput) {
+    const name = input.name.trim();
+    if (!name) throw new BadRequestException("Location name is required");
     this.assertValidCoordinates(input.latitude, input.longitude);
 
     try {
@@ -78,10 +225,10 @@ export class LocationService {
         const location = await tx.location.create({
           data: {
             companyId,
-            name: input.name,
+            name,
             latitude: input.latitude,
             longitude: input.longitude,
-            radiusM: input.radiusMeters,
+            radiusM: input.radiusMeters ?? 50,
             qrSecret: randomBytes(32),
           },
         });
@@ -93,7 +240,7 @@ export class LocationService {
           action: "CREATE_LOCATION",
           targetType: "LOCATION",
           targetId: location.id,
-          changes: { ...input },
+          changes: this.toResponse(location),
         });
 
         return this.toResponse(location);

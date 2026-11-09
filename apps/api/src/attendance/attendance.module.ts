@@ -30,6 +30,7 @@ import { AttendanceValidationService } from "./attendance-validation.service";
 import { AttendanceDayService } from "./attendance-day.service";
 import { CorrectAttendanceDto } from "./dto/correct-attendance.dto";
 import { ListAttendanceQuery } from "./dto/list-attendance.query";
+import { MyAttendanceQuery, MyAttendanceResponseDto } from "./dto/my-attendance.dto";
 
 @ApiTags("Admin · Attendance")
 @Controller("admin/attendance")
@@ -83,9 +84,28 @@ export class AttendanceController {
   }
 }
 
+@ApiTags("Me")
+@Controller("me")
+export class MyAttendanceController {
+  constructor(private readonly attendance: AttendanceService) {}
+
+  @Get("attendance")
+  @ApiProtected()
+  @ApiOperation({
+    summary: "My attendance history for one month (FR-ATT-7)",
+    description:
+      "Only the signed-in employee's own days, oldest first: check-in and check-out times, the result and the day's point colour. Defaults to the current company month.",
+  })
+  @ApiOkResponse({ type: MyAttendanceResponseDto })
+  @ApiValidationError()
+  list(@Query() query: MyAttendanceQuery, @CurrentUser() user: AuthenticatedUser) {
+    return this.attendance.listMine(user.companyId, user.userId, query.month);
+  }
+}
+
 @Module({
   imports: [PrismaModule],
-  controllers: [AttendanceController],
+  controllers: [AttendanceController, MyAttendanceController],
   providers: [
     AttendanceService,
     AttendanceValidationService,

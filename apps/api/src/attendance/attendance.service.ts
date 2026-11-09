@@ -64,6 +64,45 @@ export class AttendanceService {
     };
   }
 
+  /** FR-ATT-7: the signed-in employee's own days of one month (`YYYY-MM`, default: current company month). */
+  async listMine(companyId: string, userId: string, month?: string) {
+    if (month !== undefined && !/^\d{4}-(0[1-9]|1[0-2])$/.test(month)) {
+      throw new BadRequestException("month must be YYYY-MM");
+    }
+    const employee = await this.prisma.employee.findFirst({
+      where: { companyId, userId },
+      select: { id: true },
+    });
+    if (!employee) throw new NotFoundException("No employee profile is linked to this account.");
+
+    const value = month ?? (await this.companyPolicy.getCompanyDate(companyId)).toISOString().slice(0, 7);
+    const [year, monthIndex] = value.split("-").map(Number);
+    const days = await this.prisma.attendanceDay.findMany({
+      where: {
+        companyId,
+        employeeId: employee.id,
+        workDate: { gte: new Date(Date.UTC(year, monthIndex - 1, 1)), lt: new Date(Date.UTC(year, monthIndex, 1)) },
+      },
+      orderBy: { workDate: "asc" },
+      select: {
+        id: true,
+        workDate: true,
+        checkInAt: true,
+        checkOutAt: true,
+        checkInResult: true,
+        classification: true,
+        scheduledStartAt: true,
+        scheduledEndAt: true,
+        leftEarly: true,
+        overtimeGreens: true,
+      },
+    });
+    return {
+      month: value,
+      days: days.map((day) => ({ ...day, workDate: day.workDate.toISOString().slice(0, 10) })),
+    };
+  }
+
   // The day as it is now, every ledger entry it produced, and its correction history (originals included).
   async findOne(companyId: string, id: string) {
     const day = await this.prisma.attendanceDay.findFirst({
@@ -233,11 +272,12 @@ export class AttendanceService {
             },
           });
 
-        if (classification) {
-          await award("ATTENDANCE", classification, 1, `ATT:${day.id}:${rev}`);
-          const overtime = checkOutAt
+        const overtime =
+          classification && checkOutAt
             ? overtimeGreens(checkOutAt, day.scheduledEndAt)
             : 0;
+        if (classification) {
+          await award("ATTENDANCE", classification, 1, `ATT:${day.id}:${rev}`);
           if (overtime > 0) {
             await award(
               "OVERTIME",
@@ -255,6 +295,8 @@ export class AttendanceService {
             checkOutAt,
             classification,
             checkInResult: dto.action === "EXEMPT" ? "EXEMPT" : "CORRECTED",
+            overtimeGreens: overtime,
+            leftEarly: Boolean(classification && checkOutAt && checkOutAt < day.scheduledEndAt),
           },
         });
 

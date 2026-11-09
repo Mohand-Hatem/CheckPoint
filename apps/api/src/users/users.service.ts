@@ -320,6 +320,33 @@ export class UsersService {
     };
   }
 
+  /** FR-AUTH-5: the Admin sets a one-time password; the user must replace it and every session ends. */
+  async resetPassword(companyId: string, id: string, password: string, adminUserId: string) {
+    if (id === adminUserId) {
+      throw new BadRequestException('Use PATCH /me/password to change your own password');
+    }
+    const user = await this.prisma.user.findFirst({ where: { id, companyId }, select: { id: true } });
+    if (!user) {
+      throw new NotFoundException(`User with ID '${id}' not found`);
+    }
+
+    const passwordHash = await argon2.hash(password, { type: argon2.argon2id });
+    return this.prisma.$transaction(async (tx) => {
+      await tx.user.update({ where: { id }, data: { passwordHash, mustChangePassword: true } });
+      const ended = await tx.refreshToken.updateMany({ where: { userId: id, revokedAt: null }, data: { revokedAt: new Date() } });
+      await this.audit.record(tx, {
+        companyId,
+        actorUserId: adminUserId,
+        actorType: 'ADMIN',
+        action: 'user.password_reset',
+        targetType: 'user',
+        targetId: id,
+        changes: { mustChangePassword: true, sessionsRevoked: ended.count },
+      });
+      return { success: true, mustChangePassword: true, sessionsRevoked: ended.count };
+    });
+  }
+
   async updateUserStatus(companyId: string, id: string, active: boolean, actorUserId?: string) {
     const user = await this.prisma.user.findFirst({
       where: { id, companyId },

@@ -31,10 +31,17 @@ describe('OpenAPI documentation', () => {
   });
 
   it('every protected route declares the bearer scheme and the public ones do not', () => {
-    const publicRoutes = ['/api/auth/login', '/api/auth/refresh', '/api/auth/logout', '/api/auth/invitations/accept'];
+    const publicRoutes = [
+      'post /api/auth/login',
+      'post /api/auth/refresh',
+      'post /api/auth/logout',
+      'post /api/auth/invitations/accept',
+      'get /api/health/live',
+      'get /api/health/ready',
+    ];
     for (const [path, item] of Object.entries(document.paths)) {
       for (const [method, op] of Object.entries(item as Record<string, any>)) {
-        const isPublic = publicRoutes.includes(path) && method === 'post';
+        const isPublic = publicRoutes.includes(`${method} ${path}`);
         expect({ route: `${method} ${path}`, secured: Boolean(op.security?.length) }).toEqual({
           route: `${method} ${path}`,
           secured: !isPublic,

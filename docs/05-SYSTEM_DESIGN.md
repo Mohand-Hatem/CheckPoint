@@ -63,7 +63,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Invitations | `POST/GET /admin/invitations` · `DELETE /admin/invitations/{id}` (revoke); the raw token and `invitationLink` are returned once on create, and the link is also emailed when SMTP is configured (`emailSent`, best-effort after commit; REQ-032, AC-REQ-032-05) |
 | Schedules | CRUD `/admin/schedules` · `POST /admin/schedule-assignments` · `PATCH /admin/schedule-assignments/{id}` (future only) |
 | Locations | CRUD `/admin/locations` · `GET /admin/locations/{id}/qr-token` (current rotating token + `expiresAt`) |
-| Calendar | CRUD `/admin/holidays` · `GET/PUT /admin/settings/weekly_off_days` · `POST /admin/off-day-work` · `DELETE /admin/off-day-work/{id}` |
+| Calendar | `GET/POST /admin/holidays` · `DELETE /admin/holidays/{id}` · `GET/PUT /admin/settings/weekly-off-days` · off-day-work exceptions via `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) and `PATCH /admin/work-offers/{id}/cancel` (D-20) |
 | Work Offers | `GET /admin/work-offers[/{id}]` · `POST /admin/work-offers` · `PATCH /admin/work-offers/{id}/cancel` |
 | Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
@@ -126,6 +126,8 @@ shift_end     = date + end_time
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).
 9. Nothing is awarded; **GPS alone never confirms attendance.**
 
+**Built so far (D-19, D-20):** steps 1-9 (step 2: `409 ALREADY_CHECKED_IN`, or `422 ATTENDANCE_CLOSED` for an exempt/absent day, checked before the working day); step 4 checks the working day and off-day-work exceptions (`422 NOT_A_WORKING_DAY`), while leave checks come with Phase 5 and `CLOSED` still records BLACK until the Phase 4 absence sweeper.
+
 ### 4.3 Check-in — step 2 (QR confirmation)
 1. Load verification (must belong to caller). `CONFIRMED` ⇒ `409`; `EXPIRED` or `expires_at ≤ now` ⇒ `410 VERIFICATION_EXPIRED` (row marked `EXPIRED` by the sweeper, or lazily).
 2. Validate `qrToken` (§4.5). Location must equal `verification.location_id` else `QR_LOCATION_MISMATCH`.
@@ -137,7 +139,7 @@ shift_end     = date + end_time
 2. GPS accuracy + geofence (any assigned location). QR at checkout: DN-07 (MVP: not required).
 3. `minutes_after_end = max(0, floor((now − shift_end) / 60 s))`; `units = floor(minutes_after_end / overtime_unit_minutes)`; apply daily cap if configured (DN-07).
 4. If an `APPROVED` early-leave exists for the date ⇒ `units = 0`.
-5. **Transaction** (user lock): set `check_out_at`; if `now < shift_end` and no approved early leave ⇒ `left_early = true` (DN-08, no penalty); for `i = 1..units` insert Green (`source = OVERTIME`, `dedupe_key = OT:{attendanceId}:{i}`); store `overtime_greens = units`; run offset engine. **Built so far (D-18):** `check_out_at` is set only while NULL; one Green entry of quantity `units` (`OT:{attendanceId}:checkout`); early leave, `left_early`, `overtime_greens` and the offset run are deferred.
+5. **Transaction** (user lock): set `check_out_at`; if `now < shift_end` and no approved early leave ⇒ `left_early = true` (DN-08, no penalty); for `i = 1..units` insert Green (`source = OVERTIME`, `dedupe_key = OT:{attendanceId}:{i}`); store `overtime_greens = units`; run offset engine. **Built so far (D-18):** `check_out_at` is set only while NULL, together with `overtime_greens = units` and `left_early`; one Green entry of quantity `units` (`OT:{attendanceId}:checkout`); none on an off-day-work day (D-20). Early leave (Phase 5) and the offset run (Phase 4) are deferred. Shifts never cross midnight (shift versions with `end ≤ start` are rejected), so a checkout after midnight falls on the next work date and answers `INVALID_STATE`.
 6. Examples: 16:59 → 0; 17:01 → 1; 18:01 → 2; 19:01 → 3.
 
 ### 4.5 QR token

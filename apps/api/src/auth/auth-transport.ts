@@ -73,6 +73,7 @@ export function corsOptions(env: NodeJS.ProcessEnv = process.env): CorsOptions {
     origin,
     credentials: true,
     methods: ['GET', 'POST', 'PATCH', 'PUT', 'DELETE'],
-    allowedHeaders: ['Authorization', 'Content-Type', 'X-Auth-Mode', 'X-CSRF-Token'],
+    allowedHeaders: ['Authorization', 'Content-Type', 'X-Auth-Mode', 'X-CSRF-Token', 'X-Request-Id'],
+    exposedHeaders: ['X-Request-Id'],
   };
 }

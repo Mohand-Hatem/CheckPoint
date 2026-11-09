@@ -6,7 +6,6 @@ import * as argon2 from 'argon2';
 import { createHash, randomBytes, randomUUID } from 'crypto';
 import { PrismaService } from '../prisma/prisma.service';
 import { LoginDto } from './dto/login.dto';
-import { RefreshTokenDto } from './dto/refresh-token.dto';
 
 const USER_AUTH_INCLUDE = Prisma.validator<Prisma.UserInclude>()({
   employee: { select: { fullName: true } },

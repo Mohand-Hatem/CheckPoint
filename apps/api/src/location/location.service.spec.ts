@@ -7,6 +7,7 @@ import {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { LocationService } from "./location.service";
+import { isValidQrToken, qrSlot, signQrToken } from "./qr-token";
 
 describe("LocationService update/delete", () => {
   const userId = "c0ffee00-0000-4000-8000-000000000001";
@@ -74,6 +75,228 @@ describe("LocationService update/delete", () => {
       longitude: 31.2357,
       radiusMeters: 50,
       active: true,
+    });
+  });
+
+  it("creates with a trimmed name and the 50 m default radius, and rejects a blank name", async () => {
+    const db = createDb();
+    db.location.create = jest
+      .fn()
+      .mockImplementation(({ data }) => Promise.resolve({ id: locationId, active: true, ...data }));
+    const service = createService(db);
+
+    await service.createLocation(userId, { name: "  Branch  ", latitude: 30.1, longitude: 31.2 });
+    expect(db.location.create.mock.calls[0][0].data).toMatchObject({ name: "Branch", radiusM: 50 });
+
+    await expect(
+      service.createLocation(userId, { name: "  ", latitude: 30.1, longitude: 31.2 }),
+    ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it("lists only the company's locations, by name, without QR secrets", async () => {
+    const db = createDb();
+    db.location.findMany = jest.fn().mockResolvedValue([
+      { id: locationId, name: "Main Office", latitude: 30.0444, longitude: 31.2357, radiusM: 50, active: true },
+    ]);
+
+    await expect(createService(db).listLocations(companyId)).resolves.toEqual([
+      { id: locationId, name: "Main Office", latitude: 30.0444, longitude: 31.2357, radiusMeters: 50, active: true },
+    ]);
+    expect(db.location.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId }, orderBy: { name: "asc" } }),
+    );
+    expect(db.location.findMany.mock.calls[0][0].select.qrSecret).toBeUndefined();
+  });
+
+  it("returns 404 for one location outside the company", async () => {
+    await expect(createService(createDb(null)).getLocation(companyId, locationId)).rejects.toBeInstanceOf(
+      NotFoundException,
+    );
+  });
+
+  describe("kiosk QR token (docs/05 §4.5)", () => {
+    const secret = Buffer.alloc(32, 7);
+    const now = Date.UTC(2026, 10, 9, 10, 0, 15);
+
+    function qrDb(location: Record<string, unknown> | null, rotation: unknown = 30) {
+      const db = createDb();
+      db.location.findFirst = jest.fn().mockResolvedValue(location);
+      db.setting = {
+        findUnique: jest.fn().mockResolvedValue(rotation === undefined ? null : { value: rotation }),
+      };
+      return db;
+    }
+
+    it("returns a token valid for this location and when the kiosk must refresh", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const db = qrDb({ id: locationId, active: true, qrSecret: secret });
+        const result = await createService(db).getQrToken(companyId, locationId);
+
+        expect(isValidQrToken(result.token, secret, now, 30)).toBe(true);
+        expect(result.token.startsWith(`v1.${locationId}.`)).toBe(true);
+        expect(result.validUntil).toEqual(new Date(Date.UTC(2026, 10, 9, 10, 0, 30)));
+        expect(db.location.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: locationId, companyId } }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("uses the company's qr_rotation_seconds, falling back to 30", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const sixty = await createService(qrDb({ id: locationId, active: true, qrSecret: secret }, 60)).getQrToken(
+          companyId,
+          locationId,
+        );
+        expect(isValidQrToken(sixty.token, secret, now, 60)).toBe(true);
+        expect(sixty.validUntil).toEqual(new Date(Date.UTC(2026, 10, 9, 10, 1, 0)));
+
+        const fallback = await createService(
+          qrDb({ id: locationId, active: true, qrSecret: secret }, "bad"),
+        ).getQrToken(companyId, locationId);
+        expect(isValidQrToken(fallback.token, secret, now, 30)).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("verifyQrToken accepts a current token of the expected location", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const db = qrDb({ id: locationId, active: true, qrSecret: secret });
+        const token = signQrToken(secret, locationId, qrSlot(now, 30));
+        await expect(createService(db).verifyQrToken(companyId, locationId, token)).resolves.toBeUndefined();
+        expect(db.location.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: locationId, companyId, active: true } }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("verifyQrToken: QR_LOCATION_MISMATCH for another location, QR_TOKEN_INVALID otherwise", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const service = createService(qrDb({ id: locationId, active: true, qrSecret: secret }));
+        const other = "c0ffee00-0000-4000-8000-000000000004";
+        const expectCode = (promise: Promise<unknown>, code: string) =>
+          expect(promise).rejects.toMatchObject({ status: 422, response: expect.objectContaining({ code }) });
+
+        await expectCode(
+          service.verifyQrToken(companyId, locationId, signQrToken(secret, other, qrSlot(now, 30))),
+          "QR_LOCATION_MISMATCH",
+        );
+        await expectCode(service.verifyQrToken(companyId, locationId, "garbage"), "QR_TOKEN_INVALID");
+        await expectCode(
+          service.verifyQrToken(companyId, locationId, signQrToken(secret, locationId, qrSlot(now, 30) - 2)),
+          "QR_TOKEN_INVALID",
+        );
+        await expectCode(
+          createService(qrDb(null)).verifyQrToken(companyId, locationId, signQrToken(secret, locationId, qrSlot(now, 30))),
+          "QR_TOKEN_INVALID",
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("answers 404 outside the company and 409 for an inactive location", async () => {
+      await expect(createService(qrDb(null)).getQrToken(companyId, locationId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(
+        createService(qrDb({ id: locationId, active: false, qrSecret: secret })).getQrToken(companyId, locationId),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
+  });
+
+  describe("employee location assignments (FR-LOC-1)", () => {
+    const targetUserId = "c0ffee00-0000-4000-8000-000000000009";
+    const employeeId = "c0ffee00-0000-4000-8000-00000000000e";
+    const otherLocationId = "c0ffee00-0000-4000-8000-000000000004";
+    const row = (id: string, name: string) => ({ id, name, latitude: 30, longitude: 31, radiusM: 50, active: true });
+
+    function assignDb(found: Record<string, unknown>[]) {
+      const db = createDb();
+      db.employee = { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) };
+      db.employeeLocation = {
+        findMany: jest.fn().mockResolvedValue([{ locationId: otherLocationId }]),
+        deleteMany: jest.fn().mockResolvedValue({ count: 1 }),
+        createMany: jest.fn().mockResolvedValue({ count: found.length }),
+      };
+      db.location.findMany = jest.fn().mockResolvedValue(found);
+      return db;
+    }
+
+    it("replaces the employee's locations in one audited transaction", async () => {
+      const db = assignDb([row(locationId, "Main Office")]);
+
+      await expect(
+        createService(db).setUserLocations(companyId, userId, targetUserId, [locationId]),
+      ).resolves.toEqual([
+        { id: locationId, name: "Main Office", latitude: 30, longitude: 31, radiusMeters: 50, active: true },
+      ]);
+
+      expect(db.employee.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { userId: targetUserId, companyId } }),
+      );
+      expect(db.location.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: { in: [locationId] }, companyId, active: true } }),
+      );
+      expect(db.employeeLocation.deleteMany).toHaveBeenCalledWith({ where: { companyId, employeeId } });
+      expect(db.employeeLocation.createMany).toHaveBeenCalledWith({
+        data: [{ companyId, employeeId, locationId }],
+      });
+      expect(db.auditEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          companyId,
+          actorUserId: userId,
+          action: "user.locations_set",
+          targetType: "user",
+          targetId: targetUserId,
+          changes: { before: [otherLocationId], after: [locationId] },
+        }),
+      });
+    });
+
+    it("clears every assignment with an empty list", async () => {
+      const db = assignDb([]);
+      await expect(createService(db).setUserLocations(companyId, userId, targetUserId, [])).resolves.toEqual([]);
+      expect(db.employeeLocation.deleteMany).toHaveBeenCalled();
+      expect(db.employeeLocation.createMany).not.toHaveBeenCalled();
+    });
+
+    it("rejects a location that is unknown, inactive or in another company, changing nothing", async () => {
+      const db = assignDb([row(locationId, "Main Office")]);
+
+      await expect(
+        createService(db).setUserLocations(companyId, userId, targetUserId, [locationId, otherLocationId]),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(db.employeeLocation.deleteMany).not.toHaveBeenCalled();
+    });
+
+    it("answers 404 when the user is not an employee of the company", async () => {
+      const db = assignDb([]);
+      db.employee.findFirst.mockResolvedValue(null);
+
+      await expect(
+        createService(db).setUserLocations(companyId, userId, targetUserId, []),
+      ).rejects.toBeInstanceOf(NotFoundException);
+      await expect(createService(db).listUserLocations(companyId, targetUserId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+    });
+
+    it("lists the employee's current locations", async () => {
+      const db = assignDb([]);
+      db.employeeLocation.findMany.mockResolvedValue([{ location: row(locationId, "Main Office") }]);
+
+      await expect(createService(db).listUserLocations(companyId, targetUserId)).resolves.toEqual([
+        { id: locationId, name: "Main Office", latitude: 30, longitude: 31, radiusMeters: 50, active: true },
+      ]);
     });
   });
 

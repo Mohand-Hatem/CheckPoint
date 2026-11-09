@@ -1,0 +1,9 @@
+# Host build output and OS-specific binaries must not overwrite the image's own install.
+node_modules
+dist
+coverage
+# Secrets come from compose env_file at runtime, never baked into an image layer.
+.env
+.env.*
+!.env.example
+*.log

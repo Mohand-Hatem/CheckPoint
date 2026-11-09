@@ -41,11 +41,20 @@ jobs:
       - name: Typecheck TypeScript
         run: npx tsc --noEmit
 
+      - name: Lint (bug rules only)
+        run: npm run lint
+
       - name: Build NestJS API
         run: npm run build
 
       - name: Run Unit Tests
         run: npm run test:unit
+
+      # Phase 2 DoD: results must not depend on the server timezone (runners default to UTC above).
+      - name: Run Unit Tests (server timezone Pacific/Auckland)
+        run: npm run test:unit
+        env:
+          TZ: Pacific/Auckland
 
   api-e2e:
     name: Backend API (End-to-End on PostgreSQL)

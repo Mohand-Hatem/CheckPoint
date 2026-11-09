@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
+import { requestId } from './request-id';
 
 @Module({
   imports: [
@@ -12,6 +13,7 @@ import { LoggerModule as PinoLoggerModule } from 'nestjs-pino';
 
         return {
           pinoHttp: {
+            genReqId: requestId,
             level: isProduction ? 'info' : 'debug',
             redact: {
               paths: [

@@ -186,6 +186,16 @@ describe('AttendanceService.correct (TEST-012, TEST-013)', () => {
         expect.objectContaining({ sourceType: 'OVERTIME', pointType: PointType.GREEN, quantity: 2, idempotencyKey: `OT:${dayId}:2` }),
       ]),
     );
+    expect(db.attendanceDay.update.mock.calls[0][0].data).toMatchObject({ overtimeGreens: 2, leftEarly: false });
+  });
+
+  it('stores left_early when the corrected check-out is before the shift end (DN-08)', async () => {
+    const db = createDb({
+      day: { ...existingDay, checkInAt: new Date('2026-11-02T06:10:00.000Z'), classification: PointType.GREEN },
+      awards: 1,
+    });
+    await createService(db).correct(companyId, adminUserId, dto({ action: 'SET_CHECK_OUT', at: '2026-11-02T12:00:00.000Z' }));
+    expect(db.attendanceDay.update.mock.calls[0][0].data).toMatchObject({ overtimeGreens: 0, leftEarly: true });
   });
 
   it('EXEMPT reverses the day and awards nothing', async () => {
@@ -196,7 +206,12 @@ describe('AttendanceService.correct (TEST-012, TEST-013)', () => {
     const entries = created(db);
     expect(entries).toHaveLength(1);
     expect(entries[0].entryKind).toBe('REVERSAL');
-    expect(db.attendanceDay.update.mock.calls[0][0].data).toMatchObject({ classification: null, checkInResult: 'EXEMPT' });
+    expect(db.attendanceDay.update.mock.calls[0][0].data).toMatchObject({
+      classification: null,
+      checkInResult: 'EXEMPT',
+      overtimeGreens: 0,
+      leftEarly: false,
+    });
   });
 
   it('rejects a check-out without a check-in, and a check-in before the shift opens', async () => {

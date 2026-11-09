@@ -22,7 +22,16 @@ export class AttendanceValidationService {
     });
 
     if (attendance?.checkInAt) {
-      throw new ConflictException("Employee has already checked in.");
+      throw alreadyCheckedIn();
+    }
+    if (attendance) {
+      // docs/05 §4.2 step 2: an exempt or absent day is closed for check-in.
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        message: "Attendance for today is already closed (exempt or absent).",
+        error: "Unprocessable Entity",
+        code: "ATTENDANCE_CLOSED",
+      });
     }
   }
 
@@ -35,7 +44,7 @@ export class AttendanceValidationService {
       where: {
         companyId_employeeId_workDate: { companyId, employeeId, workDate },
       },
-      select: { id: true, checkInAt: true, checkOutAt: true, scheduledEndAt: true },
+      select: { id: true, checkInAt: true, checkOutAt: true, checkInResult: true, scheduledEndAt: true },
     });
 
     if (!attendance?.checkInAt) {
@@ -51,6 +60,15 @@ export class AttendanceValidationService {
     }
     return attendance;
   }
+}
+
+export function alreadyCheckedIn() {
+  return new ConflictException({
+    statusCode: 409,
+    message: "Employee has already checked in.",
+    error: "Conflict",
+    code: "ALREADY_CHECKED_IN",
+  });
 }
 
 export function alreadyCheckedOut() {

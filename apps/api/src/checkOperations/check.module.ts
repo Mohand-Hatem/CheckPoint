@@ -1,5 +1,6 @@
 import { Module } from "@nestjs/common";
 import { AttendanceModule } from "../attendance/attendance.module";
+import { CalendarModule } from "../calendar/calendar.module";
 import { EmployeesModule } from "../employees/employees.module";
 import { LocationModule } from "../location/location.module";
 import { PointsModule } from "../points/points.module";
@@ -14,6 +15,7 @@ import { CheckService } from "./check.service";
     LocationModule,
     PointsModule,
     EmployeesModule,
+    CalendarModule,
   ],
   controllers: [CheckController],
   providers: [CheckService],
