@@ -1,6 +1,5 @@
 import { OpenAPIObject } from '@nestjs/swagger';
 import { Test } from '@nestjs/testing';
-import { AppModule } from '../../src/app.module';
 import { PrismaService } from '../../src/prisma/prisma.service';
 import { buildOpenApiDocument } from '../../src/swagger';
 
@@ -15,6 +14,8 @@ export async function generateOpenApiDocument(): Promise<OpenAPIObject> {
   if (!process.env.DATABASE_URL) {
     process.env.DATABASE_URL = 'postgresql://openapi:generation@localhost:5432/only';
   }
+  // Imported only now: ConfigModule validates the environment when app.module loads.
+  const { AppModule } = await import('../../src/app.module');
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PrismaService)
