@@ -19,6 +19,28 @@ const VALUED_POINT_TYPES = [
 ] as const;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
+export type PointEntrySource = 'ADMIN' | 'ATTENDANCE' | 'OVERTIME';
+
+export type AddPointEntryForSourceInput = {
+  companyId: string;
+  employeeId: string;
+  pointType: PointType;
+  quantity: number;
+  sourceType: PointEntrySource;
+  sourceId?: string | null;
+  idempotencyKey: string;
+  reason: string;
+  createdByUserId?: string | null;
+  asOfDate: Date;
+};
+
+export type ReversePointEntryForSourceInput = {
+  companyId: string;
+  entryId: string;
+  reason: string;
+  createdByUserId?: string | null;
+};
+
 @Injectable()
 export class PointsService {
   constructor(private readonly prisma: PrismaService) {}
@@ -90,7 +112,10 @@ export class PointsService {
               data: { value },
             });
           } else {
-            if (previous && (!previous.effectiveTo || previous.effectiveTo >= effectiveFrom)) {
+            if (
+              previous &&
+              (!previous.effectiveTo || previous.effectiveTo >= effectiveFrom)
+            ) {
               await tx.pointValueVersion.update({
                 where: { id: previous.id },
                 data: { effectiveTo: previousDate(effectiveFrom) },
@@ -119,7 +144,9 @@ export class PointsService {
               changes: {
                 pointType,
                 beforeEgp:
-                  sameDate?.value.toString() ?? previous?.value.toString() ?? null,
+                  sameDate?.value.toString() ??
+                  previous?.value.toString() ??
+                  null,
                 afterEgp: value.toFixed(2),
                 effectiveFrom: dto.effectiveFrom,
               },
@@ -186,7 +213,12 @@ export class PointsService {
           }
 
           const { pointValueVersionId, valuePerPointPiasters } =
-            await resolvePointValue(tx, companyId, dto.pointType, cairoDateOnly(new Date()));
+            await resolvePointValue(
+              tx,
+              companyId,
+              dto.pointType,
+              cairoDateOnly(new Date()),
+            );
           const entry = await tx.pointLedgerEntry.create({
             data: {
               companyId,
@@ -239,6 +271,203 @@ export class PointsService {
     }
   }
 
+  /**
+   * Appends an award for any ledger source. Use the optional transaction to
+   * commit the award atomically with its attendance or other source record.
+   */
+  async addPointEntryForSource(
+    input: AddPointEntryForSourceInput,
+    transaction?: Prisma.TransactionClient,
+  ) {
+    const reason = input.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('A reason is required to add a point.');
+    }
+    if (
+      !Number.isInteger(input.quantity) ||
+      input.quantity < 1 ||
+      input.quantity > 100000
+    ) {
+      throw new BadRequestException(
+        'Point quantity must be an integer between 1 and 100000.',
+      );
+    }
+    if (Number.isNaN(input.asOfDate.getTime())) {
+      throw new BadRequestException('A valid point-value date is required.');
+    }
+    const idempotencyKey = validateIdempotencyKey(input.idempotencyKey);
+    const normalized = { ...input, reason, idempotencyKey };
+
+    try {
+      if (transaction) {
+        return serializePointEntry(
+          await this.createSourceAward(transaction, normalized),
+        );
+      }
+
+      const entry = await this.prisma.$transaction(
+        (tx) => this.createSourceAward(tx, normalized),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      return serializePointEntry(entry);
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
+      }
+      if (transaction) {
+        throw new ConflictException(
+          'Point entry conflicts with an existing ledger entry.',
+        );
+      }
+
+      const existing = await this.prisma.pointLedgerEntry.findUnique({
+        where: { idempotencyKey },
+      });
+      if (existing) {
+        assertSameSourceAward(existing, normalized);
+        return serializePointEntry(existing);
+      }
+      throw new ConflictException(
+        'Point entry conflicts with an existing ledger entry.',
+      );
+    }
+  }
+
+  /**
+   * Appends one compensating reversal for an award. The original ledger row
+   * remains immutable; pass a transaction to include this in a parent action.
+   */
+  async reversePointEntryForSource(
+    input: ReversePointEntryForSourceInput,
+    transaction?: Prisma.TransactionClient,
+  ) {
+    const reason = input.reason.trim();
+    if (!reason) {
+      throw new BadRequestException('A reason is required to reverse a point.');
+    }
+
+    try {
+      if (transaction) {
+        return serializePointEntry(
+          await this.createSourceReversal(transaction, { ...input, reason }),
+        );
+      }
+
+      const reversal = await this.prisma.$transaction(
+        (tx) => this.createSourceReversal(tx, { ...input, reason }),
+        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
+      );
+      return serializePointEntry(reversal);
+    } catch (error) {
+      if (!isUniqueConstraintError(error)) {
+        throw error;
+      }
+      if (transaction) {
+        throw new ConflictException('Point entry has already been reversed.');
+      }
+
+      const existing = await this.prisma.pointLedgerEntry.findUnique({
+        where: { reversesEntryId: input.entryId },
+      });
+      if (existing?.reason === reason) {
+        return serializePointEntry(existing);
+      }
+      throw new ConflictException('Point entry has already been reversed.');
+    }
+  }
+
+  private async createSourceAward(
+    tx: Prisma.TransactionClient,
+    input: AddPointEntryForSourceInput & {
+      reason: string;
+      idempotencyKey: string;
+    },
+  ) {
+    const existing = await tx.pointLedgerEntry.findUnique({
+      where: { idempotencyKey: input.idempotencyKey },
+    });
+    if (existing) {
+      assertSameSourceAward(existing, input);
+      return existing;
+    }
+
+    const employee = await tx.employee.findFirst({
+      where: { id: input.employeeId, companyId: input.companyId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('Employee not found');
+    }
+
+    const pointValue = await resolvePointValue(
+      tx,
+      input.companyId,
+      input.pointType,
+      input.asOfDate,
+    );
+    return tx.pointLedgerEntry.create({
+      data: {
+        companyId: input.companyId,
+        employeeId: employee.id,
+        pointType: input.pointType,
+        entryKind: 'AWARD',
+        direction: 1,
+        quantity: input.quantity,
+        ...pointValue,
+        sourceType: input.sourceType,
+        sourceId: input.sourceId ?? null,
+        idempotencyKey: input.idempotencyKey,
+        reason: input.reason,
+        createdByUserId: input.createdByUserId ?? null,
+      },
+    });
+  }
+
+  private async createSourceReversal(
+    tx: Prisma.TransactionClient,
+    input: ReversePointEntryForSourceInput & { reason: string },
+  ) {
+    const entry = await tx.pointLedgerEntry.findFirst({
+      where: {
+        id: input.entryId,
+        companyId: input.companyId,
+        entryKind: 'AWARD',
+      },
+    });
+    if (!entry) {
+      throw new NotFoundException('Reversible point entry not found');
+    }
+
+    const existing = await tx.pointLedgerEntry.findUnique({
+      where: { reversesEntryId: entry.id },
+    });
+    if (existing) {
+      if (existing.reason === input.reason) {
+        return existing;
+      }
+      throw new ConflictException('Point entry has already been reversed.');
+    }
+
+    return tx.pointLedgerEntry.create({
+      data: {
+        companyId: entry.companyId,
+        employeeId: entry.employeeId,
+        pointType: entry.pointType,
+        entryKind: 'REVERSAL',
+        direction: -1,
+        quantity: entry.quantity,
+        pointValueVersionId: entry.pointValueVersionId,
+        valuePerPointPiasters: entry.valuePerPointPiasters,
+        sourceType: entry.sourceType,
+        sourceId: entry.sourceId,
+        idempotencyKey: `source-reversal:${entry.id}`,
+        reversesEntryId: entry.id,
+        reason: input.reason,
+        createdByUserId: input.createdByUserId ?? null,
+      },
+    });
+  }
+
   async reversePointEntry(
     companyId: string,
     adminUserId: string,
@@ -253,22 +482,30 @@ export class PointsService {
     try {
       const reversal = await this.prisma.$transaction(
         async (tx) => {
-        const entry = await tx.pointLedgerEntry.findFirst({
-          where: { id: entryId, companyId },
-        });
-        if (!entry || entry.sourceType !== 'ADMIN' || entry.entryKind !== 'AWARD') {
-          throw new NotFoundException('Reversible admin point entry not found');
-        }
-
-        const existingReversal = await tx.pointLedgerEntry.findUnique({
-          where: { reversesEntryId: entry.id },
-        });
-        if (existingReversal) {
-          if (existingReversal.reason === reason) {
-            return existingReversal;
+          const entry = await tx.pointLedgerEntry.findFirst({
+            where: { id: entryId, companyId },
+          });
+          if (
+            !entry ||
+            entry.sourceType !== 'ADMIN' ||
+            entry.entryKind !== 'AWARD'
+          ) {
+            throw new NotFoundException(
+              'Reversible admin point entry not found',
+            );
           }
-          throw new ConflictException('Point entry has already been reversed.');
-        }
+
+          const existingReversal = await tx.pointLedgerEntry.findUnique({
+            where: { reversesEntryId: entry.id },
+          });
+          if (existingReversal) {
+            if (existingReversal.reason === reason) {
+              return existingReversal;
+            }
+            throw new ConflictException(
+              'Point entry has already been reversed.',
+            );
+          }
 
           const reversal = await tx.pointLedgerEntry.create({
             data: {
@@ -322,6 +559,40 @@ export class PointsService {
       }
       throw error;
     }
+  }
+}
+
+function assertSameSourceAward(
+  existing: {
+    companyId: string;
+    employeeId: string;
+    pointType: PointType;
+    quantity: number;
+    reason: string | null;
+    entryKind: string;
+    sourceType: string;
+    sourceId: string | null;
+    direction: number;
+  },
+  input: AddPointEntryForSourceInput & {
+    reason: string;
+    idempotencyKey: string;
+  },
+) {
+  if (
+    existing.companyId !== input.companyId ||
+    existing.employeeId !== input.employeeId ||
+    existing.pointType !== input.pointType ||
+    existing.quantity !== input.quantity ||
+    existing.reason !== input.reason ||
+    existing.entryKind !== 'AWARD' ||
+    existing.sourceType !== input.sourceType ||
+    existing.sourceId !== (input.sourceId ?? null) ||
+    existing.direction !== 1
+  ) {
+    throw new ConflictException(
+      'Idempotency key was already used for a different point entry.',
+    );
   }
 }
 
@@ -379,14 +650,20 @@ function isUniqueConstraintError(
   error: unknown,
 ): error is Prisma.PrismaClientKnownRequestError {
   return (
-    error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002'
+    error instanceof Prisma.PrismaClientKnownRequestError &&
+    error.code === 'P2002'
   );
 }
 
 function parseDateOnly(value: string) {
   const date = new Date(`${value}T00:00:00.000Z`);
-  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== value) {
-    throw new BadRequestException('effectiveFrom must be a valid YYYY-MM-DD date.');
+  if (
+    Number.isNaN(date.getTime()) ||
+    date.toISOString().slice(0, 10) !== value
+  ) {
+    throw new BadRequestException(
+      'effectiveFrom must be a valid YYYY-MM-DD date.',
+    );
   }
   return date;
 }

@@ -1,5 +1,5 @@
-import { PointType } from '@prisma/client';
-import { DateTime } from 'luxon';
+import { PointType } from "@prisma/client";
+import { DateTime } from "luxon";
 
 export interface ShiftTimes {
   startTime: Date; // wall-clock time stored as 1970-01-01THH:mm UTC
@@ -49,8 +49,8 @@ export function computeWindows(
 export function classifyCheckIn(
   checkInAt: Date,
   w: AttendanceWindows,
-): PointType | 'NOT_OPEN' {
-  if (checkInAt < w.scheduledStartAt) return 'NOT_OPEN';
+): PointType | "NOT_OPEN" {
+  if (checkInAt < w.scheduledStartAt) return "NOT_OPEN";
   if (checkInAt < w.earlyEndAt) return PointType.GREEN;
   if (checkInAt < w.graceEndAt) return PointType.WHITE;
   if (checkInAt < w.redPeriodEndAt) return PointType.RED;
@@ -59,5 +59,19 @@ export function classifyCheckIn(
 
 // REQ-014: one GREEN per full hour after the scheduled end.
 export function overtimeGreens(checkOutAt: Date, scheduledEndAt: Date): number {
-  return Math.max(0, Math.floor((checkOutAt.getTime() - scheduledEndAt.getTime()) / 3_600_000));
+  return Math.max(
+    0,
+    Math.floor((checkOutAt.getTime() - scheduledEndAt.getTime()) / 3_600_000),
+  );
+}
+
+// overtime if the employee checks in before his scheduled start time with workOffer
+export function beforeTimeGreens(
+  checkInAt: Date,
+  scheduledStartAt: Date,
+): number {
+  return Math.max(
+    0,
+    Math.floor((scheduledStartAt.getTime() - checkInAt.getTime()) / 3_600_000),
+  );
 }

@@ -3,13 +3,13 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { AuditService } from '../audit/audit.service';
-import { CompanyPolicyService } from '../company/company-policy.service';
-import { PrismaService } from '../prisma/prisma.service';
-import { ListEmployeesQuery } from './dto/list-employees.query';
-import { UpdateEmployeeDto } from './dto/update-employee.dto';
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { AuditService } from "../audit/audit.service";
+import { CompanyPolicyService } from "../company/company-policy.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { ListEmployeesQuery } from "./dto/list-employees.query";
+import { UpdateEmployeeDto } from "./dto/update-employee.dto";
 
 // Employees are created by InvitationsService (accept) or UsersService (direct create).
 @Injectable()
@@ -37,7 +37,7 @@ export class EmployeesService {
       select: { id: true },
     });
     if (!employee) {
-      throw new NotFoundException('Employee not found');
+      throw new NotFoundException("Employee not found");
     }
 
     const overlapping = await tx.shiftAssignment.findMany({
@@ -45,14 +45,14 @@ export class EmployeesService {
         companyId: input.companyId,
         employeeId: input.employeeId,
         effectiveFrom: {
-          lte: input.effectiveTo ?? new Date('9999-12-31T00:00:00.000Z'),
+          lte: input.effectiveTo ?? new Date("9999-12-31T00:00:00.000Z"),
         },
         OR: [
           { effectiveTo: null },
           { effectiveTo: { gte: input.effectiveFrom } },
         ],
       },
-      orderBy: { effectiveFrom: 'asc' },
+      orderBy: { effectiveFrom: "asc" },
     });
     const priorAssignments = overlapping.filter(
       (assignment) => assignment.effectiveFrom < input.effectiveFrom,
@@ -63,7 +63,7 @@ export class EmployeesService {
 
     if (priorAssignments.length > 1 || laterOrSameAssignments.length > 0) {
       throw new ConflictException(
-        'The employee already has an assignment overlapping these effective dates.',
+        "The employee already has an assignment overlapping these effective dates.",
       );
     }
 
@@ -134,19 +134,19 @@ export class EmployeesService {
           {
             fullName: {
               contains: query.search.trim(),
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
           {
             employeeNumber: {
               contains: query.search.trim(),
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
           {
             phone: {
               contains: query.search.trim(),
-              mode: 'insensitive',
+              mode: "insensitive",
             },
           },
         ],
@@ -171,7 +171,7 @@ export class EmployeesService {
           },
         },
         orderBy: {
-          createdAt: 'desc',
+          createdAt: "desc",
         },
         skip: (query.page - 1) * query.limit,
         take: query.limit,
@@ -195,6 +195,9 @@ export class EmployeesService {
       where: {
         id: employeeId,
         companyId,
+        currentShift: {
+          isActive: true,
+        },
       },
       include: {
         user: {
@@ -208,11 +211,25 @@ export class EmployeesService {
           select: {
             id: true,
             name: true,
+            versions: {
+              orderBy: {
+                effectiveFrom: "desc",
+              },
+              select: {
+                startTime: true,
+                endTime: true,
+                earlyMinutes: true,
+                graceMinutes: true,
+                redPeriodMinutes: true,
+                effectiveFrom: true,
+                effectiveTo: true,
+              },
+            },
           },
         },
         shiftAssignments: {
           orderBy: {
-            effectiveFrom: 'desc',
+            effectiveFrom: "desc",
           },
           include: {
             shift: {
@@ -227,7 +244,7 @@ export class EmployeesService {
     });
 
     if (!employee) {
-      throw new NotFoundException('Employee not found');
+      throw new NotFoundException("Employee not found");
     }
 
     return employee;
@@ -244,7 +261,7 @@ export class EmployeesService {
       select: { id: true, employeeNumber: true, fullName: true, phone: true },
     });
     if (!before) {
-      throw new NotFoundException('Employee not found');
+      throw new NotFoundException("Employee not found");
     }
 
     const data = {
@@ -263,9 +280,9 @@ export class EmployeesService {
         await this.audit.record(tx, {
           companyId,
           actorUserId: adminUserId,
-          actorType: 'ADMIN',
-          action: 'employee.update',
-          targetType: 'employee',
+          actorType: "ADMIN",
+          action: "employee.update",
+          targetType: "employee",
           targetId: employeeId,
           changes: { before, after: data },
         });
@@ -275,9 +292,11 @@ export class EmployeesService {
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
+        error.code === "P2002"
       ) {
-        throw new ConflictException('An employee with this number already exists');
+        throw new ConflictException(
+          "An employee with this number already exists",
+        );
       }
       throw error;
     }
@@ -294,17 +313,17 @@ export class EmployeesService {
       select: { id: true, userId: true },
     });
     if (!employee) {
-      throw new NotFoundException('Employee not found');
+      throw new NotFoundException("Employee not found");
     }
     const { userId } = employee;
     if (!userId) {
       throw new BadRequestException(
-        'This employee has not accepted the invitation yet',
+        "This employee has not accepted the invitation yet",
       );
     }
     // The caller is an active Admin, so refusing self-deactivation keeps one active Admin (AC-REQ-007-05).
     if (!isActive && userId === adminUserId) {
-      throw new BadRequestException('You cannot deactivate your own account');
+      throw new BadRequestException("You cannot deactivate your own account");
     }
 
     // Reactivation restarts the absence window; deactivation stops new BLACKs. History is kept.
@@ -326,14 +345,17 @@ export class EmployeesService {
 
       await tx.user.update({ where: { id: userId }, data: { isActive } });
 
-      const updated = await tx.employee.update({ where: { id: employeeId }, data });
+      const updated = await tx.employee.update({
+        where: { id: employeeId },
+        data,
+      });
 
       await this.audit.record(tx, {
         companyId,
         actorUserId: adminUserId,
-        actorType: 'ADMIN',
-        action: isActive ? 'employee.activate' : 'employee.deactivate',
-        targetType: 'employee',
+        actorType: "ADMIN",
+        action: isActive ? "employee.activate" : "employee.deactivate",
+        targetType: "employee",
         targetId: employeeId,
         changes: { isActive },
       });
