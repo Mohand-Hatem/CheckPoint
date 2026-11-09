@@ -1,4 +1,4 @@
-import { ForbiddenException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { PointType, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AttendanceDayService } from '../attendance/attendance-day.service';
@@ -30,7 +30,7 @@ describe('CheckService.checkIn', () => {
   let points: { addPointEntryForSource: jest.Mock };
   let workOffers: { listForEmployee: jest.Mock };
   let audit: { record: jest.Mock };
-  let prisma: { $transaction: jest.Mock };
+  let prisma: { $transaction: jest.Mock; employee?: { findFirst: jest.Mock } };
   let transaction: Prisma.TransactionClient;
 
   beforeEach(() => {
@@ -56,6 +56,7 @@ describe('CheckService.checkIn', () => {
         user: { id: userId, isActive: true },
         currentShift: {
           id: 'shift-1',
+          isActive: true,
           versions: [
             {
               startTime: new Date('1970-01-01T09:00:00.000Z'),
@@ -155,64 +156,114 @@ describe('CheckService.checkIn', () => {
         targetId: 'attendance-1',
       }),
     );
-    expect(result.pointEntry).toEqual(
+    expect(points.addPointEntryForSource).toHaveBeenCalledTimes(1);
+    expect(result.pointEntries).toEqual([
       expect.objectContaining({ id: 'point-1' }),
-    );
+    ]);
   });
 
-  it('records NOT_OPEN without a point when no offer is visible', async () => {
+  const earlyOffer = (overrides: Record<string, unknown> = {}) => ({
+    offerType: 'EARLY_WORK',
+    status: 'ACTIVE',
+    startsAt: new Date('2025-03-10T06:00:00.000Z'),
+    endsAt: new Date('2025-03-10T09:00:00.000Z'),
+    ...overrides,
+  });
+
+  async function expectNotOpen() {
+    await expect(
+      service.checkIn(companyId, employeeId, { latitude: 30, longitude: 31 }),
+    ).rejects.toMatchObject({
+      status: 400,
+      response: expect.objectContaining({ code: 'CHECKIN_NOT_OPEN' }),
+    });
+    expect(attendanceDay.recordAttendanceDay).not.toHaveBeenCalled();
+    expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+  }
+
+  it('rejects a check-in before the shift opens when no offer is visible (DN-04)', async () => {
     jest.setSystemTime(new Date('2025-03-10T08:30:00.000Z'));
+    await expectNotOpen();
+    expect(workOffers.listForEmployee).toHaveBeenCalledWith(companyId, userId);
+  });
+
+  it.each([
+    ['a cancelled offer', { status: 'CANCELLED' }],
+    ['a completed offer', { status: 'COMPLETED' }],
+    ['an OVERTIME offer', { offerType: 'OVERTIME' }],
+    ['an offer that starts after the check-in', { startsAt: new Date('2025-03-10T08:30:00.000Z') }],
+    ['an offer that ended before the check-in', { endsAt: new Date('2025-03-10T07:30:00.000Z') }],
+  ])('rejects an early check-in covered only by %s', async (_name, overrides) => {
+    jest.setSystemTime(new Date('2025-03-10T08:00:00.000Z'));
+    workOffers.listForEmployee.mockResolvedValue([earlyOffer(overrides)]);
+    await expectNotOpen();
+  });
+
+  it('accepts an early check-in covered by an active EARLY_WORK offer: day GREEN plus one GREEN per full early hour', async () => {
+    jest.setSystemTime(new Date('2025-03-10T06:50:00.000Z'));
+    workOffers.listForEmployee.mockResolvedValue([
+      earlyOffer({ status: 'CANCELLED' }),
+      earlyOffer(),
+    ]);
 
     const result = await service.checkIn(companyId, employeeId, {
       latitude: 30,
       longitude: 31,
     });
 
-    expect(workOffers.listForEmployee).toHaveBeenCalledWith(companyId, userId);
     expect(attendanceDay.recordAttendanceDay).toHaveBeenCalledWith(
-      expect.objectContaining({
-        checkInResult: 'NOT_OPEN',
-        classification: null,
-      }),
+      expect.objectContaining({ checkInResult: 'GREEN', classification: PointType.GREEN }),
       transaction,
     );
-    expect(points.addPointEntryForSource).not.toHaveBeenCalled();
-    expect(result.pointEntry).toBeNull();
-  });
-
-  it('preserves the early-offer GREEN calculation for NOT_OPEN check-ins', async () => {
-    jest.setSystemTime(new Date('2025-03-10T08:00:00.000Z'));
-    workOffers.listForEmployee.mockResolvedValue([
-      { startsAt: new Date('2025-03-10T07:00:00.000Z') },
-    ]);
-
-    await service.checkIn(companyId, employeeId, {
-      latitude: 30,
-      longitude: 31,
-    });
-
+    expect(points.addPointEntryForSource).toHaveBeenCalledTimes(2);
+    expect(points.addPointEntryForSource).toHaveBeenCalledWith(
+      expect.objectContaining({ pointType: PointType.GREEN, quantity: 1, idempotencyKey: 'ATT:employee-1:2025-03-10' }),
+      transaction,
+    );
     expect(points.addPointEntryForSource).toHaveBeenCalledWith(
       expect.objectContaining({
         pointType: PointType.GREEN,
-        quantity: 1,
+        quantity: 2,
+        idempotencyKey: 'ATT_EARLY:employee-1:2025-03-10',
         reason: expect.stringContaining('checked in early'),
       }),
       transaction,
     );
+    expect(result.pointEntries).toHaveLength(2);
   });
 
-  it('does not award early points when the offer does not cover the early interval', async () => {
-    jest.setSystemTime(new Date('2025-03-10T08:00:00.000Z'));
-    workOffers.listForEmployee.mockResolvedValue([
-      { startsAt: new Date('2025-03-10T08:30:00.000Z') },
-    ]);
-
-    await service.checkIn(companyId, employeeId, {
-      latitude: 30,
-      longitude: 31,
+  it('rejects a check-in when the employee shift is inactive', async () => {
+    const employee = await employees.findOne();
+    employees.findOne.mockResolvedValue({
+      ...employee,
+      currentShift: { ...employee.currentShift, isActive: false },
     });
 
-    expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+    await expect(
+      service.checkIn(companyId, employeeId, { latitude: 30, longitude: 31 }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(attendanceDay.recordAttendanceDay).not.toHaveBeenCalled();
+  });
+
+  it('checkInAsUser checks in the employee that belongs to the logged-in user', async () => {
+    prisma.employee = { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) };
+
+    await service.checkInAsUser(companyId, userId, { latitude: 30, longitude: 31 });
+
+    expect(prisma.employee.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { companyId, userId } }),
+    );
+    expect(employees.findOne).toHaveBeenCalledWith(companyId, employeeId);
+    expect(attendanceDay.recordAttendanceDay).toHaveBeenCalled();
+  });
+
+  it('checkInAsUser answers 404 when the user has no employee profile', async () => {
+    prisma.employee = { findFirst: jest.fn().mockResolvedValue(null) };
+
+    await expect(
+      service.checkInAsUser(companyId, userId, { latitude: 30, longitude: 31 }),
+    ).rejects.toBeInstanceOf(NotFoundException);
+    expect(employees.findOne).not.toHaveBeenCalled();
   });
 
   it('propagates duplicate check-in validation errors', async () => {

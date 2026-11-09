@@ -30,6 +30,14 @@ describe('EmployeesService (TEST-003)', () => {
     expect(db.employee.findFirst.mock.calls[0][0].where).toMatchObject({ id: employeeId, companyId });
   });
 
+  it('findOne still returns an employee whose shift is inactive (admin view)', async () => {
+    const db = { employee: { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) } };
+    await createService(db).findOne(companyId, employeeId);
+    const query = db.employee.findFirst.mock.calls[0][0];
+    expect(query.where).toEqual({ id: employeeId, companyId });
+    expect(query.include.currentShift.select.isActive).toBe(true);
+  });
+
   it('update trims fields and audits before/after', async () => {
     const db: Record<string, any> = {
       employee: {

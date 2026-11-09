@@ -120,7 +120,7 @@ shift_end     = date + end_time
 2. If an `attendance` row exists for the date: `CONFIRMED` ⇒ `409 ALREADY_CHECKED_IN`; `ABSENT`/`EXEMPT` ⇒ `422 ATTENDANCE_CLOSED`/`LEAVE_APPROVED`.
 3. If a `PENDING` verification exists with `expires_at > now` ⇒ return it (idempotent `200`).
 4. Date must be attendance-expected: working day (or active off-day-work exception, FR-CAL-3); no `APPROVED` leave covering the date (`LEAVE_APPROVED`); effective schedule exists.
-5. `classifyCheckIn(now)`: `NOT_OPEN` ⇒ `CHECKIN_NOT_OPEN` (DN-04); `CLOSED` ⇒ `ATTENDANCE_CLOSED`. **Skipped on an active off-day-work exception day:** the day is classified `GREEN` regardless of time (FR-CAL-3; accepted time bounds DN-20) and the QR/step-2 flow is unchanged.
+5. `classifyCheckIn(now)`: `NOT_OPEN` ⇒ `CHECKIN_NOT_OPEN` (DN-04), unless an `ACTIVE` `EARLY_WORK` offer covers `now`: then `GREEN` plus 1 GREEN per full hour before the scheduled start (D-17); `CLOSED` ⇒ `ATTENDANCE_CLOSED`. **Skipped on an active off-day-work exception day:** the day is classified `GREEN` regardless of time (FR-CAL-3; accepted time bounds DN-20) and the QR/step-2 flow is unchanged.
 6. `accuracy ≤ settings.gps_max_accuracy_m` (DN-14) else `GPS_ACCURACY_TOO_LOW`.
 7. Haversine distance to each assigned location; choose the nearest location whose `radius_m` contains the point; none ⇒ `OUTSIDE_GEOFENCE`.
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).

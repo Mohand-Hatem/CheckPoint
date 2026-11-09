@@ -4,6 +4,7 @@ import { EmployeesModule } from "../employees/employees.module";
 import { LocationModule } from "../location/location.module";
 import { PointsModule } from "../points/points.module";
 import { WorkOffersModule } from "../work-offers/work-offers.module";
+import { CheckController } from "./check.controller";
 import { CheckService } from "./check.service";
 
 @Module({
@@ -14,7 +15,7 @@ import { CheckService } from "./check.service";
     PointsModule,
     EmployeesModule,
   ],
-  controllers: [],
+  controllers: [CheckController],
   providers: [CheckService],
   exports: [CheckService],
 })

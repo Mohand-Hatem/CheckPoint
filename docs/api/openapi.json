@@ -3381,6 +3381,86 @@
           "Admin · Locations"
         ]
       }
+    },
+    "/api/employee/attendance/check-in": {
+      "post": {
+        "description": "Checks the logged-in employee in at their current GPS position. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment; then the day is GREEN plus one GREEN per full hour before the shift start. A second check-in the same day answers 409.",
+        "operationId": "CheckController_checkIn",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CheckInDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "The attendance day and the point entries awarded."
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `attendance.checkin` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.checkin",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Check in for today",
+        "tags": [
+          "Employee · Attendance"
+        ]
+      }
     }
   },
   "info": {
@@ -4802,6 +4882,27 @@
           "longitude",
           "radiusMeters",
           "active"
+        ]
+      },
+      "CheckInDto": {
+        "type": "object",
+        "properties": {
+          "latitude": {
+            "type": "number",
+            "example": 30.0444,
+            "minimum": -90,
+            "maximum": 90
+          },
+          "longitude": {
+            "type": "number",
+            "example": 31.2357,
+            "minimum": -180,
+            "maximum": 180
+          }
+        },
+        "required": [
+          "latitude",
+          "longitude"
         ]
       }
     }

@@ -2,8 +2,9 @@ import {
   BadRequestException,
   ForbiddenException,
   Injectable,
+  NotFoundException,
 } from '@nestjs/common';
-import { PointType } from '@prisma/client';
+import { PointType, WorkOfferStatus, WorkOfferType } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { AttendanceDayService } from '../attendance/attendance-day.service';
 import { AttendanceValidationService } from '../attendance/attendance-validation.service';
@@ -40,6 +41,21 @@ export class CheckService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
   ) {}
+
+  async checkInAsUser(
+    companyId: string,
+    userId: string,
+    employeeLocation: { latitude: number; longitude: number },
+  ) {
+    const employee = await this.prisma.employee.findFirst({
+      where: { companyId, userId },
+      select: { id: true },
+    });
+    if (!employee) {
+      throw new NotFoundException('No employee profile is linked to this account.');
+    }
+    return this.checkIn(companyId, employee.id, employeeLocation);
+  }
 
   async checkIn(
     companyId: string,
@@ -79,9 +95,9 @@ export class CheckService {
         version.effectiveFrom <= workDate &&
         (!version.effectiveTo || version.effectiveTo >= workDate),
     ) as ShiftTimes | undefined;
-    if (!shift) {
+    if (!employee.currentShift.isActive || !shift) {
       throw new BadRequestException(
-        'Employee has no shift version effective on this work date.',
+        'Employee has no active shift effective on this work date.',
       );
     }
 
@@ -92,15 +108,41 @@ export class CheckService {
         (!item.effectiveTo || item.effectiveTo >= workDate),
     );
     const windows = computeWindows(workDate, shift, timezone);
-    const result = classifyCheckIn(checkInTime, windows);
-    const point = await this.getPointForResult({
-      result,
-      companyId,
-      employeeId,
-      userId,
-      checkInTime,
-      workDate,
-      scheduledStartAt: windows.scheduledStartAt,
+    const dateKey = workDate.toISOString().slice(0, 10);
+    let result = classifyCheckIn(checkInTime, windows);
+    const awards: CheckInPoint[] = [];
+
+    if (result === 'NOT_OPEN') {
+      // DN-04: before the shift opens only an active EARLY_WORK offer covering this moment allows check-in.
+      const earlyGreens = await this.earlyWorkGreens(
+        companyId,
+        userId,
+        checkInTime,
+        windows.scheduledStartAt,
+      );
+      if (earlyGreens === null) {
+        throw new BadRequestException({
+          statusCode: 400,
+          message: 'Check-in is not open yet.',
+          error: 'Bad Request',
+          code: 'CHECKIN_NOT_OPEN',
+        });
+      }
+      result = PointType.GREEN;
+      if (earlyGreens > 0) {
+        awards.push({
+          pointType: PointType.GREEN,
+          quantity: earlyGreens,
+          reason: 'Employee checked in early under an early-work offer.',
+          idempotencyKey: `ATT_EARLY:${employeeId}:${dateKey}`,
+        });
+      }
+    }
+    awards.unshift({
+      pointType: result,
+      quantity: 1,
+      reason: `Attendance check-in classified as ${result}.`,
+      idempotencyKey: `ATT:${employeeId}:${dateKey}`,
     });
 
     return this.prisma.$transaction(async (tx) => {
@@ -118,28 +160,28 @@ export class CheckService {
           scheduledEndAt: windows.scheduledEndAt,
           checkInAt: checkInTime,
           checkInResult: result,
-          classification: result === 'NOT_OPEN' ? null : result,
+          classification: result,
         },
         tx,
       );
 
-      const pointEntry = point
-        ? await this.points.addPointEntryForSource(
+      const pointEntries = [];
+      for (const award of awards) {
+        pointEntries.push(
+          await this.points.addPointEntryForSource(
             {
               companyId,
               employeeId,
-              pointType: point.pointType,
-              quantity: point.quantity,
+              ...award,
               sourceType: 'ATTENDANCE',
               sourceId: attendance.id,
-              idempotencyKey: point.idempotencyKey,
-              reason: point.reason,
               createdByUserId: userId,
               asOfDate: workDate,
             },
             tx,
-          )
-        : null;
+          ),
+        );
+      }
 
       await this.audit.record(tx, {
         companyId,
@@ -151,57 +193,31 @@ export class CheckService {
         changes: {
           checkInAt: checkInTime.toISOString(),
           checkInResult: result,
-          classification: result === 'NOT_OPEN' ? null : result,
+          classification: result,
           locationId: location.locationId,
-          pointEntryId: pointEntry?.id ?? null,
+          pointEntryIds: pointEntries.map((entry) => entry.id),
         },
       });
 
-      return { attendance, pointEntry };
+      return { attendance, pointEntries };
     });
   }
 
-  private async getPointForResult(input: {
-    result: ReturnType<typeof classifyCheckIn>;
-    companyId: string;
-    employeeId: string;
-    userId: string;
-    checkInTime: Date;
-    workDate: Date;
-    scheduledStartAt: Date;
-  }): Promise<CheckInPoint | null> {
-    const dateKey = input.workDate.toISOString().slice(0, 10);
-    if (input.result !== 'NOT_OPEN') {
-      return {
-        pointType: input.result,
-        quantity: 1,
-        reason: `Attendance check-in classified as ${input.result}.`,
-        idempotencyKey: `ATT:${input.employeeId}:${dateKey}`,
-      };
-    }
-
-    const offers = await this.workOffers.listForEmployee(
-      input.companyId,
-      input.userId,
+  // Full early hours to reward, or null when no active EARLY_WORK offer covers the check-in moment.
+  private async earlyWorkGreens(
+    companyId: string,
+    userId: string,
+    checkInTime: Date,
+    scheduledStartAt: Date,
+  ): Promise<number | null> {
+    const offers = await this.workOffers.listForEmployee(companyId, userId);
+    const offer = offers.find(
+      (item) =>
+        item.offerType === WorkOfferType.EARLY_WORK &&
+        item.status === WorkOfferStatus.ACTIVE &&
+        item.startsAt <= checkInTime &&
+        checkInTime < item.endsAt,
     );
-    if (offers.length === 0) return null;
-
-    const offerStartTime = new Date(offers[0].startsAt);
-    const rewardedStartTime =
-      input.checkInTime.getTime() < offerStartTime.getTime()
-        ? offerStartTime
-        : input.checkInTime;
-    const quantity = beforeTimeGreens(
-      rewardedStartTime,
-      input.scheduledStartAt,
-    );
-    if (quantity === 0) return null;
-
-    return {
-      pointType: PointType.GREEN,
-      quantity,
-      reason: 'Employee checked in early and was rewarded with points.',
-      idempotencyKey: `ATT_EARLY:${input.employeeId}:${dateKey}`,
-    };
+    return offer ? beforeTimeGreens(checkInTime, scheduledStartAt) : null;
   }
 }

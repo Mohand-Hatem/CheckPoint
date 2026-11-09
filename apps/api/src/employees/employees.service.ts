@@ -195,9 +195,6 @@ export class EmployeesService {
       where: {
         id: employeeId,
         companyId,
-        currentShift: {
-          isActive: true,
-        },
       },
       include: {
         user: {
@@ -211,6 +208,7 @@ export class EmployeesService {
           select: {
             id: true,
             name: true,
+            isActive: true,
             versions: {
               orderBy: {
                 effectiveFrom: "desc",
