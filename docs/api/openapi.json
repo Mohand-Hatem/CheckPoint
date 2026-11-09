@@ -1,6 +1,39 @@
 {
   "openapi": "3.0.0",
   "paths": {
+    "/api/health/live": {
+      "get": {
+        "operationId": "HealthController_live",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ \"status\": \"ok\" }"
+          }
+        },
+        "summary": "Liveness: the process is up (no dependencies checked)",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
+    "/api/health/ready": {
+      "get": {
+        "operationId": "HealthController_ready",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "{ \"status\": \"ok\", \"database\": \"up\" }"
+          },
+          "503": {
+            "description": "The database is unreachable."
+          }
+        },
+        "summary": "Readiness: the API can reach its database",
+        "tags": [
+          "Health"
+        ]
+      }
+    },
     "/api/admin/audit-events": {
       "get": {
         "description": "**Scenario:** an Admin asks \"who did what?\". Every admin mutation (create user, activate/deactivate, salary, invitations) and security event (password change, company provisioning) is recorded with who did it, which record it touched, and what changed. Newest first, paginated, filterable.\n\n**Rules:** only your own company's events are ever returned. The log is append-only (the database refuses edits and deletes) and never contains passwords, hashes or tokens.",

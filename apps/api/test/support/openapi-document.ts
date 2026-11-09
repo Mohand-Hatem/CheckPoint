@@ -12,6 +12,9 @@ export async function generateOpenApiDocument(): Promise<OpenAPIObject> {
   if (!process.env.JWT_ACCESS_SECRET) {
     process.env.JWT_ACCESS_SECRET = 'openapi-generation-only';
   }
+  if (!process.env.DATABASE_URL) {
+    process.env.DATABASE_URL = 'postgresql://openapi:generation@localhost:5432/only';
+  }
 
   const moduleRef = await Test.createTestingModule({ imports: [AppModule] })
     .overrideProvider(PrismaService)

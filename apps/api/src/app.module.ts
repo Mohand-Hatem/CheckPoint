@@ -20,12 +20,15 @@ import { UsersModule } from './users/users.module';
 import { WorkOffersModule } from './work-offers/work-offers.module';
 import { LocationModule } from './location/location.module';
 import { CheckModule } from './checkOperations/check.module';
+import { validateEnv } from './config/validate-env';
+import { HealthController } from './health/health.controller';
 
 @Module({
   imports: [
     ConfigModule.forRoot({
       isGlobal: true,
       envFilePath: '.env',
+      validate: validateEnv,
     }),
     AppLoggerModule,
     MailerModule.forRootAsync({
@@ -57,6 +60,7 @@ import { CheckModule } from './checkOperations/check.module';
     LocationModule,
     CheckModule,
   ],
+  controllers: [HealthController],
   providers: [
     {
       provide: APP_GUARD,
