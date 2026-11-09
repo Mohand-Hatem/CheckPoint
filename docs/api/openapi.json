@@ -3501,6 +3501,82 @@
         ]
       }
     },
+    "/api/admin/locations/{id}/qr-token": {
+      "get": {
+        "description": "Signed with the location's secret and valid for the current and the next rotation period (qr_rotation_seconds, default 30 s). Show a new token by `validUntil`. Tokens are never stored; an inactive location answers 409.",
+        "operationId": "LocationController_qrToken",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/QrTokenResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Location not found in this company."
+          },
+          "409": {
+            "description": "Location is inactive."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Current rotating QR token for the kiosk (docs/05 §4.5)",
+        "tags": [
+          "Admin · Locations"
+        ]
+      }
+    },
     "/api/admin/locations/{id}": {
       "get": {
         "operationId": "LocationController_findOne",
@@ -5957,6 +6033,25 @@
           "longitude",
           "radiusMeters",
           "active"
+        ]
+      },
+      "QrTokenResponseDto": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "example": "v1.00000000-0000-4000-8000-000000000000.59216880.Q2hlY2tQb2ludCBkZW1vIHNpZ25hdHVyZSBvbmx5Lg"
+          },
+          "validUntil": {
+            "format": "date-time",
+            "type": "string",
+            "example": "2026-11-09T10:00:30.000Z",
+            "description": "Show a new token by this time; this one is still accepted for one more period."
+          }
+        },
+        "required": [
+          "token",
+          "validUntil"
         ]
       },
       "UpdateLocationDto": {

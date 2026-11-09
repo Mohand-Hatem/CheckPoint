@@ -8,6 +8,7 @@ import { PrismaClient } from '@prisma/client';
 import * as request from 'supertest';
 import { AppModule } from '../src/app.module';
 import { provisionCompany } from '../src/company/provision-company';
+import { isValidQrToken } from '../src/location/qr-token';
 
 const prisma = new PrismaClient();
 const run = Date.now();
@@ -93,6 +94,20 @@ describe('Locations and assignments (e2e, FR-LOC-1)', () => {
     expect((await http().get(path).set(as('A')).expect(200)).body).toEqual([]);
   });
 
+  it('serves a rotating kiosk QR token signed with the stored secret (docs/05 §4.5)', async () => {
+    const [location] = (await http().get('/api/admin/locations').set(as('A')).expect(200)).body;
+    const before = Date.now();
+    const res = await http().get(`/api/admin/locations/${location.id}/qr-token`).set(as('A')).expect(200);
+
+    const { qrSecret } = await prisma.location.findUniqueOrThrow({ where: { id: location.id } });
+    expect(isValidQrToken(res.body.token, Buffer.from(qrSecret), Date.now(), 30)).toBe(true);
+    expect(new Date(res.body.validUntil).getTime()).toBeGreaterThan(before);
+    expect(new Date(res.body.validUntil).getTime() - before).toBeLessThanOrEqual(30_000);
+
+    await http().get(`/api/admin/locations/${location.id}/qr-token`).set(as('B')).expect(404);
+    await http().get(`/api/admin/locations/${location.id}/qr-token`).set(as('emp')).expect(403);
+  });
+
   it('rejects a location of another company or an inactive one, changing nothing', async () => {
     const path = `/api/admin/users/${employeeUserId}/locations`;
     const [mine] = (await http().get('/api/admin/locations').set(as('A')).expect(200)).body;
@@ -104,6 +119,7 @@ describe('Locations and assignments (e2e, FR-LOC-1)', () => {
     const closed = (await http().post('/api/admin/locations').set(as('A')).send({ ...OFFICE, name: 'Closed' }).expect(201)).body;
     await http().delete(`/api/admin/locations/${closed.id}`).set(as('A')).expect(200);
     await http().put(path).set(as('A')).send({ locationIds: [closed.id] }).expect(400);
+    await http().get(`/api/admin/locations/${closed.id}/qr-token`).set(as('A')).expect(409);
 
     expect((await http().get(path).set(as('A')).expect(200)).body).toEqual([mine]);
     await http().get(`/api/admin/users/${employeeUserId}/locations`).set(as('B')).expect(404);

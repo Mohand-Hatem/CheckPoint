@@ -22,3 +22,11 @@ export class LocationResponseDto {
   })
   active!: boolean;
 }
+
+export class QrTokenResponseDto {
+  @ApiProperty({ example: "v1.00000000-0000-4000-8000-000000000000.59216880.Q2hlY2tQb2ludCBkZW1vIHNpZ25hdHVyZSBvbmx5Lg" })
+  token!: string;
+
+  @ApiProperty({ example: "2026-11-09T10:00:30.000Z", description: "Show a new token by this time; this one is still accepted for one more period." })
+  validUntil!: Date;
+}

@@ -7,6 +7,7 @@ import {
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { LocationService } from "./location.service";
+import { isValidQrToken } from "./qr-token";
 
 describe("LocationService update/delete", () => {
   const userId = "c0ffee00-0000-4000-8000-000000000001";
@@ -111,6 +112,65 @@ describe("LocationService update/delete", () => {
     await expect(createService(createDb(null)).getLocation(companyId, locationId)).rejects.toBeInstanceOf(
       NotFoundException,
     );
+  });
+
+  describe("kiosk QR token (docs/05 §4.5)", () => {
+    const secret = Buffer.alloc(32, 7);
+    const now = Date.UTC(2026, 10, 9, 10, 0, 15);
+
+    function qrDb(location: Record<string, unknown> | null, rotation: unknown = 30) {
+      const db = createDb();
+      db.location.findFirst = jest.fn().mockResolvedValue(location);
+      db.setting = {
+        findUnique: jest.fn().mockResolvedValue(rotation === undefined ? null : { value: rotation }),
+      };
+      return db;
+    }
+
+    it("returns a token valid for this location and when the kiosk must refresh", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const db = qrDb({ id: locationId, active: true, qrSecret: secret });
+        const result = await createService(db).getQrToken(companyId, locationId);
+
+        expect(isValidQrToken(result.token, secret, now, 30)).toBe(true);
+        expect(result.token.startsWith(`v1.${locationId}.`)).toBe(true);
+        expect(result.validUntil).toEqual(new Date(Date.UTC(2026, 10, 9, 10, 0, 30)));
+        expect(db.location.findFirst).toHaveBeenCalledWith(
+          expect.objectContaining({ where: { id: locationId, companyId } }),
+        );
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("uses the company's qr_rotation_seconds, falling back to 30", async () => {
+      jest.useFakeTimers().setSystemTime(now);
+      try {
+        const sixty = await createService(qrDb({ id: locationId, active: true, qrSecret: secret }, 60)).getQrToken(
+          companyId,
+          locationId,
+        );
+        expect(isValidQrToken(sixty.token, secret, now, 60)).toBe(true);
+        expect(sixty.validUntil).toEqual(new Date(Date.UTC(2026, 10, 9, 10, 1, 0)));
+
+        const fallback = await createService(
+          qrDb({ id: locationId, active: true, qrSecret: secret }, "bad"),
+        ).getQrToken(companyId, locationId);
+        expect(isValidQrToken(fallback.token, secret, now, 30)).toBe(true);
+      } finally {
+        jest.useRealTimers();
+      }
+    });
+
+    it("answers 404 outside the company and 409 for an inactive location", async () => {
+      await expect(createService(qrDb(null)).getQrToken(companyId, locationId)).rejects.toBeInstanceOf(
+        NotFoundException,
+      );
+      await expect(
+        createService(qrDb({ id: locationId, active: false, qrSecret: secret })).getQrToken(companyId, locationId),
+      ).rejects.toBeInstanceOf(ConflictException);
+    });
   });
 
   describe("employee location assignments (FR-LOC-1)", () => {

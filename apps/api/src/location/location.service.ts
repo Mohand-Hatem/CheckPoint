@@ -13,6 +13,7 @@ import { randomBytes } from "crypto";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { UpdateLocationDto } from "./dto/update-location-dto";
+import { qrSlot, signQrToken } from "./qr-token";
 
 type CreateLocationInput = {
   name: string;
@@ -94,6 +95,33 @@ export class LocationService {
     });
     if (!location) throw new NotFoundException("Location not found");
     return this.toResponse(location);
+  }
+
+  /** docs/05 §4.5: the kiosk shows this token; it is accepted until the end of the next slot. */
+  async getQrToken(companyId: string, locationId: string) {
+    const location = await this.prismaService.location.findFirst({
+      where: { id: locationId, companyId },
+      select: { id: true, active: true, qrSecret: true },
+    });
+    if (!location) throw new NotFoundException("Location not found");
+    if (!location.active) throw new ConflictException("Location is inactive");
+
+    const rotation = await this.qrRotationSeconds(companyId);
+    const slot = qrSlot(Date.now(), rotation);
+    return {
+      token: signQrToken(Buffer.from(location.qrSecret), location.id, slot),
+      validUntil: new Date((slot + 1) * rotation * 1000),
+    };
+  }
+
+  async qrRotationSeconds(companyId: string): Promise<number> {
+    const setting = await this.prismaService.setting.findUnique({
+      where: { companyId_key: { companyId, key: "qr_rotation_seconds" } },
+      select: { value: true },
+    });
+    const value = setting?.value;
+    // docs/08 §3.8 default, used when the setting is missing or not a positive whole number.
+    return Number.isInteger(value) && (value as number) > 0 ? (value as number) : 30;
   }
 
   async listUserLocations(companyId: string, targetUserId: string) {

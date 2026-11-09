@@ -29,7 +29,7 @@ import {
   ApiValidationError,
 } from "../common/api-docs";
 import { CreateLocationDto, SetUserLocationsDto } from "./dto/add-location-dto";
-import { LocationResponseDto } from "./dto/location-response.dto";
+import { LocationResponseDto, QrTokenResponseDto } from "./dto/location-response.dto";
 import { UpdateLocationDto } from "./dto/update-location-dto";
 import { LocationService } from "./location.service";
 
@@ -61,6 +61,23 @@ export class LocationController {
   @ApiOkResponse({ type: LocationResponseDto, isArray: true })
   list(@CurrentUser() admin: AuthenticatedUser) {
     return this.locations.listLocations(admin.companyId);
+  }
+
+  @Get(":id/qr-token")
+  @RequirePermission("settings.read")
+  @ApiProtected()
+  @ApiNeedsPermission("settings.read")
+  @ApiOperation({
+    summary: "Current rotating QR token for the kiosk (docs/05 §4.5)",
+    description:
+      "Signed with the location's secret and valid for the current and the next rotation period (qr_rotation_seconds, default 30 s). Show a new token by `validUntil`. Tokens are never stored; an inactive location answers 409.",
+  })
+  @ApiParam({ name: "id", format: "uuid" })
+  @ApiOkResponse({ type: QrTokenResponseDto })
+  @ApiNotFoundResponse({ description: "Location not found in this company." })
+  @ApiConflictResponse({ description: "Location is inactive." })
+  qrToken(@Param("id", ParseUUIDPipe) id: string, @CurrentUser() admin: AuthenticatedUser) {
+    return this.locations.getQrToken(admin.companyId, id);
   }
 
   @Get(":id")
