@@ -211,7 +211,7 @@ model Location {
   latitude          Decimal            @db.Decimal(9, 6)
   longitude         Decimal            @db.Decimal(9, 6)
   radiusM           Int                @default(50) @map("radius_m")
-  qrSecret          Bytes?             @map("qr_secret")
+  qrSecret          Bytes              @map("qr_secret")
   active            Boolean            @default(true)
   company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employeeLocations EmployeeLocation[]
@@ -226,8 +226,8 @@ model EmployeeLocation {
   employeeId String   @map("employee_id") @db.Uuid
   locationId String   @map("location_id") @db.Uuid
   company    Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  employee   Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict)
-  location   Location @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict)
+  employee   Employee @relation(fields: [companyId, employeeId], references: [companyId, id], onDelete: Restrict, map: "employee_locations_company_employee_fkey")
+  location   Location @relation(fields: [companyId, locationId], references: [companyId, id], onDelete: Restrict, map: "employee_locations_company_location_fkey")
 
   @@id([employeeId, locationId])
   @@index([companyId, employeeId], map: "employee_locations_company_employee_idx")
