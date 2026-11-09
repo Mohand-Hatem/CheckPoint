@@ -466,6 +466,14 @@ describe('CheckService', () => {
 
     beforeEach(() => calendar.isWorkingDay.mockResolvedValue(false));
 
+    it('answers an existing (e.g. exempt) day before the working-day check', async () => {
+      const error = new Error('ATTENDANCE_CLOSED');
+      validation.assertCanCheckIn.mockRejectedValue(error);
+
+      await expect(service.checkIn(companyId, employeeId, POSITION)).rejects.toBe(error);
+      expect(calendar.isWorkingDay).not.toHaveBeenCalled();
+    });
+
     it('rejects step 1 with 422 NOT_A_WORKING_DAY when no off-day exception covers the moment', async () => {
       workOffers.listForEmployee.mockResolvedValue([
         offDayOffer({ status: 'CANCELLED' }),
@@ -542,7 +550,7 @@ describe('CheckService', () => {
       );
       expect(updateMany).toHaveBeenCalledWith({
         where: { id: 'attendance-1', companyId, employeeId, checkOutAt: null },
-        data: { checkOutAt: new Date('2025-03-10T18:30:00.000Z') },
+        data: { checkOutAt: new Date('2025-03-10T18:30:00.000Z'), overtimeGreens: 2, leftEarly: false },
       });
       expect(points.addPointEntryForSource).toHaveBeenCalledWith(
         expect.objectContaining({
@@ -573,14 +581,18 @@ describe('CheckService', () => {
       ['17:00', '2025-03-10T17:00:00.000Z', 1],
       ['17:59', '2025-03-10T17:59:00.000Z', 1],
       ['18:00', '2025-03-10T18:00:00.000Z', 2],
-    ])('shift end 16:00, checkout at %s gives %i overtime GREEN', async (_label, time, greens) => {
+    ])('shift end 16:00, checkout at %s (%s) gives %i overtime GREEN', async (_label, time, greens) => {
       jest.setSystemTime(new Date(time));
 
       await expect(checkOut()).resolves.toEqual({
         checkOutAt: new Date(time),
         overtimeGreens: greens,
       });
-      expect(updateMany).toHaveBeenCalled();
+      expect(updateMany.mock.calls[0][0].data).toEqual({
+        checkOutAt: new Date(time),
+        overtimeGreens: greens,
+        leftEarly: new Date(time) < new Date('2025-03-10T16:00:00.000Z'),
+      });
       expect(points.addPointEntryForSource).toHaveBeenCalledTimes(greens ? 1 : 0);
     });
 

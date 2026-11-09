@@ -84,9 +84,10 @@ export class CheckService {
   /** Step 1 (docs/05 §4.2): GPS + geofence create a 15-minute PENDING verification. Nothing is awarded. */
   async checkIn(companyId: string, employeeId: string, position: PositionDto) {
     const now = new Date();
-    const plan = await this.planCheckIn(companyId, employeeId, now);
-    const { workDate } = plan;
+    // docs/05 §4.2: an existing day (checked in, exempt, absent) is answered before the working-day and window checks.
+    const workDate = await this.companyPolicy.getCompanyDate(companyId, now);
     await this.attendanceValidation.assertCanCheckIn(companyId, employeeId, workDate);
+    const plan = await this.planCheckIn(companyId, employeeId, now);
 
     const live = { companyId, employeeId, workDate, status: VerificationStatus.PENDING, expiresAt: { gt: now } };
     const existing = await this.prisma.attendanceVerification.findFirst({ where: live });
@@ -328,7 +329,8 @@ export class CheckService {
       // Only the request that flips check_out_at from NULL may continue, so retries and races cannot award twice.
       const { count } = await tx.attendanceDay.updateMany({
         where: { id: day.id, companyId, employeeId, checkOutAt: null },
-        data: { checkOutAt },
+        // DN-08: leaving before the shift end is flagged for admins, never penalised.
+        data: { checkOutAt, overtimeGreens: overtime, leftEarly: checkOutAt < day.scheduledEndAt },
       });
       if (count === 0) throw alreadyCheckedOut();
 

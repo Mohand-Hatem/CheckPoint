@@ -5886,6 +5886,16 @@
             "format": "date-time",
             "type": "string",
             "example": "2026-11-02T14:00:00.000Z"
+          },
+          "leftEarly": {
+            "type": "boolean",
+            "example": false,
+            "description": "Checked out before the shift end (shown for information, no penalty)."
+          },
+          "overtimeGreens": {
+            "type": "number",
+            "example": 1,
+            "description": "Overtime GREENs awarded at checkout."
           }
         },
         "required": [
@@ -5896,7 +5906,9 @@
           "checkInResult",
           "classification",
           "scheduledStartAt",
-          "scheduledEndAt"
+          "scheduledEndAt",
+          "leftEarly",
+          "overtimeGreens"
         ]
       },
       "MyAttendanceResponseDto": {

@@ -224,7 +224,7 @@ Payroll sums `pay_pounds` into `payroll_records.off_day_pay`.
 | classification | `PointType` | **[ADD]** the single point of the day (GREEN/WHITE/RED/BLACK); null while undecided or exempt |
 
 Constraint: `UNIQUE (company_id, employee_id, work_date)`. The snapshot columns mean a later shift change never re-classifies a past day.
-Phase 3 adds the remaining check-in evidence columns from the earlier design: check-in/out location, latitude/longitude, accuracy, `confirmed_at`, `overtime_greens`, `left_early`, `early_leave_request_id`, `entry_source`, `classification_rev`.
+Phase 3 evidence: `left_early` bool NN default false (checkout before `scheduled_end_at`, DN-08, no penalty) and `overtime_greens` int NN default 0 CHECK ≥ 0 are on `attendance_days` (migration `20261109020000_attendance_checkout_evidence`); the check-in location, coordinates, accuracy and `confirmed_at` live on the confirmed `attendance_verifications` row. Still open for later phases: `early_leave_request_id` (Phase 5), `entry_source` and `classification_rev` (corrections use the ledger revision key instead).
 
 #### `attendance_verifications` (Phase 3, migration `20261109010000_attendance_verifications`)
 GPS-validated attempts awaiting QR: `company_id`, `employee_id`, `work_date`, `location_id` (company-scoped FKs), status enum `VerificationStatus` `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min` (CHECK `expires_at > started_at`), `confirmed_at` (set iff `CONFIRMED`, CHECK), `latitude`/`longitude` numeric(9,6), `accuracy_m` numeric(7,2). Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'` (`attendance_verifications_one_pending_key`, migration only; Prisma cannot express it).

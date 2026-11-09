@@ -32,6 +32,12 @@ export class MyAttendanceDayDto {
 
   @ApiProperty({ example: "2026-11-02T14:00:00.000Z" })
   scheduledEndAt!: Date;
+
+  @ApiProperty({ example: false, description: "Checked out before the shift end (shown for information, no penalty)." })
+  leftEarly!: boolean;
+
+  @ApiProperty({ example: 1, description: "Overtime GREENs awarded at checkout." })
+  overtimeGreens!: number;
 }
 
 export class MyAttendanceResponseDto {

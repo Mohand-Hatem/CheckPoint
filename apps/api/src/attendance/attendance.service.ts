@@ -93,6 +93,8 @@ export class AttendanceService {
         classification: true,
         scheduledStartAt: true,
         scheduledEndAt: true,
+        leftEarly: true,
+        overtimeGreens: true,
       },
     });
     return {
@@ -270,11 +272,12 @@ export class AttendanceService {
             },
           });
 
-        if (classification) {
-          await award("ATTENDANCE", classification, 1, `ATT:${day.id}:${rev}`);
-          const overtime = checkOutAt
+        const overtime =
+          classification && checkOutAt
             ? overtimeGreens(checkOutAt, day.scheduledEndAt)
             : 0;
+        if (classification) {
+          await award("ATTENDANCE", classification, 1, `ATT:${day.id}:${rev}`);
           if (overtime > 0) {
             await award(
               "OVERTIME",
@@ -292,6 +295,8 @@ export class AttendanceService {
             checkOutAt,
             classification,
             checkInResult: dto.action === "EXEMPT" ? "EXEMPT" : "CORRECTED",
+            overtimeGreens: overtime,
+            leftEarly: Boolean(classification && checkOutAt && checkOutAt < day.scheduledEndAt),
           },
         });
 

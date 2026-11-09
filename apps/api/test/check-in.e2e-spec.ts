@@ -217,4 +217,14 @@ describe('Two-step check-in (e2e, FR-ATT-1/2)', () => {
     expect((await http().get('/api/me/attendance').set(auth(second.token)).expect(200)).body.days).toEqual([]);
     await http().get('/api/me/attendance?month=2026-13').set(auth(adminToken)).expect(400);
   });
+
+  it('an exempt day is closed for check-in: 422 ATTENDANCE_CLOSED (docs/05 §4.2 step 2)', async () => {
+    await http()
+      .post('/api/admin/attendance/corrections')
+      .set(auth(adminToken))
+      .send({ employeeId: second.employeeId, workDate: workDate.toISOString().slice(0, 10), action: 'EXEMPT', reason: 'Training day' })
+      .expect(201);
+
+    expect((await step1(second.token).expect(422)).body.code).toBe('ATTENDANCE_CLOSED');
+  });
 });

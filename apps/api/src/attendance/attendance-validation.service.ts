@@ -24,6 +24,15 @@ export class AttendanceValidationService {
     if (attendance?.checkInAt) {
       throw alreadyCheckedIn();
     }
+    if (attendance) {
+      // docs/05 §4.2 step 2: an exempt or absent day is closed for check-in.
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        message: "Attendance for today is already closed (exempt or absent).",
+        error: "Unprocessable Entity",
+        code: "ATTENDANCE_CLOSED",
+      });
+    }
   }
 
   async assertCanCheckOut(

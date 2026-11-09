@@ -361,6 +361,8 @@ model AttendanceDay {
   checkOutAt        DateTime?                   @map("check_out_at") @db.Timestamptz(6)
   checkInResult     String                      @default("SCHEDULED") @map("check_in_result") @db.Text
   classification    PointType?
+  leftEarly         Boolean                     @default(false) @map("left_early")
+  overtimeGreens    Int                         @default(0) @map("overtime_greens")
   createdAt         DateTime                    @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt         DateTime                    @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
   company           Company                     @relation(fields: [companyId], references: [id], onDelete: Restrict)

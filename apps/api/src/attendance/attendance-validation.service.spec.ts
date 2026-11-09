@@ -33,6 +33,15 @@ describe("AttendanceValidationService (TEST-045)", () => {
     });
   });
 
+  it("answers 422 ATTENDANCE_CLOSED when the day exists without a check-in (exempt, absent)", async () => {
+    const { service } = createService({ checkInAt: null, checkOutAt: null });
+
+    await expect(service.assertCanCheckIn(companyId, employeeId, workDate)).rejects.toMatchObject({
+      status: 422,
+      response: expect.objectContaining({ code: "ATTENDANCE_CLOSED" }),
+    });
+  });
+
   it("rejects a second check-in for the same company, employee, and date", async () => {
     const { service } = createService({
       checkInAt: new Date("2026-11-08T06:00:00.000Z"),
