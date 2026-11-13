@@ -4,6 +4,7 @@ import { CalendarModule } from "../calendar/calendar.module";
 import { EmployeesModule } from "../employees/employees.module";
 import { LocationModule } from "../location/location.module";
 import { PointsModule } from "../points/points.module";
+import { PointAllocationModule } from "../pointAlocation/allocation.module";
 import { WorkOffersModule } from "../work-offers/work-offers.module";
 import { CheckController } from "./check.controller";
 import { CheckService } from "./check.service";
@@ -14,6 +15,7 @@ import { CheckService } from "./check.service";
     WorkOffersModule,
     LocationModule,
     PointsModule,
+    PointAllocationModule,
     EmployeesModule,
     CalendarModule,
   ],

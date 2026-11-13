@@ -3,14 +3,14 @@ import {
   ConflictException,
   Injectable,
   NotFoundException,
-} from '@nestjs/common';
-import { PointType, PointValueVersion, Prisma } from '@prisma/client';
-import { PrismaService } from '../prisma/prisma.service';
-import { ConfigurePointValuesDto } from './dto/configure-point-values.dto';
-import { CreatePointEntryDto } from './dto/create-point-entry.dto';
-import { ListPointEntriesQueryDto } from './dto/list-point-entries-query.dto';
-import { ReversePointEntryDto } from './dto/reverse-point-entry.dto';
-import { resolvePointValue } from './point-value';
+} from "@nestjs/common";
+import { PointType, PointValueVersion, Prisma } from "@prisma/client";
+import { PrismaService } from "../prisma/prisma.service";
+import { ConfigurePointValuesDto } from "./dto/configure-point-values.dto";
+import { CreatePointEntryDto } from "./dto/create-point-entry.dto";
+import { ListPointEntriesQueryDto } from "./dto/list-point-entries-query.dto";
+import { ReversePointEntryDto } from "./dto/reverse-point-entry.dto";
+import { resolvePointValue } from "./point-value";
 
 const VALUED_POINT_TYPES = [
   PointType.GREEN,
@@ -19,7 +19,7 @@ const VALUED_POINT_TYPES = [
 ] as const;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
-export type PointEntrySource = 'ADMIN' | 'ATTENDANCE' | 'OVERTIME';
+export type PointEntrySource = "ADMIN" | "ATTENDANCE" | "OVERTIME";
 
 export type AddPointEntryForSourceInput = {
   companyId: string;
@@ -48,7 +48,7 @@ export class PointsService {
   getPointValues(companyId: string) {
     return this.prisma.pointValueVersion.findMany({
       where: { companyId },
-      orderBy: [{ pointType: 'asc' }, { effectiveFrom: 'desc' }],
+      orderBy: [{ pointType: "asc" }, { effectiveFrom: "desc" }],
       include: {
         createdBy: { select: { id: true, email: true } },
       },
@@ -101,7 +101,7 @@ export class PointsService {
               pointType,
               effectiveFrom: { lt: effectiveFrom },
             },
-            orderBy: { effectiveFrom: 'desc' },
+            orderBy: { effectiveFrom: "desc" },
           });
           const value = new Prisma.Decimal(values[pointType]);
           let version: PointValueVersion;
@@ -137,9 +137,9 @@ export class PointsService {
             data: {
               companyId,
               actorUserId: adminUserId,
-              actorType: 'ADMIN',
-              action: 'point.value.configure',
-              targetType: 'POINT_VALUE_VERSION',
+              actorType: "ADMIN",
+              action: "point.value.configure",
+              targetType: "POINT_VALUE_VERSION",
               targetId: version.id,
               changes: {
                 pointType,
@@ -168,13 +168,15 @@ export class PointsService {
           companyId,
           ...(query.employeeId ? { employeeId: query.employeeId } : {}),
         },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
         take: query.limit,
         include: {
           employee: {
             select: { id: true, employeeNumber: true, fullName: true },
           },
           pointValueVersion: true,
+          greenAllocations: true,
+          penaltyAllocations: true,
           createdBy: { select: { id: true, email: true } },
         },
       })
@@ -189,7 +191,7 @@ export class PointsService {
   ) {
     const reason = dto.reason.trim();
     if (!reason) {
-      throw new BadRequestException('A reason is required to add a point.');
+      throw new BadRequestException("A reason is required to add a point.");
     }
     const key = validateIdempotencyKey(idempotencyKey);
 
@@ -209,7 +211,7 @@ export class PointsService {
             select: { id: true },
           });
           if (!employee) {
-            throw new NotFoundException('Employee not found');
+            throw new NotFoundException("Employee not found");
           }
 
           const { pointValueVersionId, valuePerPointPiasters } =
@@ -224,12 +226,12 @@ export class PointsService {
               companyId,
               employeeId: employee.id,
               pointType: dto.pointType,
-              entryKind: 'AWARD',
+              entryKind: "AWARD",
               direction: 1,
               quantity: dto.quantity,
               pointValueVersionId,
               valuePerPointPiasters,
-              sourceType: 'ADMIN',
+              sourceType: "ADMIN",
               idempotencyKey: key,
               reason,
               createdByUserId: adminUserId,
@@ -240,9 +242,9 @@ export class PointsService {
             data: {
               companyId,
               actorUserId: adminUserId,
-              actorType: 'ADMIN',
-              action: 'point.award',
-              targetType: 'POINT_LEDGER_ENTRY',
+              actorType: "ADMIN",
+              action: "point.award",
+              targetType: "POINT_LEDGER_ENTRY",
               targetId: entry.id,
               reason,
               changes: {
@@ -265,7 +267,7 @@ export class PointsService {
           assertSameAward(existing, companyId, dto, reason);
           return serializePointEntry(existing);
         }
-        throw new ConflictException('Point entry already has a reversal.');
+        throw new ConflictException("Point entry already has a reversal.");
       }
       throw error;
     }
@@ -281,7 +283,7 @@ export class PointsService {
   ) {
     const reason = input.reason.trim();
     if (!reason) {
-      throw new BadRequestException('A reason is required to add a point.');
+      throw new BadRequestException("A reason is required to add a point.");
     }
     if (
       !Number.isInteger(input.quantity) ||
@@ -289,11 +291,11 @@ export class PointsService {
       input.quantity > 100000
     ) {
       throw new BadRequestException(
-        'Point quantity must be an integer between 1 and 100000.',
+        "Point quantity must be an integer between 1 and 100000.",
       );
     }
     if (Number.isNaN(input.asOfDate.getTime())) {
-      throw new BadRequestException('A valid point-value date is required.');
+      throw new BadRequestException("A valid point-value date is required.");
     }
     const idempotencyKey = validateIdempotencyKey(input.idempotencyKey);
     const normalized = { ...input, reason, idempotencyKey };
@@ -316,7 +318,7 @@ export class PointsService {
       }
       if (transaction) {
         throw new ConflictException(
-          'Point entry conflicts with an existing ledger entry.',
+          "Point entry conflicts with an existing ledger entry.",
         );
       }
 
@@ -328,7 +330,7 @@ export class PointsService {
         return serializePointEntry(existing);
       }
       throw new ConflictException(
-        'Point entry conflicts with an existing ledger entry.',
+        "Point entry conflicts with an existing ledger entry.",
       );
     }
   }
@@ -343,7 +345,7 @@ export class PointsService {
   ) {
     const reason = input.reason.trim();
     if (!reason) {
-      throw new BadRequestException('A reason is required to reverse a point.');
+      throw new BadRequestException("A reason is required to reverse a point.");
     }
 
     try {
@@ -363,7 +365,7 @@ export class PointsService {
         throw error;
       }
       if (transaction) {
-        throw new ConflictException('Point entry has already been reversed.');
+        throw new ConflictException("Point entry has already been reversed.");
       }
 
       const existing = await this.prisma.pointLedgerEntry.findUnique({
@@ -372,7 +374,7 @@ export class PointsService {
       if (existing?.reason === reason) {
         return serializePointEntry(existing);
       }
-      throw new ConflictException('Point entry has already been reversed.');
+      throw new ConflictException("Point entry has already been reversed.");
     }
   }
 
@@ -396,7 +398,7 @@ export class PointsService {
       select: { id: true },
     });
     if (!employee) {
-      throw new NotFoundException('Employee not found');
+      throw new NotFoundException("Employee not found");
     }
 
     const pointValue = await resolvePointValue(
@@ -410,7 +412,7 @@ export class PointsService {
         companyId: input.companyId,
         employeeId: employee.id,
         pointType: input.pointType,
-        entryKind: 'AWARD',
+        entryKind: "AWARD",
         direction: 1,
         quantity: input.quantity,
         ...pointValue,
@@ -431,11 +433,11 @@ export class PointsService {
       where: {
         id: input.entryId,
         companyId: input.companyId,
-        entryKind: 'AWARD',
+        entryKind: "AWARD",
       },
     });
     if (!entry) {
-      throw new NotFoundException('Reversible point entry not found');
+      throw new NotFoundException("Reversible point entry not found");
     }
 
     const existing = await tx.pointLedgerEntry.findUnique({
@@ -445,7 +447,7 @@ export class PointsService {
       if (existing.reason === input.reason) {
         return existing;
       }
-      throw new ConflictException('Point entry has already been reversed.');
+      throw new ConflictException("Point entry has already been reversed.");
     }
 
     return tx.pointLedgerEntry.create({
@@ -453,7 +455,7 @@ export class PointsService {
         companyId: entry.companyId,
         employeeId: entry.employeeId,
         pointType: entry.pointType,
-        entryKind: 'REVERSAL',
+        entryKind: "REVERSAL",
         direction: -1,
         quantity: entry.quantity,
         pointValueVersionId: entry.pointValueVersionId,
@@ -476,7 +478,7 @@ export class PointsService {
   ) {
     const reason = dto.reason.trim();
     if (!reason) {
-      throw new BadRequestException('A reason is required to reverse a point.');
+      throw new BadRequestException("A reason is required to reverse a point.");
     }
 
     try {
@@ -487,11 +489,11 @@ export class PointsService {
           });
           if (
             !entry ||
-            entry.sourceType !== 'ADMIN' ||
-            entry.entryKind !== 'AWARD'
+            entry.sourceType !== "ADMIN" ||
+            entry.entryKind !== "AWARD"
           ) {
             throw new NotFoundException(
-              'Reversible admin point entry not found',
+              "Reversible admin point entry not found",
             );
           }
 
@@ -503,7 +505,7 @@ export class PointsService {
               return existingReversal;
             }
             throw new ConflictException(
-              'Point entry has already been reversed.',
+              "Point entry has already been reversed.",
             );
           }
 
@@ -512,12 +514,12 @@ export class PointsService {
               companyId,
               employeeId: entry.employeeId,
               pointType: entry.pointType,
-              entryKind: 'REVERSAL',
+              entryKind: "REVERSAL",
               direction: -1,
               quantity: entry.quantity,
               pointValueVersionId: entry.pointValueVersionId,
               valuePerPointPiasters: entry.valuePerPointPiasters,
-              sourceType: 'ADMIN',
+              sourceType: "ADMIN",
               sourceId: entry.id,
               idempotencyKey: `admin-reversal:${entry.id}`,
               reversesEntryId: entry.id,
@@ -530,9 +532,9 @@ export class PointsService {
             data: {
               companyId,
               actorUserId: adminUserId,
-              actorType: 'ADMIN',
-              action: 'point.reverse',
-              targetType: 'POINT_LEDGER_ENTRY',
+              actorType: "ADMIN",
+              action: "point.reverse",
+              targetType: "POINT_LEDGER_ENTRY",
               targetId: reversal.id,
               reason,
               changes: {
@@ -555,7 +557,7 @@ export class PointsService {
         if (existing?.reason === reason) {
           return serializePointEntry(existing);
         }
-        throw new ConflictException('Point entry has already been reversed.');
+        throw new ConflictException("Point entry has already been reversed.");
       }
       throw error;
     }
@@ -585,13 +587,13 @@ function assertSameSourceAward(
     existing.pointType !== input.pointType ||
     existing.quantity !== input.quantity ||
     existing.reason !== input.reason ||
-    existing.entryKind !== 'AWARD' ||
+    existing.entryKind !== "AWARD" ||
     existing.sourceType !== input.sourceType ||
     existing.sourceId !== (input.sourceId ?? null) ||
     existing.direction !== 1
   ) {
     throw new ConflictException(
-      'Idempotency key was already used for a different point entry.',
+      "Idempotency key was already used for a different point entry.",
     );
   }
 }
@@ -626,12 +628,12 @@ function assertSameAward(
     existing.pointType !== dto.pointType ||
     existing.quantity !== dto.quantity ||
     existing.reason !== reason ||
-    existing.entryKind !== 'AWARD' ||
-    existing.sourceType !== 'ADMIN' ||
+    existing.entryKind !== "AWARD" ||
+    existing.sourceType !== "ADMIN" ||
     existing.direction !== 1
   ) {
     throw new ConflictException(
-      'Idempotency-Key was already used for a different point entry.',
+      "Idempotency-Key was already used for a different point entry.",
     );
   }
 }
@@ -651,7 +653,7 @@ function isUniqueConstraintError(
 ): error is Prisma.PrismaClientKnownRequestError {
   return (
     error instanceof Prisma.PrismaClientKnownRequestError &&
-    error.code === 'P2002'
+    error.code === "P2002"
   );
 }
 
@@ -662,22 +664,22 @@ function parseDateOnly(value: string) {
     date.toISOString().slice(0, 10) !== value
   ) {
     throw new BadRequestException(
-      'effectiveFrom must be a valid YYYY-MM-DD date.',
+      "effectiveFrom must be a valid YYYY-MM-DD date.",
     );
   }
   return date;
 }
 
 function cairoDateOnly(value: Date) {
-  const parts = new Intl.DateTimeFormat('en', {
-    timeZone: 'Africa/Cairo',
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Africa/Cairo",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
   }).formatToParts(value);
-  const part = (type: 'year' | 'month' | 'day') =>
+  const part = (type: "year" | "month" | "day") =>
     Number(parts.find((item) => item.type === type)?.value);
-  return new Date(Date.UTC(part('year'), part('month') - 1, part('day')));
+  return new Date(Date.UTC(part("year"), part("month") - 1, part("day")));
 }
 
 function previousDate(value: Date) {
