@@ -169,4 +169,28 @@ describe("PointAllocationService", () => {
     });
     expect(tx.pointOffsetAllocation.upsert).not.toHaveBeenCalled();
   });
+
+  it("TEST-ALLOC-08 (FR-PTS-2): uses the provided transaction instead of opening another one", async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      pointLedgerEntry: {
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      pointOffsetAllocation: { upsert: jest.fn() },
+    };
+    const prisma = { $transaction: jest.fn() };
+    const service = new PointAllocationService(
+      prisma as unknown as PrismaService,
+    );
+
+    await service.saveAllocations(
+      companyId,
+      employeeId,
+      tx as unknown as Prisma.TransactionClient,
+    );
+
+    expect(prisma.$transaction).not.toHaveBeenCalled();
+    expect(tx.$queryRaw).toHaveBeenCalled();
+    expect(tx.pointLedgerEntry.findMany).toHaveBeenCalled();
+  });
 });

@@ -7,7 +7,7 @@ import { PointAllocationQueue } from "./allocation.constants";
 export { PointAllocationQueue };
 
 @Module({
-  exports: [PointAllocationService],
+  exports: [PointAllocationService, BullModule],
   imports: [BullModule.registerQueue({ name: PointAllocationQueue })],
   controllers: [],
   providers: [PointAllocationService, PointAllocationProcessor],

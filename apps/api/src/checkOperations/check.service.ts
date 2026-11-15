@@ -6,8 +6,6 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { InjectQueue } from '@nestjs/bullmq';
-import type { Queue } from 'bullmq';
 import {
   AttendanceVerification,
   PointType,
@@ -34,8 +32,8 @@ import { CalendarService } from '../calendar/calendar.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
+import { PointAllocationService } from '../pointAlocation/allocation.service';
 import { PointsService } from '../points/points.service';
-import { PointAllocationQueue } from '../pointAlocation/allocation.constants';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
 import { PositionDto } from './dto/check.dto';
@@ -70,8 +68,7 @@ export class CheckService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly calendar: CalendarService,
-    @InjectQueue(PointAllocationQueue)
-    private readonly pointAllocationQueue: Queue,
+    private readonly pointAllocation: PointAllocationService,
   ) {}
 
   async checkInAsUser(companyId: string, userId: string, position: PositionDto) {
@@ -157,13 +154,6 @@ export class CheckService {
       verification.locationId,
       now,
     );
-    await this.pointAllocationQueue.add('allocate-points', {
-      companyId,
-      employeeId,
-    }, {
-      attempts: 3,
-      backoff: { type: 'exponential', delay: 1_000 },
-    });
     return result;
   }
 
@@ -323,6 +313,8 @@ export class CheckService {
           pointEntryIds: pointEntries.map((entry) => entry.id),
         },
       });
+
+      await this.pointAllocation.saveAllocations(companyId, employeeId, tx);
 
       return { attendance, pointEntries };
     });

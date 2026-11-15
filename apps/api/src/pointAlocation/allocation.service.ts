@@ -132,40 +132,48 @@ export class PointAllocationService {
     return [...out.values()];
   }
 
-  async saveAllocations(companyId: string, employeeId: string) {
+  async saveAllocations(
+    companyId: string,
+    employeeId: string,
+    transaction?: Prisma.TransactionClient,
+  ) {
     try {
-      return await this.prismaService.$transaction(
-        async (tx: Prisma.TransactionClient) => {
-          await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId}::uuid FOR UPDATE`;
+      const save = async (tx: Prisma.TransactionClient) => {
+        await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId}::uuid FOR UPDATE`;
 
-          const { greens, reds, blacks } = await this.preparePoints(
-            tx,
-            companyId,
-            employeeId,
-          );
-          const offsets = this.planOffsets(greens, reds, blacks);
+        const { greens, reds, blacks } = await this.preparePoints(
+          tx,
+          companyId,
+          employeeId,
+        );
+        const offsets = this.planOffsets(greens, reds, blacks);
 
-          for (const offset of offsets) {
-            await tx.pointOffsetAllocation.upsert({
-              where: {
-                greenEntryId_penaltyEntryId: {
-                  greenEntryId: offset.greenEntryId,
-                  penaltyEntryId: offset.penaltyEntryId,
-                },
-              },
-              create: {
-                companyId,
+        for (const offset of offsets) {
+          await tx.pointOffsetAllocation.upsert({
+            where: {
+              greenEntryId_penaltyEntryId: {
                 greenEntryId: offset.greenEntryId,
                 penaltyEntryId: offset.penaltyEntryId,
-                quantity: offset.quantity,
               },
-              update: { quantity: { increment: offset.quantity } },
-            });
-          }
+            },
+            create: {
+              companyId,
+              greenEntryId: offset.greenEntryId,
+              penaltyEntryId: offset.penaltyEntryId,
+              quantity: offset.quantity,
+            },
+            update: { quantity: { increment: offset.quantity } },
+          });
+        }
 
-          return this.buildMessage(offsets, reds, blacks);
-        },
-      );
+        return this.buildMessage(offsets, reds, blacks);
+      };
+
+      if (transaction) {
+        return await save(transaction);
+      }
+
+      return await this.prismaService.$transaction(save);
     } catch (error) {
       this.logger.error(
         `Failed to save point allocations for employee ${employeeId}`,

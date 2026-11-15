@@ -6,19 +6,12 @@ import { AttendanceValidationService } from '../attendance/attendance-validation
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
+import { PointAllocationService } from '../pointAlocation/allocation.service';
 import { PointsService } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
 import { CalendarService } from '../calendar/calendar.service';
 import { CheckService } from './check.service';
-import type { Queue } from 'bullmq';
-
-jest.mock('@nestjs/bullmq', () => ({
-  BullModule: { registerQueue: () => ({}) },
-  InjectQueue: () => () => undefined,
-  Processor: () => () => undefined,
-  WorkerHost: class {},
-}));
 
 const companyId = 'company-1';
 const employeeId = 'employee-1';
@@ -42,7 +35,7 @@ describe('CheckService', () => {
   let employees: { findOne: jest.Mock };
   let locations: { isInAllowedLocation: jest.Mock; verifyQrToken: jest.Mock };
   let points: { addPointEntryForSource: jest.Mock };
-  let pointAllocationQueue: { add: jest.Mock };
+  let pointAllocation: { saveAllocations: jest.Mock };
   let workOffers: { listForEmployee: jest.Mock };
   let calendar: { isWorkingDay: jest.Mock };
   let audit: { record: jest.Mock };
@@ -131,8 +124,8 @@ describe('CheckService', () => {
         pointType: PointType.GREEN,
       }),
     };
-    pointAllocationQueue = {
-      add: jest.fn().mockResolvedValue({ id: 'allocation-job-1' }),
+    pointAllocation = {
+      saveAllocations: jest.fn().mockResolvedValue({ offsets: [] }),
     };
     workOffers = { listForEmployee: jest.fn().mockResolvedValue([]) };
     calendar = { isWorkingDay: jest.fn().mockResolvedValue(true) };
@@ -156,7 +149,7 @@ describe('CheckService', () => {
       audit as unknown as AuditService,
       prisma as unknown as PrismaService,
       calendar as unknown as CalendarService,
-      pointAllocationQueue as unknown as Queue,
+      pointAllocation as unknown as PointAllocationService,
     );
   });
 
@@ -381,37 +374,49 @@ describe('CheckService', () => {
           changes: expect.objectContaining({ verificationId: 'ver-1', locationId: 'location-1' }),
         }),
       );
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(
+        companyId,
+        employeeId,
+        transaction,
+      );
       expect(result.pointEntries).toEqual([expect.objectContaining({ id: 'point-1' })]);
     });
 
-    it('TEST-ALLOC-07 (FR-PTS-2): queues allocation after the confirmed attendance transaction commits', async () => {
+    it('TEST-ALLOC-07 (FR-PTS-2): allocates points inside the confirmed attendance transaction', async () => {
       const events: string[] = [];
       prisma.$transaction.mockImplementation(async (callback) => {
         const result = await callback(transaction);
         events.push('commit');
         return result;
       });
-      pointAllocationQueue.add.mockImplementation(async () => {
-        events.push('enqueue');
-        return { id: 'allocation-job-1' };
+      pointAllocation.saveAllocations.mockImplementation(async () => {
+        events.push('allocate');
+        return { offsets: [] };
       });
 
       await confirmAt(fixedTime);
 
-      expect(pointAllocationQueue.add).toHaveBeenCalledWith(
-        'allocate-points',
-        { companyId, employeeId },
-        { attempts: 3, backoff: { type: 'exponential', delay: 1_000 } },
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(
+        companyId,
+        employeeId,
+        transaction,
       );
-      expect(events).toEqual(['commit', 'enqueue']);
+      expect(events).toEqual(['allocate', 'commit']);
     });
 
-    it('surfaces queue enqueue failures after recording the confirmed attendance', async () => {
-      const error = new Error('Redis unavailable');
-      pointAllocationQueue.add.mockRejectedValue(error);
+    it('propagates allocation failure before the check-in transaction can commit', async () => {
+      const error = new Error('Allocation failed');
+      const events: string[] = [];
+      prisma.$transaction.mockImplementation(async (callback) => {
+        const result = await callback(transaction);
+        events.push('commit');
+        return result;
+      });
+      pointAllocation.saveAllocations.mockRejectedValue(error);
 
       await expect(confirmAt(fixedTime)).rejects.toBe(error);
       expect(attendanceDay.recordAttendanceDay).toHaveBeenCalled();
+      expect(events).toEqual([]);
     });
 
     it('awards the early-work GREENs from the step-1 time (D-17)', async () => {
