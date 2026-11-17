@@ -6,7 +6,7 @@ import { AttendanceValidationService } from '../attendance/attendance-validation
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
-import { PointAllocationService } from '../pointAlocation/allocation.service';
+import { PointAllocationService } from '../points/point-allocation.service';
 import { PointsService } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
@@ -636,12 +636,50 @@ describe('CheckService', () => {
         checkOutAt: new Date(time),
         overtimeGreens: greens,
       });
+      const early = new Date(time) < new Date('2025-03-10T16:00:00.000Z');
       expect(updateMany.mock.calls[0][0].data).toEqual({
         checkOutAt: new Date(time),
         overtimeGreens: greens,
-        leftEarly: new Date(time) < new Date('2025-03-10T16:00:00.000Z'),
+        leftEarly: early,
       });
-      expect(points.addPointEntryForSource).toHaveBeenCalledTimes(greens ? 1 : 0);
+      // overtime GREENs and the early-checkout RED (D-21) are separate entries
+      expect(points.addPointEntryForSource).toHaveBeenCalledTimes((greens ? 1 : 0) + (early ? 1 : 0));
+    });
+
+    it('adds one separate RED when checking out any minute before the shift end, then runs offsets (D-21)', async () => {
+      jest.setSystemTime(new Date('2025-03-10T15:59:00.000Z'));
+
+      await expect(checkOut()).resolves.toEqual({
+        checkOutAt: new Date('2025-03-10T15:59:00.000Z'),
+        overtimeGreens: 0,
+      });
+      expect(points.addPointEntryForSource).toHaveBeenCalledTimes(1);
+      expect(points.addPointEntryForSource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pointType: PointType.RED,
+          quantity: 1,
+          sourceType: 'EARLY_CHECKOUT',
+          sourceId: 'attendance-1',
+          idempotencyKey: 'EC:attendance-1',
+        }),
+        transaction,
+      );
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, transaction);
+    });
+
+    it('adds no RED and runs no offsets when checking out exactly at the shift end', async () => {
+      jest.setSystemTime(new Date('2025-03-10T16:00:00.000Z'));
+
+      await checkOut();
+      expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+      expect(pointAllocation.saveAllocations).not.toHaveBeenCalled();
+    });
+
+    it('runs offsets inside the checkout transaction after overtime GREENs (05 §5.3)', async () => {
+      jest.setSystemTime(new Date('2025-03-10T18:30:00.000Z'));
+
+      await checkOut();
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, transaction);
     });
 
     it('answers the validation error (INVALID_STATE / ALREADY_CHECKED_OUT) and writes nothing', async () => {

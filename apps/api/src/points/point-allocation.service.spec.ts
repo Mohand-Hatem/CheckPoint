@@ -1,6 +1,6 @@
 import { PointType, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
-import { Bucket, PointAllocationService } from "./allocation.service";
+import { Bucket, PointAllocationService } from "./point-allocation.service";
 
 describe("PointAllocationService", () => {
   const companyId = "company-1";
@@ -73,7 +73,8 @@ describe("PointAllocationService", () => {
         findMany: jest.fn().mockResolvedValue(entries),
       },
       pointOffsetAllocation: {
-        upsert: jest.fn().mockResolvedValue({}),
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn().mockResolvedValue({ count: 1 }),
       },
     };
     const prisma = {
@@ -107,20 +108,17 @@ describe("PointAllocationService", () => {
         orderBy: { createdAt: "asc" },
       }),
     );
-    expect(tx.pointOffsetAllocation.upsert).toHaveBeenCalledWith({
-      where: {
-        greenEntryId_penaltyEntryId: {
+    // append-only: new APPLY rows, never an update of an existing row
+    expect(tx.pointOffsetAllocation.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.pointOffsetAllocation.createMany).toHaveBeenCalledWith({
+      data: [
+        {
+          companyId,
           greenEntryId: "green-1",
           penaltyEntryId: "red-1",
+          quantity: 1,
         },
-      },
-      create: {
-        companyId,
-        greenEntryId: "green-1",
-        penaltyEntryId: "red-1",
-        quantity: 1,
-      },
-      update: { quantity: { increment: 1 } },
+      ],
     });
   });
 
@@ -145,7 +143,10 @@ describe("PointAllocationService", () => {
           },
         ]),
       },
-      pointOffsetAllocation: { upsert: jest.fn() },
+      pointOffsetAllocation: {
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn(),
+      },
     };
     const prisma = {
       $transaction: jest.fn(
@@ -167,7 +168,72 @@ describe("PointAllocationService", () => {
       message:
         "No points were offset. There are either no penalties or not enough green points.",
     });
-    expect(tx.pointOffsetAllocation.upsert).not.toHaveBeenCalled();
+    expect(tx.pointOffsetAllocation.createMany).not.toHaveBeenCalled();
+  });
+
+  it("TEST-ALLOC-09 (FR-PTS-5, 05 §5.3): a reversed GREEN undoes its BLACK's whole group with UNDO rows, then re-matches", async () => {
+    // BLACK-1 was cancelled by green-1 (2) + green-2 (3); green-1 is now reversed.
+    const appliedRows = [
+      { id: "alloc-1", greenEntryId: "green-1", penaltyEntryId: "black-1", quantity: 2 },
+      { id: "alloc-2", greenEntryId: "green-2", penaltyEntryId: "black-1", quantity: 3 },
+    ];
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      pointOffsetAllocation: {
+        findMany: jest
+          .fn()
+          .mockResolvedValueOnce([{ penaltyEntryId: "black-1" }]) // rows touching a reversed entry
+          .mockResolvedValueOnce(appliedRows), // every active row of black-1
+        createMany: jest.fn().mockResolvedValue({ count: 2 }),
+      },
+      pointLedgerEntry: {
+        // after the UNDO rows: green-2 has 3 free, black-1 is open again, green-1 is gone (reversed)
+        findMany: jest.fn().mockResolvedValue([
+          { id: "green-2", pointType: PointType.GREEN, quantity: 3, greenAllocations: [], penaltyAllocations: [] },
+          { id: "black-1", pointType: PointType.BLACK, quantity: 1, greenAllocations: [], penaltyAllocations: [] },
+        ]),
+      },
+    };
+    const service = new PointAllocationService({} as PrismaService);
+
+    const result = await service.saveAllocations(
+      companyId,
+      employeeId,
+      tx as unknown as Prisma.TransactionClient,
+    );
+
+    expect(tx.pointOffsetAllocation.findMany.mock.calls[1][0].where).toMatchObject({
+      penaltyEntryId: { in: ["black-1"] },
+      reversesAllocationId: null,
+      undoneBy: { is: null },
+    });
+    expect(tx.pointOffsetAllocation.createMany).toHaveBeenCalledTimes(1);
+    expect(tx.pointOffsetAllocation.createMany).toHaveBeenCalledWith({
+      data: [
+        { companyId, greenEntryId: "green-1", penaltyEntryId: "black-1", quantity: 2, reversesAllocationId: "alloc-1" },
+        { companyId, greenEntryId: "green-2", penaltyEntryId: "black-1", quantity: 3, reversesAllocationId: "alloc-2" },
+      ],
+    });
+    // 3 Greens cannot pay a BLACK (needs 5): nothing re-applied, the BLACK stays open
+    expect(result).toMatchObject({ blacksCleared: 0, offsets: [] });
+  });
+
+  it("TEST-ALLOC-10 (05 §5.3): only active rows count; UNDO rows and undone rows are filtered out", async () => {
+    const tx = {
+      $queryRaw: jest.fn().mockResolvedValue([]),
+      pointOffsetAllocation: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn() },
+      pointLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
+    };
+    await new PointAllocationService({} as PrismaService).saveAllocations(
+      companyId,
+      employeeId,
+      tx as unknown as Prisma.TransactionClient,
+    );
+    const active = { reversesAllocationId: null, undoneBy: { is: null } };
+    expect(tx.pointLedgerEntry.findMany.mock.calls[0][0].include).toEqual({
+      greenAllocations: { where: active, select: { quantity: true } },
+      penaltyAllocations: { where: active, select: { quantity: true } },
+    });
   });
 
   it("TEST-ALLOC-08 (FR-PTS-2): uses the provided transaction instead of opening another one", async () => {
@@ -176,7 +242,10 @@ describe("PointAllocationService", () => {
       pointLedgerEntry: {
         findMany: jest.fn().mockResolvedValue([]),
       },
-      pointOffsetAllocation: { upsert: jest.fn() },
+      pointOffsetAllocation: {
+        findMany: jest.fn().mockResolvedValue([]),
+        createMany: jest.fn(),
+      },
     };
     const prisma = { $transaction: jest.fn() };
     const service = new PointAllocationService(

@@ -139,7 +139,7 @@ shift_end     = date + end_time
 2. GPS accuracy + geofence (any assigned location). QR at checkout: DN-07 (MVP: not required).
 3. `minutes_after_end = max(0, floor((now − shift_end) / 60 s))`; `units = floor(minutes_after_end / overtime_unit_minutes)`; apply daily cap if configured (DN-07).
 4. If an `APPROVED` early-leave exists for the date ⇒ `units = 0`.
-5. **Transaction** (user lock): set `check_out_at`; if `now < shift_end` and no approved early leave ⇒ `left_early = true` (DN-08, no penalty); for `i = 1..units` insert Green (`source = OVERTIME`, `dedupe_key = OT:{attendanceId}:{i}`); store `overtime_greens = units`; run offset engine. **Built so far (D-18):** `check_out_at` is set only while NULL, together with `overtime_greens = units` and `left_early`; one Green entry of quantity `units` (`OT:{attendanceId}:checkout`); none on an off-day-work day (D-20). Early leave (Phase 5) and the offset run (Phase 4) are deferred. Shifts never cross midnight (shift versions with `end ≤ start` are rejected), so a checkout after midnight falls on the next work date and answers `INVALID_STATE`.
+5. **Transaction** (user lock): set `check_out_at`; if `now < shift_end` and no approved early leave ⇒ `left_early = true` and insert one RED (`source = EARLY_CHECKOUT`, `dedupe_key = EC:{attendanceId}`; DN-08 / D-21; any minute early, the day's check-in point is kept); for `i = 1..units` insert Green (`source = OVERTIME`, `dedupe_key = OT:{attendanceId}:{i}`); store `overtime_greens = units`; run offset engine. **Built so far (D-18):** `check_out_at` is set only while NULL, together with `overtime_greens = units` and `left_early`; one Green entry of quantity `units` (`OT:{attendanceId}:checkout`); none on an off-day-work day (D-20). The early-checkout RED (`EC:{attendanceDayId}`, D-21) and the offset run are built; the approved-early-leave exception arrives with Phase 5. Shifts never cross midnight (shift versions with `end ≤ start` are rejected), so a checkout after midnight falls on the next work date and answers `INVALID_STATE`.
 6. Examples: 16:59 → 0; 17:01 → 1; 18:01 → 2; 19:01 → 3.
 
 ### 4.5 QR token
@@ -207,7 +207,7 @@ Precondition: user lock held. Open months = months without a `LOCKED` row in `pa
 4. Return the list of created offsets (for notifications).
 - Idempotent: running again with no new points changes nothing.
 - **Runs after:** attendance confirm, overtime award, admin add, any reversal, offset undo, leave-approval reversal, attendance correction, and once per user inside Month Close.
-- **Undo:** when a point that participates in an active offset is reversed, insert UNDO rows for **every** APPLY row of that `group_id` (`reverses_offset_id` unique), then run the engine again so freed Greens/targets are re-matched.
+- **Undo:** when a point that participates in an active offset is reversed, insert UNDO rows for **every** APPLY row of that `group_id` (`reverses_offset_id` unique), then run the engine again so freed Greens/targets are re-matched. **Built (Phase 4):** `PointAllocationService.saveAllocations(companyId, employeeId, tx)`; the "group" is every active row of the affected penalty entry, the UNDO link is `point_offset_allocations.reverses_allocation_id`; it runs inside the caller's transaction after check-in, checkout (overtime / early-checkout RED), admin add, admin reverse and attendance correction.
 - Offsets never touch a point whose month is locked; a DB trigger enforces it.
 - **Path dependence (by design):** the engine is eager, so when Greens are scarce the outcome depends on chronological arrival (see Golden Case G4). The rule "Reds before Blacks, oldest first" is applied at each run (DN-09).
 
@@ -236,7 +236,7 @@ Admin may add any of GREEN/WHITE/RED/BLACK (reason mandatory) or reverse an `ADM
 
 - **Request:** `POST /early-leaves {date, requestedCheckoutTime, reason}`; date ≥ today (Cairo); `requestedCheckoutTime` between `work_start` and `work_end`; partial unique index: one `PENDING`/`APPROVED` per employee/date. Status `PENDING`.
 - **Approve:** conditional update `WHERE status='PENDING'` (no explicit row lock needed); store `reviewed_by`, note; if an attendance row exists, set `attendance.early_leave_request_id`. Effects at check-out: record actual time, **no penalty, no overtime Green**. Audit + notify.
-- **Reject:** `PENDING → REJECTED`; employee's later checkout is recorded normally; **no new point type**.
+- **Reject:** `PENDING → REJECTED`; employee's later checkout is recorded normally, so a checkout before shift end adds one RED (§4.4 step 5); **no new point type**.
 - Employee may cancel own `PENDING`.
 
 ## 8. Payroll

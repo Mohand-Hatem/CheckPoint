@@ -22,6 +22,12 @@ type Buckets = { greens: Bucket[]; reds: Bucket[]; blacks: Bucket[] };
 // greens needed to clear ONE penalty point
 const RATIO = { RED: 1, BLACK: 5 } as const;
 
+// An APPLY row that no UNDO row cancels (rows are append-only).
+const ACTIVE = {
+  reversesAllocationId: null,
+  undoneBy: { is: null },
+} satisfies Prisma.PointOffsetAllocationWhereInput;
+
 @Injectable()
 export class PointAllocationService {
   private readonly logger = new Logger(PointAllocationService.name);
@@ -68,6 +74,48 @@ export class PointAllocationService {
     }
   }
 
+  /**
+   * A reversed Green or penalty must not keep an offset (05 §5.3). Every active row of each
+   * affected penalty gets an UNDO row (its whole group, so a BLACK never stays half-paid);
+   * the run that follows re-matches the freed points.
+   */
+  private async undoReversedOffsets(
+    tx: Prisma.TransactionClient,
+    companyId: string,
+    employeeId: string,
+  ) {
+    const stale = await tx.pointOffsetAllocation.findMany({
+      where: {
+        companyId,
+        ...ACTIVE,
+        penaltyEntry: { employeeId },
+        OR: [
+          { greenEntry: { reversalEntries: { some: {} } } },
+          { penaltyEntry: { reversalEntries: { some: {} } } },
+        ],
+      },
+      select: { penaltyEntryId: true },
+    });
+    if (stale.length === 0) return;
+
+    const rows = await tx.pointOffsetAllocation.findMany({
+      where: {
+        companyId,
+        ...ACTIVE,
+        penaltyEntryId: { in: [...new Set(stale.map((r) => r.penaltyEntryId))] },
+      },
+    });
+    await tx.pointOffsetAllocation.createMany({
+      data: rows.map((row) => ({
+        companyId,
+        greenEntryId: row.greenEntryId,
+        penaltyEntryId: row.penaltyEntryId,
+        quantity: row.quantity,
+        reversesAllocationId: row.id,
+      })),
+    });
+  }
+
   private async preparePoints(
     tx: Prisma.TransactionClient,
     companyId: string,
@@ -82,8 +130,8 @@ export class PointAllocationService {
       },
       orderBy: { createdAt: "asc" },
       include: {
-        greenAllocations: { select: { quantity: true } },
-        penaltyAllocations: { select: { quantity: true } },
+        greenAllocations: { where: ACTIVE, select: { quantity: true } },
+        penaltyAllocations: { where: ACTIVE, select: { quantity: true } },
       },
     });
 
@@ -141,6 +189,8 @@ export class PointAllocationService {
       const save = async (tx: Prisma.TransactionClient) => {
         await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId}::uuid FOR UPDATE`;
 
+        await this.undoReversedOffsets(tx, companyId, employeeId);
+
         const { greens, reds, blacks } = await this.preparePoints(
           tx,
           companyId,
@@ -148,21 +198,9 @@ export class PointAllocationService {
         );
         const offsets = this.planOffsets(greens, reds, blacks);
 
-        for (const offset of offsets) {
-          await tx.pointOffsetAllocation.upsert({
-            where: {
-              greenEntryId_penaltyEntryId: {
-                greenEntryId: offset.greenEntryId,
-                penaltyEntryId: offset.penaltyEntryId,
-              },
-            },
-            create: {
-              companyId,
-              greenEntryId: offset.greenEntryId,
-              penaltyEntryId: offset.penaltyEntryId,
-              quantity: offset.quantity,
-            },
-            update: { quantity: { increment: offset.quantity } },
+        if (offsets.length > 0) {
+          await tx.pointOffsetAllocation.createMany({
+            data: offsets.map((offset) => ({ companyId, ...offset })),
           });
         }
 

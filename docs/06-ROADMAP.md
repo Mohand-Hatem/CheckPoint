@@ -4,30 +4,30 @@
 |---|---|
 | **Version** | 3.0 |
 | **Status** | Final draft — implementation-ready |
-| **Last Updated** | 2026-11-02 |
+| **Last Updated** | 2026-11-17 |
 | **Source of Truth** | The finalization prompt ("SoT") overrides older documents. Phase order follows SoT §33, with one dependency clarification (Phase 3 ↔ Phase 4, below). |
 
 A phase is **complete only when every Definition of Done (DoD) item is checked by a passing test or a signed artifact.**
 
-## Status (2026-11-09, branch `phase-0-1-2-3-completed`)
+## Status (2026-11-17, branch `feat/pointAllocation`)
 
 Only the backend API exists so far; `apps/web` and `apps/mobile` are empty. "Done" below means built, unit-tested and covered by the end-to-end suite on PostgreSQL. The **backend** task lists of Phases 1-3 are done; no phase meets its full DoD yet, because every phase also has web/mobile work (deliberately a later, separate track) and Phase 0 has business items.
 
 | Phase | Done | Not done yet |
 |---|---|---|
-| 0 Decisions | Spec v0.4.0 approved (multi-company MVP); DN register with provisional defaults; client stack (DN-16); hosting (DN-19) | **Owner actions:** legal review of deductions (DN-01/GAP-001), Paymob sandbox + production application (DN-15/GAP-008), seed data reviewed by an admin, GPS threshold 50 m vs 30 m (DN-14), written sign-off on the remaining provisional DN defaults |
+| 0 Decisions | Spec v0.5.0 approved (multi-company MVP; early-checkout RED, CHG-006); DN register with provisional defaults; client stack (DN-16); hosting (DN-19) | **Owner actions:** legal review of deductions (DN-01/GAP-001), Paymob sandbox + production application (DN-15/GAP-008), seed data reviewed by an admin, GPS threshold 50 m vs 30 m (DN-14), written sign-off on the remaining provisional DN defaults |
 | 1 Foundation | Auth (login, rotating refresh with reuse detection, logout, cookie auth with CSRF, forced password change, throttling, **admin password reset**); RBAC; multi-company isolation and provisioning; users, salaries, employees, invitations; append-only audit (**rollback proof test**); **health `/api/health/live` + `/ready`, request IDs, startup config validation**; Swagger/`openapi.json`; Pino; Docker Compose (**API image fixed, healthy**); CI (unit in UTC **and Pacific/Auckland**, **lint**, e2e) | Settings service (settings are read where needed), Next.js admin shell, Expo mobile shell. BullMQ and an injectable `Clock` moved to Phase 4 (D-19) |
 | 2 Schedules / calendar / locations | Timezone policy; shifts, versions, assignments; **locations: create/list/edit/deactivate, employee assignment; holidays + weekly off days + `isWorkingDay`; off-day-work exceptions via work offers (D-20); rotating HMAC QR tokens + `GET …/qr-token`**; server-timezone independence proven in CI | `/kiosk` page, admin pages, mobile permission onboarding (web/mobile track) |
-| 3 Attendance | **Two-step check-in (GPS → 15-min verification → kiosk QR confirm, D-19); off-day rule; checkout with whole-hour overtime and `left_early` (D-18); `ATTENDANCE_CLOSED`; employee history `GET /me/attendance`** | Live admin feed, kiosk scan animation, mobile screens (web/mobile track); verification sweeper job (Phase 4, D-19); check-in after the late period records BLACK until the Phase 4 absence sweeper (D-19) |
-| 4 Points | Point values (EGP, effective-dated); ledger add and reverse with mandatory reason; ledger append-only by migration | `point_state` view, offset engine, absence sweeper (BLACK at 12:00) with BullMQ, locked-month guard, employee point queries |
-| 5 Leave / corrections | Admin attendance corrections (compensating ledger entries, overtime Greens, audited before/after) | Leave and early-leave requests, approvals, early-leave effect at checkout, notifications |
+| 3 Attendance | **Two-step check-in (GPS → 15-min verification → kiosk QR confirm, D-19); off-day rule; checkout with whole-hour overtime and `left_early` (D-18) plus the early-checkout RED (D-21); `ATTENDANCE_CLOSED`; employee history `GET /me/attendance`** | Live admin feed, kiosk scan animation, mobile screens (web/mobile track); verification sweeper job (Phase 4, D-19); check-in after the late period records BLACK until the Phase 4 absence sweeper (D-19) |
+| 4 Points | Point values (EGP, effective-dated); ledger add and reverse with mandatory reason; ledger append-only by migration; **offset engine** (Reds before Blacks, oldest first, 5:1 atomic) inside the caller's transaction after check-in, checkout, admin add/reverse and corrections; **append-only APPLY/UNDO offsets** with re-matching after reversals (U-5); golden cases G1–G5, G7, G8 (points part) on PostgreSQL | `point_state` view, absence sweeper (BLACK at 12:00) with BullMQ, locked-month guard, employee point queries, concurrency tests |
+| 5 Leave / corrections | Admin attendance corrections (compensating ledger entries, overtime Greens, early-checkout RED, offsets re-run, audited before/after) | Leave and early-leave requests, approvals, early-leave effect at checkout, notifications |
 | 6 Payroll / fund | — | Everything (incl. off-day pay salary ÷ 30 from `OFF_DAY_WORK` days) |
 | 7 Paymob | — | Everything |
 | 8 Hardening / pilot | — | Everything |
 
-**Next, in dependency order:** Phase 4 (offset engine, absence sweeper with BullMQ, then switch late check-ins to `ATTENDANCE_CLOSED`) → Phase 5 leave and early leave → Phase 6 payroll. The web and mobile shells can start in parallel at any time.
+**Next, in dependency order:** Phase 4 (absence sweeper with BullMQ, then switch late check-ins to `ATTENDANCE_CLOSED`) → Phase 5 leave and early leave → Phase 6 payroll. The web and mobile shells can start in parallel at any time.
 
-**Open housekeeping:** approve spec v0.4.1 in `planning/docs/planning/SPEC_APPROVAL.md`; baseline the shared Neon dev database onto migrations (it was built with `db push`, see the README).
+**Open housekeeping:** baseline the shared Neon dev database onto migrations (it was built with `db push`, see the README).
 
 ```mermaid
 flowchart LR
@@ -196,10 +196,10 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 - DB: `UPDATE`/`DELETE` on `point_transactions` and `point_offsets` fail (privilege + trigger).
 
 **Definition of Done**
-- [ ] Golden cases G1–G5 and G7 (`05-SYSTEM_DESIGN.md` §15.4) pass for the points part (counts, consumed, remaining).
+- [x] Golden cases G1–G5 and G7 (`05-SYSTEM_DESIGN.md` §15.4) pass for the points part (counts, consumed, remaining). (`test/golden-cases.e2e-spec.ts`, also G8)
 - [ ] Re-running the absence sweep 10× creates no extra rows.
 - [ ] Attempting to insert a point or offset for a locked month fails at DB level.
-- [ ] Phase 3 tests still pass against the real ledger.
+- [x] Phase 3 tests still pass against the real ledger.
 
 ---
 
@@ -210,7 +210,7 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 **Tasks**
 - **[BE]**: `leave_requests`, `early_leave_requests`; employee create/cancel; admin approve/reject/cancel-approval.
 - **[BE]**: Leave effects: block check-in, absence exemption, Black reversal, offset undo, `EXEMPT` status.
-- **[BE]**: Early leave effects at check-out (no penalty, no overtime); link to attendance.
+- **[BE]**: Early leave effects at check-out (approved: no penalty, no overtime; none/rejected: one RED, D-21); link to attendance.
 - **[BE]**: Admin attendance correction endpoints (manual check-in/out, `correct`).
 - **[BE]**: In-app notifications for decisions and penalties.
 - **[WEB]**: Admin leave & early leave review queues (with Approve/Reject/Cancel actions); attendance calendar correction interface.
@@ -219,7 +219,7 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 **Dependencies:** Phase 4.
 
 **Tests**
-- Integration: leave approval before/after Black; leave over confirmed attendance refused; locked month refusal; cancel approval after threshold re-creates Black; overlapping requests refused; early leave approve ⇒ no overtime Green even if employee stays late; reject ⇒ no new point type; correction recomputes classification with revision +1 and keeps ledger append-only.
+- Integration: leave approval before/after Black; leave over confirmed attendance refused; locked month refusal; cancel approval after threshold re-creates Black; overlapping requests refused; early leave approve ⇒ no overtime Green even if employee stays late; reject + checkout before shift end ⇒ exactly one RED, no new point type; correction recomputes classification with revision +1 and keeps ledger append-only.
 - Concurrency: leave approval racing the absence sweep ⇒ consistent result (no Black on exempt day).
 
 **Definition of Done**

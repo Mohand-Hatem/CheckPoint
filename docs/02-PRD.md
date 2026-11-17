@@ -119,7 +119,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-ATT-2 | Check-in step 2: scan the QR of the **same** location; valid token + unexpired verification → attendance **CONFIRMED**, point awarded. | MVP |
 | FR-ATT-3 | GPS alone never confirms attendance; no point is awarded before QR success. | MVP |
 | FR-ATT-4 | Exactly one classification per employee per date: `GREEN`/`WHITE`/`RED`/`BLACK`. | MVP |
-| FR-ATT-5 | Check-out: GPS + geofence validation; records time; awards overtime Greens. | MVP |
+| FR-ATT-5 | Check-out: GPS + geofence validation; records time; awards overtime Greens; before shift end without an approved early leave adds one RED (DN-08). | MVP |
 | FR-ATT-6 | Admin manual check-in/out and correction (reason mandatory, audited, point effects through ledger reversal + new award). | MVP |
 | FR-ATT-7 | Employee attendance history. | MVP |
 
@@ -142,7 +142,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-LV-3 | Salary treatment per leave type is configurable (`leave_pay_policy`); not hardcoded. | MVP |
 | FR-LV-4 | Accrual, carry-over, balances, half-day leave, many categories. | Out of Scope / Future |
 | FR-EL-1 | Employee requests early leave (date, requested checkout time, reason) → `PENDING`. | MVP |
-| FR-EL-2 | Approve: actual checkout recorded, no penalty, **no overtime Green**, reason + approver preserved. Reject: nothing special; normal policy applies; **no new point type**. | MVP |
+| FR-EL-2 | Approve: actual checkout recorded, no penalty, **no overtime Green**, reason + approver preserved. Reject: nothing special; normal checkout rules apply (early checkout ⇒ one RED, FR-ATT-5); **no new point type**. | MVP |
 
 ### 4.6 Payroll, Fund, Payments
 | ID | Requirement | Priority |
@@ -248,7 +248,7 @@ Worked example (SoT §10): 10 Greens earned, 2 Reds → 2 Greens cancel 2 Reds, 
 - Checkout is accepted only on the same Cairo `work_date` as the check-in.
 - Approved early leave on that date ⇒ **0** overtime.
 - Overtime Greens have real money value (the configured Green value, initial 1000 EGP each): a **daily cap** and whether checkout also needs QR are **DN-07** (MVP default: no cap, GPS + geofence only).
-- Checkout earlier than shift end without an approved early leave: recorded, flagged `left_early` for admin visibility, **no penalty** (none defined by SoT) — **DN-08**.
+- Checkout earlier than shift end without an approved early leave (none, rejected or cancelled): recorded, flagged `left_early`, and **one separate RED** is added in the checkout transaction; any minute early counts (no grace). The day's check-in point is kept (a day can be GREEN + RED) — **DN-08 decided** (D-21, AC-REQ-013-04).
 
 ### 6.6 Leave rules
 - Types: `ANNUAL`, `SICK`, `UNPAID`; full days only; range `from_date..to_date`.
@@ -266,7 +266,7 @@ Worked example (SoT §10): 10 Greens earned, 2 Reds → 2 Greens cancel 2 Reds, 
 |---|---|
 | `PENDING` | Visible to admin. |
 | `APPROVED` | Actual checkout recorded; no penalty; **no overtime Green**; reason + `reviewed_by` stored; audited. |
-| `REJECTED` | If the employee checks out, it is recorded; existing attendance policy applies; **no new point type**. |
+| `REJECTED` | If the employee checks out, it is recorded; normal checkout rules apply, so a checkout before shift end adds **one RED** (§6.5); **no new point type**. |
 
 One active (`PENDING`/`APPROVED`) request per employee per date.
 
@@ -333,7 +333,7 @@ Fund credit (EGP) = remaining (unconsumed, unreversed) Greens × configured Gree
 | 8 | Leave approved after Black created | Black reversed (`LEAVE_APPROVED`), attendance `EXEMPT`, offsets undone + engine rerun (open month). Locked month → approval refused with `MONTH_LOCKED`. |
 | 9 | Leave rejected | No change to points. |
 | 10 | Early leave approved | Checkout recorded, no penalty, no overtime Green, approver + reason stored. |
-| 11 | Early leave rejected | No special effect; normal attendance policy; no new point type. |
+| 11 | Early leave rejected | No special effect; normal checkout rules; checkout before shift end adds one RED (DN-08); no new point type. |
 | 12 | Future schedule change | Assignments change only with `effective_from > today` (initial assignment excepted); past attendance keeps its `schedule_snapshot`; locked/past dates are not re-evaluated. |
 | 13 | Salary changed mid-month | DN-11. Provisional: `effective_from` must be the 1st of a month, otherwise `422`. |
 | 14 | Employee joins mid-month | No Black before their first assignment date; payroll record flagged `partial_month`; no auto-proration (DN-11). |
@@ -363,7 +363,7 @@ Fund credit (EGP) = remaining (unconsumed, unreversed) Greens × configured Gree
 | DN-05 | Timestamp used to classify; pending verification protects from Black. | Verification start time; yes. |
 | DN-06 | Overtime at exactly 17:00:00 (literal formula gives 1). | Literal formula. |
 | DN-07 | Daily overtime cap; QR at checkout. | None; GPS+geofence only. |
-| DN-08 | Penalty for checkout before shift end without approved early leave. | None, flagged. |
+| DN-08 | Penalty for checkout before shift end without approved early leave. | **Decided 2026-11-17 (D-21):** one separate RED, any minute early; day's point kept. |
 | DN-09 | ~~Reds-before-Blacks priority~~ (**closed — CONFIRMED**); oldest-Green-first; reading of "overtime Greens not automatically assigned". | As in §6.4. |
 | DN-10 | Seed weekly off days and holiday list. | Admin enters; no seed assumed. |
 | DN-11 | Mid-month salary change / join proration; effective-date granularity. | See §6.9 (1st of month, no proration). The planning spec *proposes* day granularity with no proration (unconfirmed). |

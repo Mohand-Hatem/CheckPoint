@@ -490,12 +490,15 @@ model PointOffsetAllocation {
   greenEntryId   String           @map("green_entry_id") @db.Uuid
   penaltyEntryId String           @map("penalty_entry_id") @db.Uuid
   quantity       Int
+  // Append-only: set on an UNDO row, pointing at the APPLY row it cancels (05 §5.3).
+  reversesAllocationId String?                @unique(map: "point_offset_allocations_reverses_allocation_id_key") @map("reverses_allocation_id") @db.Uuid
   createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
   company        Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
   greenEntry     PointLedgerEntry @relation("GreenOffset", fields: [greenEntryId], references: [id])
   penaltyEntry   PointLedgerEntry @relation("PenaltyOffset", fields: [penaltyEntryId], references: [id])
+  reversesAllocation PointOffsetAllocation? @relation("OffsetUndo", fields: [reversesAllocationId], references: [id], onDelete: Restrict)
+  undoneBy       PointOffsetAllocation?   @relation("OffsetUndo")
 
-  @@unique([greenEntryId, penaltyEntryId], map: "point_offset_allocations_green_entry_id_penalty_entry_id_key")
   @@index([companyId, greenEntryId])
   @@index([companyId, penaltyEntryId])
   @@map("point_offset_allocations")
