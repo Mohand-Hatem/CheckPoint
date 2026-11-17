@@ -3,6 +3,7 @@ import { BadRequestException, ConflictException, NotFoundException } from '@nest
 import { PointType, Prisma } from '@prisma/client';
 import { AuditService } from '../audit/audit.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
+import { PointAllocationService } from '../points/point-allocation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AttendanceService } from './attendance.service';
 import { CorrectAttendanceDto } from './dto/correct-attendance.dto';
@@ -73,12 +74,16 @@ describe('AttendanceService.correct (TEST-012, TEST-013)', () => {
     return db;
   }
 
+  const allocation = { saveAllocations: jest.fn().mockResolvedValue({ offsets: [] }) };
+  beforeEach(() => allocation.saveAllocations.mockClear());
+
   function createService(db: Record<string, any>) {
     const companyPolicy = { getTimezone: jest.fn().mockResolvedValue('Africa/Cairo') };
     return new AttendanceService(
       db as unknown as PrismaService,
       companyPolicy as unknown as CompanyPolicyService,
       new AuditService(db as unknown as PrismaService),
+      allocation as unknown as PointAllocationService,
     );
   }
 
@@ -189,13 +194,34 @@ describe('AttendanceService.correct (TEST-012, TEST-013)', () => {
     expect(db.attendanceDay.update.mock.calls[0][0].data).toMatchObject({ overtimeGreens: 2, leftEarly: false });
   });
 
-  it('stores left_early when the corrected check-out is before the shift end (DN-08)', async () => {
+  it('stores left_early and one separate RED when the corrected check-out is before the shift end (D-21)', async () => {
     const db = createDb({
       day: { ...existingDay, checkInAt: new Date('2026-11-02T06:10:00.000Z'), classification: PointType.GREEN },
       awards: 1,
     });
     await createService(db).correct(companyId, adminUserId, dto({ action: 'SET_CHECK_OUT', at: '2026-11-02T12:00:00.000Z' }));
     expect(db.attendanceDay.update.mock.calls[0][0].data).toMatchObject({ overtimeGreens: 0, leftEarly: true });
+    expect(created(db)).toEqual([
+      expect.objectContaining({ sourceType: 'ATTENDANCE', pointType: PointType.GREEN }),
+      expect.objectContaining({ sourceType: 'EARLY_CHECKOUT', pointType: PointType.RED, quantity: 1, idempotencyKey: `EC:${dayId}:2` }),
+    ]);
+    expect(allocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, db);
+  });
+
+  it('reverses an earlier early-checkout RED when the correction moves check-out past the shift end', async () => {
+    const earlyRed = { id: 'ec-1', pointType: PointType.RED, quantity: 1, valuePerPointPiasters: 25000n, sourceType: 'EARLY_CHECKOUT' };
+    const db = createDb({
+      day: { ...existingDay, checkInAt: new Date('2026-11-02T06:10:00.000Z'), classification: PointType.GREEN },
+      activeEntries: [earlyRed],
+      awards: 1,
+    });
+    await createService(db).correct(companyId, adminUserId, dto({ action: 'SET_CHECK_OUT', at: '2026-11-02T14:30:00.000Z' }));
+    const entries = created(db);
+    expect(entries[0]).toMatchObject({ entryKind: 'REVERSAL', reversesEntryId: 'ec-1', sourceType: 'EARLY_CHECKOUT' });
+    expect(entries.filter((e: any) => e.sourceType === 'EARLY_CHECKOUT' && e.entryKind === 'AWARD')).toHaveLength(0);
+    expect(db.pointLedgerEntry.findMany.mock.calls[0][0].where.sourceType).toEqual({
+      in: ['ATTENDANCE', 'OVERTIME', 'EARLY_CHECKOUT'],
+    });
   });
 
   it('EXEMPT reverses the day and awards nothing', async () => {

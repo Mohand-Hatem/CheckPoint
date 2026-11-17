@@ -41,6 +41,7 @@
 | D-18 | Checkout ships in Phase 3 as `POST /employee/attendance/check-out` (same prefix as check-in; the task said `/attendance/check-out`), `200 { checkOutAt, overtimeGreens }`. Check-in and checkout share the body `{ lat, lng, accuracy }`; accuracy above the `gps_max_accuracy_m` setting answers `422 GPS_ACCURACY_TOO_LOW`. Overtime is one ledger entry of quantity `units` with key `OT:{attendanceId}:checkout`; the checkout write only succeeds while `check_out_at` is NULL, so retries and races answer `409 ALREADY_CHECKED_OUT`. **Deferred:** the approved-early-leave ⇒ 0 rule (Phase 5, no early-leave requests yet), the offset engine run (Phase 4), the `left_early` / `overtime_greens` columns (Phase 3 evidence columns). | Explicit user approval (Mohand, 2026-11-09) | REQ-014, FR-ATT-5, 05 §4.3 |
 | D-19 | Two-step check-in: `POST /employee/attendance/check-in` (GPS) only creates a 15-minute `PENDING` row in `attendance_verifications` (one per employee and day, partial unique index); `POST /employee/attendance/check-in/confirm` with the kiosk QR of the same location records the day at the step-1 time and awards its points. Expiry is enforced on use (`410 VERIFICATION_EXPIRED`, row marked `EXPIRED`); no BullMQ job or injectable `Clock` until the Phase 4 absence sweeper needs a scheduler. **Deviation kept until Phase 4:** a check-in after the late period still records BLACK instead of `ATTENDANCE_CLOSED`, so the penalty works before the absence sweeper exists. | Explicit user approval (Mohand, 2026-11-09) | FR-ATT-1, FR-ATT-2, 05 §4.2-4.3, 08 `attendance_verifications` |
 | D-20 | Off-day work: check-in step 1 rejects a weekly off day or holiday with `422 NOT_A_WORKING_DAY` unless an `ACTIVE` `OFF_DAY_WORK` work offer addressed to the employee covers the check-in moment. Admins create it through the existing `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) instead of a separate `/admin/off-day-work` route; its `startsAt`/`endsAt` are the accepted check-in times (DN-20). Such a day is recorded `check_in_result = OFF_DAY_WORK`, classified GREEN with exactly 1 GREEN whatever the time (no early-work extras), and checkout awards no overtime. The salary ÷ 30 day pay is computed by payroll (Phase 6) from these days. | Approved plan item 9 (Mohand, 2026-11-09) | FR-CAL-1, FR-CAL-2, FR-CAL-3, DN-20, 05 §4.2 step 4 |
+| D-21 | Early checkout (DN-08): a checkout before `scheduled_end_at` with no `APPROVED` early leave (none, rejected or cancelled) keeps `left_early = true` and adds one separate RED (`source_type = EARLY_CHECKOUT`, idempotency key `EC:{attendanceDayId}`) in the checkout transaction, then runs the offset engine. Any minute early counts; the day's check-in point is kept. | Spec v0.5.0, AC-REQ-013-04, AC-REQ-022-03 (CHG-006, approved by Mohand 2026-11-17) | 02 §6.5, §6.7, FR-ATT-5, FR-EL-2, edge case #11, DN-08; 05 §4.4, §7; 06 Phase 5; 08 `attendance_days` |
 
 No two CONFIRMED decisions conflict with each other.
 
@@ -100,7 +101,7 @@ No two CONFIRMED decisions conflict with each other.
 | DN-26 | Is an employee excuse flow wanted (`attendance_excuses`)? | Stakeholder |
 | DN-27 | Lockout vs rate limit. | Stakeholder / team |
 | C-17 | Confirm the grace / red-period reading with the author of the 2026-10-22 model. | Model author |
-| U-5 | How a point offset is undone after a reversal (`point_offset_allocations` has no APPLY/UNDO). | Phase 4 |
+| ~~U-5~~ | **Resolved 2026-11-17:** UNDO rows via `point_offset_allocations.reverses_allocation_id` (append-only, `08` §`point_offset_allocations`). | Phase 4 |
 | Q-9 | Which spec proposals does the stakeholder accept (section 4)? | Stakeholder |
 | GAP-026 | How an invitee receives the invitation (one-time link shown to the Admin is the default). | Stakeholder |
 | GAP-027 | Which settings are per company vs platform-wide: Paymob account, fees, legal gate, payroll timing. Blocks Phases 6–7. | Stakeholder |
@@ -122,7 +123,7 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-010 | FR-SCH-1, FR-CAL-1, FR-CAL-2 |
 | REQ-011 | FR-ATT-1, FR-ATT-2, FR-ATT-3; `05` §4.2-4.3; `07` §2-3 |
 | REQ-012 | FR-ATT-4; `02` §6.1 |
-| REQ-013, REQ-014 | FR-ATT-5; `02` §6.5; `07` §5-6 |
+| REQ-013, REQ-014 | FR-ATT-5; `02` §6.5; `07` §5-6; AC-REQ-013-04 → D-21 |
 | REQ-015 | `02` §6.1; `05` §12; `07` §7 |
 | REQ-016 | FR-ATT-6; `05` §4.7 |
 | REQ-017 | FR-PTS-1 |

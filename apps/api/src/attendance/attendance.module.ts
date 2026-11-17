@@ -24,6 +24,7 @@ import {
   CurrentUser,
 } from "../auth/decorators/current-user.decorator";
 import { RequirePermission } from "../auth/decorators/require-permission.decorator";
+import { PointsModule } from "../points/points.module";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AttendanceService } from "./attendance.service";
 import { AttendanceValidationService } from "./attendance-validation.service";
@@ -104,7 +105,7 @@ export class MyAttendanceController {
 }
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, PointsModule],
   controllers: [AttendanceController, MyAttendanceController],
   providers: [
     AttendanceService,

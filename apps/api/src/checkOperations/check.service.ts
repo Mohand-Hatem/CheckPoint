@@ -32,6 +32,7 @@ import { CalendarService } from '../calendar/calendar.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
+import { PointAllocationService } from '../points/point-allocation.service';
 import { PointsService } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
@@ -67,6 +68,7 @@ export class CheckService {
     private readonly audit: AuditService,
     private readonly prisma: PrismaService,
     private readonly calendar: CalendarService,
+    private readonly pointAllocation: PointAllocationService,
   ) {}
 
   async checkInAsUser(companyId: string, userId: string, position: PositionDto) {
@@ -146,12 +148,13 @@ export class CheckService {
       });
     }
     await this.locations.verifyQrToken(companyId, verification.locationId, qrToken);
-    return this.recordCheckIn(
+    const result = await this.recordCheckIn(
       await this.planCheckIn(companyId, employeeId, verification.startedAt),
       verification.id,
       verification.locationId,
       now,
     );
+    return result;
   }
 
   /** Classification and points for a check-in at `at` (D-17 early-work rule included). Writes nothing. */
@@ -311,6 +314,8 @@ export class CheckService {
         },
       });
 
+      await this.pointAllocation.saveAllocations(companyId, employeeId, tx);
+
       return { attendance, pointEntries };
     });
   }
@@ -321,16 +326,16 @@ export class CheckService {
     const workDate = await this.companyPolicy.getCompanyDate(companyId, checkOutAt);
     const day = await this.attendanceValidation.assertCanCheckOut(companyId, employeeId, workDate);
     const location = await this.assertAtAllowedLocation(companyId, userId, 'CHECKOUT', position);
-    // shortcut: an approved early leave must force 0 here (FR-ATT-5); early-leave requests arrive in Phase 5.
+    // shortcut: an approved early leave must force 0 overtime and no RED here (FR-ATT-5, D-21); early-leave requests arrive in Phase 5.
     // DN-20: an off-day-work day earns no overtime GREENs.
     const overtime = day.checkInResult === OFF_DAY_WORK ? 0 : overtimeGreens(checkOutAt, day.scheduledEndAt);
+    const leftEarly = checkOutAt < day.scheduledEndAt;
 
     return this.prisma.$transaction(async (tx) => {
       // Only the request that flips check_out_at from NULL may continue, so retries and races cannot award twice.
       const { count } = await tx.attendanceDay.updateMany({
         where: { id: day.id, companyId, employeeId, checkOutAt: null },
-        // DN-08: leaving before the shift end is flagged for admins, never penalised.
-        data: { checkOutAt, overtimeGreens: overtime, leftEarly: checkOutAt < day.scheduledEndAt },
+        data: { checkOutAt, overtimeGreens: overtime, leftEarly },
       });
       if (count === 0) throw alreadyCheckedOut();
 
@@ -352,6 +357,24 @@ export class CheckService {
               tx,
             )
           : null;
+      // D-21 (DN-08): leaving any minute before the shift end adds one separate RED; the day's point stays.
+      const earlyCheckoutEntry = leftEarly
+        ? await this.points.addPointEntryForSource(
+            {
+              companyId,
+              employeeId,
+              pointType: PointType.RED,
+              quantity: 1,
+              reason: 'Checked out before the shift end without an approved early leave.',
+              idempotencyKey: `EC:${day.id}`,
+              sourceType: 'EARLY_CHECKOUT',
+              sourceId: day.id,
+              createdByUserId: userId,
+              asOfDate: workDate,
+            },
+            tx,
+          )
+        : null;
 
       await this.audit.record(tx, {
         companyId,
@@ -363,10 +386,16 @@ export class CheckService {
         changes: {
           checkOutAt: checkOutAt.toISOString(),
           overtimeGreens: overtime,
+          leftEarly,
           locationId: location.locationId,
           pointEntryId: pointEntry?.id ?? null,
+          earlyCheckoutEntryId: earlyCheckoutEntry?.id ?? null,
         },
       });
+
+      if (pointEntry || earlyCheckoutEntry) {
+        await this.pointAllocation.saveAllocations(companyId, employeeId, tx);
+      }
 
       return { checkOutAt, overtimeGreens: overtime };
     });

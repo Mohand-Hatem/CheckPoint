@@ -1,6 +1,7 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AuditService } from '../audit/audit.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
+import { PointAllocationService } from '../points/point-allocation.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { AttendanceService } from './attendance.service';
 
@@ -33,6 +34,7 @@ describe('AttendanceService.listMine (FR-ATT-7, E8)', () => {
       prisma as unknown as PrismaService,
       companyPolicy as unknown as CompanyPolicyService,
       {} as AuditService,
+      {} as PointAllocationService,
     );
     return { prisma, companyPolicy, service };
   }

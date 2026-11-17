@@ -5,6 +5,7 @@ import { PrismaService } from '../prisma/prisma.service';
 import { ConfigurePointValuesDto } from './dto/configure-point-values.dto';
 import { CreatePointEntryDto } from './dto/create-point-entry.dto';
 import { ReversePointEntryDto } from './dto/reverse-point-entry.dto';
+import { PointAllocationService } from './point-allocation.service';
 import { PointsService } from './points.service';
 
 describe('PointsService', () => {
@@ -14,6 +15,9 @@ describe('PointsService', () => {
   const entryId = 'c0ffee00-0000-4000-8000-000000000004';
   const idempotencyKey = 'test-point-award-1';
 
+  const allocation = { saveAllocations: jest.fn().mockResolvedValue({ offsets: [] }) };
+  beforeEach(() => allocation.saveAllocations.mockClear());
+
   function createService(tx: Record<string, unknown>) {
     const prisma = {
       $transaction: jest.fn(
@@ -22,7 +26,10 @@ describe('PointsService', () => {
       ),
       pointLedgerEntry: { findUnique: jest.fn() },
     };
-    return new PointsService(prisma as unknown as PrismaService);
+    return new PointsService(
+      prisma as unknown as PrismaService,
+      allocation as unknown as PointAllocationService,
+    );
   }
 
   it('TEST-PTS-01 (FR-PTS-1): appends an award with the configured EGP snapshot', async () => {
@@ -79,6 +86,8 @@ describe('PointsService', () => {
         }),
       }),
     );
+    // an admin GREEN cancels open penalties at once, in the same transaction (05 §5.3)
+    expect(allocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, tx);
   });
 
   it('TEST-PTS-02 (FR-PTS-5): appends an auditable reversal without changing its award', async () => {
@@ -133,6 +142,8 @@ describe('PointsService', () => {
         }),
       }),
     );
+    // the reversal's offsets are undone and re-matched in the same transaction (05 §5.3)
+    expect(allocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, tx);
   });
 
   it('records an attendance award in the caller transaction with an idempotency key', async () => {

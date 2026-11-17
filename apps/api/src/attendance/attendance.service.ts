@@ -7,6 +7,7 @@ import {
 import { AttendanceDay, PointType, Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { CompanyPolicyService } from "../company/company-policy.service";
+import { PointAllocationService } from "../points/point-allocation.service";
 import { resolvePointValue } from "../points/point-value";
 import { PrismaService } from "../prisma/prisma.service";
 import {
@@ -17,7 +18,7 @@ import {
 import { CorrectAttendanceDto } from "./dto/correct-attendance.dto";
 import { ListAttendanceQuery } from "./dto/list-attendance.query";
 
-const ATTENDANCE_SOURCES = ["ATTENDANCE", "OVERTIME"];
+const ATTENDANCE_SOURCES = ["ATTENDANCE", "OVERTIME", "EARLY_CHECKOUT"];
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
 
 @Injectable()
@@ -26,6 +27,7 @@ export class AttendanceService {
     private readonly prisma: PrismaService,
     private readonly companyPolicy: CompanyPolicyService,
     private readonly audit: AuditService,
+    private readonly pointAllocation: PointAllocationService,
   ) {}
 
   async list(companyId: string, query: ListAttendanceQuery) {
@@ -276,6 +278,9 @@ export class AttendanceService {
           classification && checkOutAt
             ? overtimeGreens(checkOutAt, day.scheduledEndAt)
             : 0;
+        const leftEarly = Boolean(
+          classification && checkOutAt && checkOutAt < day.scheduledEndAt,
+        );
         if (classification) {
           await award("ATTENDANCE", classification, 1, `ATT:${day.id}:${rev}`);
           if (overtime > 0) {
@@ -286,7 +291,17 @@ export class AttendanceService {
               `OT:${day.id}:${rev}`,
             );
           }
+          // D-21: an early check-out keeps its separate RED after a correction.
+          if (leftEarly) {
+            await award(
+              "EARLY_CHECKOUT",
+              PointType.RED,
+              1,
+              `EC:${day.id}:${rev}`,
+            );
+          }
         }
+        await this.pointAllocation.saveAllocations(companyId, employee.id, tx);
 
         const updated = await tx.attendanceDay.update({
           where: { id: day.id },
@@ -296,7 +311,7 @@ export class AttendanceService {
             classification,
             checkInResult: dto.action === "EXEMPT" ? "EXEMPT" : "CORRECTED",
             overtimeGreens: overtime,
-            leftEarly: Boolean(classification && checkOutAt && checkOutAt < day.scheduledEndAt),
+            leftEarly,
           },
         });
 

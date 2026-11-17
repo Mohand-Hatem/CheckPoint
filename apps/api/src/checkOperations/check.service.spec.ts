@@ -6,6 +6,7 @@ import { AttendanceValidationService } from '../attendance/attendance-validation
 import { CompanyPolicyService } from '../company/company-policy.service';
 import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
+import { PointAllocationService } from '../points/point-allocation.service';
 import { PointsService } from '../points/points.service';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
@@ -34,6 +35,7 @@ describe('CheckService', () => {
   let employees: { findOne: jest.Mock };
   let locations: { isInAllowedLocation: jest.Mock; verifyQrToken: jest.Mock };
   let points: { addPointEntryForSource: jest.Mock };
+  let pointAllocation: { saveAllocations: jest.Mock };
   let workOffers: { listForEmployee: jest.Mock };
   let calendar: { isWorkingDay: jest.Mock };
   let audit: { record: jest.Mock };
@@ -122,12 +124,15 @@ describe('CheckService', () => {
         pointType: PointType.GREEN,
       }),
     };
+    pointAllocation = {
+      saveAllocations: jest.fn().mockResolvedValue({ offsets: [] }),
+    };
     workOffers = { listForEmployee: jest.fn().mockResolvedValue([]) };
     calendar = { isWorkingDay: jest.fn().mockResolvedValue(true) };
     audit = { record: jest.fn().mockResolvedValue({ id: 'audit-1' }) };
     prisma = {
       $transaction: jest.fn(
-        (callback: (tx: Prisma.TransactionClient) => unknown) =>
+        async (callback: (tx: Prisma.TransactionClient) => unknown) =>
           callback(transaction),
       ),
       attendanceVerification: verifications,
@@ -144,6 +149,7 @@ describe('CheckService', () => {
       audit as unknown as AuditService,
       prisma as unknown as PrismaService,
       calendar as unknown as CalendarService,
+      pointAllocation as unknown as PointAllocationService,
     );
   });
 
@@ -368,7 +374,49 @@ describe('CheckService', () => {
           changes: expect.objectContaining({ verificationId: 'ver-1', locationId: 'location-1' }),
         }),
       );
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(
+        companyId,
+        employeeId,
+        transaction,
+      );
       expect(result.pointEntries).toEqual([expect.objectContaining({ id: 'point-1' })]);
+    });
+
+    it('TEST-ALLOC-07 (FR-PTS-2): allocates points inside the confirmed attendance transaction', async () => {
+      const events: string[] = [];
+      prisma.$transaction.mockImplementation(async (callback) => {
+        const result = await callback(transaction);
+        events.push('commit');
+        return result;
+      });
+      pointAllocation.saveAllocations.mockImplementation(async () => {
+        events.push('allocate');
+        return { offsets: [] };
+      });
+
+      await confirmAt(fixedTime);
+
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(
+        companyId,
+        employeeId,
+        transaction,
+      );
+      expect(events).toEqual(['allocate', 'commit']);
+    });
+
+    it('propagates allocation failure before the check-in transaction can commit', async () => {
+      const error = new Error('Allocation failed');
+      const events: string[] = [];
+      prisma.$transaction.mockImplementation(async (callback) => {
+        const result = await callback(transaction);
+        events.push('commit');
+        return result;
+      });
+      pointAllocation.saveAllocations.mockRejectedValue(error);
+
+      await expect(confirmAt(fixedTime)).rejects.toBe(error);
+      expect(attendanceDay.recordAttendanceDay).toHaveBeenCalled();
+      expect(events).toEqual([]);
     });
 
     it('awards the early-work GREENs from the step-1 time (D-17)', async () => {
@@ -588,12 +636,50 @@ describe('CheckService', () => {
         checkOutAt: new Date(time),
         overtimeGreens: greens,
       });
+      const early = new Date(time) < new Date('2025-03-10T16:00:00.000Z');
       expect(updateMany.mock.calls[0][0].data).toEqual({
         checkOutAt: new Date(time),
         overtimeGreens: greens,
-        leftEarly: new Date(time) < new Date('2025-03-10T16:00:00.000Z'),
+        leftEarly: early,
       });
-      expect(points.addPointEntryForSource).toHaveBeenCalledTimes(greens ? 1 : 0);
+      // overtime GREENs and the early-checkout RED (D-21) are separate entries
+      expect(points.addPointEntryForSource).toHaveBeenCalledTimes((greens ? 1 : 0) + (early ? 1 : 0));
+    });
+
+    it('adds one separate RED when checking out any minute before the shift end, then runs offsets (D-21)', async () => {
+      jest.setSystemTime(new Date('2025-03-10T15:59:00.000Z'));
+
+      await expect(checkOut()).resolves.toEqual({
+        checkOutAt: new Date('2025-03-10T15:59:00.000Z'),
+        overtimeGreens: 0,
+      });
+      expect(points.addPointEntryForSource).toHaveBeenCalledTimes(1);
+      expect(points.addPointEntryForSource).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pointType: PointType.RED,
+          quantity: 1,
+          sourceType: 'EARLY_CHECKOUT',
+          sourceId: 'attendance-1',
+          idempotencyKey: 'EC:attendance-1',
+        }),
+        transaction,
+      );
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, transaction);
+    });
+
+    it('adds no RED and runs no offsets when checking out exactly at the shift end', async () => {
+      jest.setSystemTime(new Date('2025-03-10T16:00:00.000Z'));
+
+      await checkOut();
+      expect(points.addPointEntryForSource).not.toHaveBeenCalled();
+      expect(pointAllocation.saveAllocations).not.toHaveBeenCalled();
+    });
+
+    it('runs offsets inside the checkout transaction after overtime GREENs (05 §5.3)', async () => {
+      jest.setSystemTime(new Date('2025-03-10T18:30:00.000Z'));
+
+      await checkOut();
+      expect(pointAllocation.saveAllocations).toHaveBeenCalledWith(companyId, employeeId, transaction);
     });
 
     it('answers the validation error (INVALID_STATE / ALREADY_CHECKED_OUT) and writes nothing', async () => {

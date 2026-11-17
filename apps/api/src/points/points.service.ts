@@ -10,6 +10,7 @@ import { ConfigurePointValuesDto } from './dto/configure-point-values.dto';
 import { CreatePointEntryDto } from './dto/create-point-entry.dto';
 import { ListPointEntriesQueryDto } from './dto/list-point-entries-query.dto';
 import { ReversePointEntryDto } from './dto/reverse-point-entry.dto';
+import { PointAllocationService } from './point-allocation.service';
 import { resolvePointValue } from './point-value';
 
 const VALUED_POINT_TYPES = [
@@ -19,7 +20,11 @@ const VALUED_POINT_TYPES = [
 ] as const;
 const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
-export type PointEntrySource = 'ADMIN' | 'ATTENDANCE' | 'OVERTIME';
+export type PointEntrySource =
+  | 'ADMIN'
+  | 'ATTENDANCE'
+  | 'OVERTIME'
+  | 'EARLY_CHECKOUT';
 
 export type AddPointEntryForSourceInput = {
   companyId: string;
@@ -43,7 +48,10 @@ export type ReversePointEntryForSourceInput = {
 
 @Injectable()
 export class PointsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly allocation: PointAllocationService,
+  ) {}
 
   getPointValues(companyId: string) {
     return this.prisma.pointValueVersion.findMany({
@@ -175,6 +183,8 @@ export class PointsService {
             select: { id: true, employeeNumber: true, fullName: true },
           },
           pointValueVersion: true,
+          greenAllocations: true,
+          penaltyAllocations: true,
           createdBy: { select: { id: true, email: true } },
         },
       })
@@ -252,6 +262,7 @@ export class PointsService {
               },
             },
           });
+          await this.allocation.saveAllocations(companyId, employee.id, tx);
           return serializePointEntry(entry);
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
@@ -542,6 +553,11 @@ export class PointsService {
               },
             },
           });
+          await this.allocation.saveAllocations(
+            companyId,
+            entry.employeeId,
+            tx,
+          );
           return reversal;
         },
         { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
