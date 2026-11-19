@@ -1,6 +1,8 @@
 import { Injectable, Logger } from "@nestjs/common";
 import { PointType, Prisma } from "@prisma/client";
 import { PrismaService } from "../prisma/prisma.service";
+import { lockEmployee } from "./lock-employee";
+import { isInMonths, lockedMonths } from "./month-lock";
 
 export type Bucket = { id: string; remaining: number };
 
@@ -128,7 +130,8 @@ export class PointAllocationService {
         reversesEntryId: null,
         reversalEntries: { none: {} },
       },
-      orderBy: { createdAt: "asc" },
+      // Oldest work date first (05 §5.3); created_at and id break ties.
+      orderBy: [{ workDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       include: {
         greenAllocations: { where: ACTIVE, select: { quantity: true } },
         penaltyAllocations: { where: ACTIVE, select: { quantity: true } },
@@ -138,8 +141,11 @@ export class PointAllocationService {
     const greens: Bucket[] = [];
     const reds: Bucket[] = [];
     const blacks: Bucket[] = [];
+    // Offsets only touch open months (FR-PTS-4): a locked month's Greens are settled to the Fund.
+    const locked = await lockedMonths(tx, companyId);
 
     for (const e of entries) {
+      if (isInMonths(locked, e.workDate)) continue;
       if (e.pointType === PointType.GREEN) {
         const spent = e.greenAllocations.reduce((s, a) => s + a.quantity, 0);
         const remaining = e.quantity - spent;
@@ -180,6 +186,7 @@ export class PointAllocationService {
     return [...out.values()];
   }
 
+  /** With `transaction`, the caller must already hold `lockEmployee` (05 §14). */
   async saveAllocations(
     companyId: string,
     employeeId: string,
@@ -187,8 +194,6 @@ export class PointAllocationService {
   ) {
     try {
       const save = async (tx: Prisma.TransactionClient) => {
-        await tx.$queryRaw`SELECT id FROM employees WHERE id = ${employeeId}::uuid FOR UPDATE`;
-
         await this.undoReversedOffsets(tx, companyId, employeeId);
 
         const { greens, reds, blacks } = await this.preparePoints(
@@ -211,7 +216,10 @@ export class PointAllocationService {
         return await save(transaction);
       }
 
-      return await this.prismaService.$transaction(save);
+      return await this.prismaService.$transaction(async (tx) => {
+        await lockEmployee(tx, employeeId);
+        return save(tx);
+      });
     } catch (error) {
       this.logger.error(
         `Failed to save point allocations for employee ${employeeId}`,

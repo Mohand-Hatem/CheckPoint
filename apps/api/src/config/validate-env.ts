@@ -9,7 +9,7 @@ export function validateEnv(env: Record<string, unknown>): Record<string, unknow
       problems.push(`${key} is required`);
     }
   }
-  for (const key of ['PORT', 'REFRESH_TOKEN_EXPIRES_DAYS']) {
+  for (const key of ['PORT', 'REFRESH_TOKEN_EXPIRES_DAYS', 'REDIS_PORT']) {
     if (env[key] !== undefined && env[key] !== '' && !/^[1-9]\d*$/.test(String(env[key]))) {
       problems.push(`${key} must be a positive whole number`);
     }

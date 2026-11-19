@@ -126,7 +126,7 @@ shift_end     = date + end_time
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).
 9. Nothing is awarded; **GPS alone never confirms attendance.**
 
-**Built so far (D-19, D-20):** steps 1-9 (step 2: `409 ALREADY_CHECKED_IN`, or `422 ATTENDANCE_CLOSED` for an exempt/absent day, checked before the working day); step 4 checks the working day and off-day-work exceptions (`422 NOT_A_WORKING_DAY`), while leave checks come with Phase 5 and `CLOSED` still records BLACK until the Phase 4 absence sweeper.
+**Built so far (D-19, D-20):** steps 1-9 (step 2: `409 ALREADY_CHECKED_IN`, or `422 ATTENDANCE_CLOSED` for an exempt/absent day, checked before the working day); step 4 checks the working day and off-day-work exceptions (`422 NOT_A_WORKING_DAY`), while leave checks come with Phase 5. Step 5 `CLOSED` (at or after the red-period end) answers `422 ATTENDANCE_CLOSED` at step 1 and at confirm (Phase 4, with the absence sweep: the day becomes ABSENT + BLACK by the sweep, never by a check-in). Admin corrections still classify such a time as BLACK (§4.7).
 
 ### 4.3 Check-in — step 2 (QR confirmation)
 1. Load verification (must belong to caller). `CONFIRMED` ⇒ `409`; `EXPIRED` or `expires_at ≤ now` ⇒ `410 VERIFICATION_EXPIRED` (row marked `EXPIRED` by the sweeper, or lazily).
@@ -199,9 +199,11 @@ A **view** `point_state` derives status from immutable rows:
 | RED / BLACK | `ACTIVE` | not reversed, not cancelled |
 | WHITE | `RECORDED` | informational only |
 
+**Built shape (Phase 4):** a ledger row can carry N points of one source and be partly used, so the view returns one row per `AWARD` entry with quantities (`consumed_qty`, `cancelled_qty`, `available_qty`, `settled_qty`, `active_qty`, `reversed`, `month_locked`; `08-DATABASE_SCHEMA.md` `point_state`). The states above are read per unit from those counts. Reads (`/me/points`, admin ledger) use the view; the offset engine keeps its own tested calculation, and a test checks the two agree.
+
 ### 5.3 Offset engine (`OffsetEngine.run(tx, userId)`) — event-driven
 Precondition: user lock held. Open months = months without a `LOCKED` row in `payroll_months`.
-1. Load `AVAILABLE` Greens, `ACTIVE` Reds and `ACTIVE` Blacks whose `payroll_month` is open; order each by `(work_date, created_at, id)` ascending (oldest first).
+1. Load `AVAILABLE` Greens, `ACTIVE` Reds and `ACTIVE` Blacks whose `payroll_month` is open; order each by `(work_date, created_at, id)` ascending (oldest first). `work_date` is a column on `point_ledger_entries` (Phase 4); locked-month points are skipped here, and the insert triggers are the backstop.
 2. **Red pass:** while a Red and a Green both remain: take the oldest Red and oldest Green; insert one `point_offsets` APPLY row (`target = Red`, `source = Green`, new `group_id`).
 3. **Black pass:** while a Black remains and ≥ 5 Greens remain (`offset_greens_per_black`): take the oldest Black and the 5 oldest Greens; insert 5 APPLY rows sharing one `group_id` — **all in the same transaction; never partial**.
 4. Return the list of created offsets (for notifications).
@@ -364,12 +366,18 @@ Immutable rows (`type WALLET|BANK`, issuer, `account_encrypted` AES-256-GCM, `ac
 - Per employee, one short **transaction** with user lock: insert `attendance (ABSENT, BLACK, rev 1)` `ON CONFLICT DO NOTHING`; if inserted ⇒ award Black (`dedupe_key = ATT:{userId}:{d}:1`); run engine; notify. Rerun/parallel run ⇒ conflict ⇒ no-op.
 - Month Close is **not** a scheduled job (admin-triggered).
 
+**Built shape (Phase 4):**
+- `AbsenceSweepService.run(now)` holds all the logic and is tested directly against the database. A BullMQ job scheduler (`attendance-sweeper`, every 60 s, worker concurrency 1) only calls it. The queue module is registered only when `REDIS_HOST` is set, so the API and the e2e suite boot without Redis (the sweeper is then off and a boot log says so).
+- Per company (its timezone and `absence_lookback_days` setting): one set-based query lists candidates (active employee, no `attendance_days` row for `d`, no unexpired `PENDING` verification, month of `d` open). Only candidates get the per-employee transaction, which takes the user lock, re-checks the row, then checks the working day, the off-day-work exception and `now ≥ red_period_end(d)` with the **same schedule helper check-in uses**.
+- The Black uses the check-in day-point key `ATT:{employeeId}:{d}`, so a day can never hold both a check-in point and an absence Black. `work_date = d`, `source_type = ATTENDANCE`, `source_id` = the new attendance day.
+- Notifications arrive with Phase 5.
+
 ## 13. Audit
 `AuditService.record(tx, {companyId, actorUserId, actorType, action, targetType, targetId, changes, reason})` (wrapping `recordAuditEvent`) is called inside the business transaction for **every admin mutation** (employees, users/salaries, shifts/versions/assignments, company policy, point values, point add/reverse, attendance corrections; excuses and offers when built). Admins read it through `GET /admin/audit-events` (`audit.read`, own company only). **Append-only in the database:** migrations `20261025000200_audit_append_only` and `20261102000000_point_ledger_append_only` add `BEFORE UPDATE / DELETE / TRUNCATE` triggers on `audit_events` and `point_ledger_entries` that raise an error.
 
 ## 14. Transaction Boundaries
 
-Legend: **Tx** = DB transaction; **UL** = `SELECT … FOR UPDATE` on the user row (user lock); **PL** = row lock on the payout/month row. Locks are used only where a read-then-write race would corrupt points or money.
+Legend: **Tx** = DB transaction; **UL** = row lock on the employee row, taken first (user lock; built as `FOR NO KEY UPDATE`, see below); **PL** = row lock on the payout/month row. Locks are used only where a read-then-write race would corrupt points or money.
 
 | Operation | Tx | Lock | Notes |
 |---|---|---|---|
@@ -391,6 +399,8 @@ Legend: **Tx** = DB transaction; **UL** = `SELECT … FOR UPDATE` on the user ro
 | Webhook intake | single insert | none | unique event id |
 | Refresh rotation | short Tx | token row `FOR UPDATE` | reuse detection |
 | Settings/CRUD/reads | none or simple Tx | none | no locks "just in case" |
+
+**User lock, as built (Phase 4):** one helper `lockEmployee(tx, employeeId)` runs `SELECT id FROM employees WHERE id = $1 FOR NO KEY UPDATE` as the **first** statement of every transaction that writes points (check-in confirm, check-out, absence sweep, admin add/reverse, attendance correction). The transaction stays at READ COMMITTED (Postgres default): the lock serializes writers for one employee, and every read after it sees the latest committed rows. No `Serializable` on these paths; idempotency comes from unique keys. Taking the lock first matters: inserting a row with an FK to the employee holds `FOR KEY SHARE` on it, so a `FOR UPDATE` taken later by two transactions deadlocks. `FOR NO KEY UPDATE` does not conflict with `FOR KEY SHARE`.
 
 **External calls that MUST happen outside DB transactions:** Paymob `send`/`inquire`/token fetch, Redis/BullMQ enqueue (done by the outbox relay after commit), email/push, any HTTP call. **Lock order:** `payroll_months` → `users` ascending id → `payouts` → other rows.
 

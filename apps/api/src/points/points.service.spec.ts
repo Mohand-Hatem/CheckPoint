@@ -44,6 +44,8 @@ describe('PointsService', () => {
       valuePerPointPiasters: 1725n,
     };
     const tx = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       pointLedgerEntry: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(entry),
@@ -93,6 +95,7 @@ describe('PointsService', () => {
   it('TEST-PTS-02 (FR-PTS-5): appends an auditable reversal without changing its award', async () => {
     const award = {
       id: entryId,
+      workDate: new Date('2026-01-05T00:00:00.000Z'),
       companyId,
       employeeId,
       pointType: PointType.RED,
@@ -110,6 +113,8 @@ describe('PointsService', () => {
       valuePerPointPiasters: 25000n,
     };
     const tx = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       pointLedgerEntry: {
         findFirst: jest.fn().mockResolvedValue(award),
         findUnique: jest.fn().mockResolvedValue(null),
@@ -161,6 +166,8 @@ describe('PointsService', () => {
       valuePerPointPiasters: 100000n,
     };
     const tx = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       pointLedgerEntry: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue(entry),
@@ -205,6 +212,8 @@ describe('PointsService', () => {
 
   it('opens a transaction when recording an automatic award without a client', async () => {
     const tx = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       pointLedgerEntry: {
         findUnique: jest.fn().mockResolvedValue(null),
         create: jest.fn().mockResolvedValue({
@@ -248,6 +257,8 @@ describe('PointsService', () => {
       valuePerPointPiasters: 100000n,
     };
     const tx = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       pointLedgerEntry: {
         findUnique: jest.fn().mockResolvedValue(existing),
         create: jest.fn(),
@@ -279,6 +290,7 @@ describe('PointsService', () => {
   it('reverses an automatic award by appending a linked compensating row', async () => {
     const award = {
       id: entryId,
+      workDate: new Date('2026-01-05T00:00:00.000Z'),
       companyId,
       employeeId,
       pointType: PointType.GREEN,
@@ -297,6 +309,8 @@ describe('PointsService', () => {
       valuePerPointPiasters: 100000n,
     };
     const tx = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       pointLedgerEntry: {
         findFirst: jest.fn().mockResolvedValue(award),
         findUnique: jest.fn().mockResolvedValue(null),

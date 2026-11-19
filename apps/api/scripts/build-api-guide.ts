@@ -392,6 +392,19 @@ async function main() {
   });
   check(dayAudit.json?.total === 3, 'three attendance.correct events');
 
+  const month = workDate.slice(0, 7);
+  await call({
+    title: 'Employee reads their own points for that month',
+    why: 'Only my points, read by token. Each entry shows its state: the reversed GREEN counts for nothing, one overtime GREEN was used to cancel the RED (`consumedQty` / `cancelledQty`), the other is still available.',
+    method: 'GET', path: `/me/points?month=${month}`, token: e.access, expect: 200,
+  });
+  const mySummary = await call({
+    title: 'Employee reads their point totals',
+    why: 'The same month as totals by colour and state.',
+    method: 'GET', path: `/me/points/summary?month=${month}`, token: e.access, expect: 200,
+  });
+  check(mySummary.json?.red?.cancelled === 1 && mySummary.json?.green?.available === 1, 'one RED cancelled, one GREEN left');
+
   // ---------------------------------------------------------------- D. sessions
   md.push('### Part D: Tokens, refresh and theft detection', '');
   const refreshed = await call({

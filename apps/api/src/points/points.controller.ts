@@ -18,7 +18,14 @@ import { RequirePermission } from '../auth/decorators/require-permission.decorat
 import { ConfigurePointValuesDto } from './dto/configure-point-values.dto';
 import { CreatePointEntryDto } from './dto/create-point-entry.dto';
 import { ListPointEntriesQueryDto } from './dto/list-point-entries-query.dto';
+import {
+  MyPointsQuery,
+  MyPointsResponseDto,
+  MyPointsSummaryDto,
+  MyPointsSummaryQuery,
+} from './dto/my-points.dto';
 import { ReversePointEntryDto } from './dto/reverse-point-entry.dto';
+import { MyPointsService } from './my-points.service';
 import { PointsService } from './points.service';
 
 @ApiTags('Admin · Points')
@@ -101,5 +108,37 @@ export class PointsController {
       id,
       dto,
     );
+  }
+}
+
+@ApiTags('Me')
+@Controller('me')
+export class MyPointsController {
+  constructor(private readonly myPoints: MyPointsService) {}
+
+  @Get('points')
+  @ApiProtected()
+  @ApiOperation({
+    summary: 'My point ledger for one month',
+    description:
+      "Only the signed-in employee's own points of one payroll month, newest work date first, each with its state: GREENs consumed, available or settled; REDs and BLACKs cancelled or active; reversed entries count for nothing. Filter by type; paged. Defaults to the current company month.",
+  })
+  @ApiOkResponse({ type: MyPointsResponseDto })
+  @ApiValidationError()
+  list(@Query() query: MyPointsQuery, @CurrentUser() user: AuthenticatedUser) {
+    return this.myPoints.list(user.companyId, user.userId, query);
+  }
+
+  @Get('points/summary')
+  @ApiProtected()
+  @ApiOperation({
+    summary: 'My point totals for one month',
+    description:
+      'Totals by colour and state for the signed-in employee in one payroll month: e.g. 3 GREENs = 2 available + 1 used to cancel a RED. Defaults to the current company month.',
+  })
+  @ApiOkResponse({ type: MyPointsSummaryDto })
+  @ApiValidationError()
+  summary(@Query() query: MyPointsSummaryQuery, @CurrentUser() user: AuthenticatedUser) {
+    return this.myPoints.summary(user.companyId, user.userId, query.month);
   }
 }

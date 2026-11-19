@@ -17,6 +17,30 @@ export interface AttendanceWindows {
   scheduledEndAt: Date;
 }
 
+type Dated = { effectiveFrom: Date; effectiveTo: Date | null };
+const covers = (row: Dated, day: Date) =>
+  row.effectiveFrom <= day && (!row.effectiveTo || row.effectiveTo >= day);
+
+/**
+ * The shift times and assignment an employee works on `workDate`: the current shift's version in force
+ * that day (none if the shift is inactive). Check-in and the absence sweep must judge a day the same way.
+ */
+export function scheduleForDay<A extends Dated & { shiftId: string }>(
+  employee: {
+    currentShift: { id: string; isActive: boolean; versions: (ShiftTimes & Dated)[] };
+    shiftAssignments: A[];
+  },
+  workDate: Date,
+) {
+  const shift = employee.currentShift.isActive
+    ? employee.currentShift.versions.find((version) => covers(version, workDate))
+    : undefined;
+  const assignment = employee.shiftAssignments.find(
+    (item) => item.shiftId === employee.currentShift.id && covers(item, workDate),
+  );
+  return { shift, assignment };
+}
+
 // docs/05 §4.1: window instants for one work date, computed in the company timezone and stored as UTC.
 export function computeWindows(
   workDate: Date,

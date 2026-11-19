@@ -32,6 +32,9 @@ import { AttendanceDayService } from "./attendance-day.service";
 import { CorrectAttendanceDto } from "./dto/correct-attendance.dto";
 import { ListAttendanceQuery } from "./dto/list-attendance.query";
 import { MyAttendanceQuery, MyAttendanceResponseDto } from "./dto/my-attendance.dto";
+import { AbsenceSweepService } from "./absence-sweep.service";
+import { CalendarModule } from "../calendar/calendar.module";
+import { EmployeesModule } from "../employees/employees.module";
 
 @ApiTags("Admin · Attendance")
 @Controller("admin/attendance")
@@ -105,13 +108,14 @@ export class MyAttendanceController {
 }
 
 @Module({
-  imports: [PrismaModule, PointsModule],
+  imports: [PrismaModule, PointsModule, EmployeesModule, CalendarModule],
   controllers: [AttendanceController, MyAttendanceController],
   providers: [
+    AbsenceSweepService,
     AttendanceService,
     AttendanceValidationService,
     AttendanceDayService,
   ],
-  exports: [AttendanceValidationService, AttendanceDayService],
+  exports: [AttendanceValidationService, AttendanceDayService, AbsenceSweepService],
 })
 export class AttendanceModule {}

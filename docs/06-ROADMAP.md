@@ -197,9 +197,11 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 
 **Definition of Done**
 - [x] Golden cases G1–G5 and G7 (`05-SYSTEM_DESIGN.md` §15.4) pass for the points part (counts, consumed, remaining). (`test/golden-cases.e2e-spec.ts`, also G8)
-- [ ] Re-running the absence sweep 10× creates no extra rows.
-- [ ] Attempting to insert a point or offset for a locked month fails at DB level.
+- [x] Re-running the absence sweep 10× creates no extra rows. (`test/absence-sweep.e2e-spec.ts`, also 5 parallel sweeps)
+- [x] Attempting to insert a point or offset for a locked month fails at DB level. (`test/month-lock.e2e-spec.ts`)
 - [x] Phase 3 tests still pass against the real ledger.
+
+**Status (2026-11-19):** backend done: `point_state` view, `payroll_months` stub + month guards, `work_date` on the ledger, user lock first (`FOR NO KEY UPDATE`), absence sweep (`AbsenceSweepService`, BullMQ every minute when `REDIS_HOST` is set), late check-in ⇒ `ATTENDANCE_CLOSED`, `GET /me/points` and `/me/points/summary`, concurrency tests (`test/point-concurrency.e2e-spec.ts`). Open: the [WEB] and [MOB] screens (frontend track); Neon needs migrations `20261117000000` … `20261119020000`.
 
 ---
 

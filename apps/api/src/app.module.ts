@@ -1,7 +1,8 @@
 import { Module } from '@nestjs/common';
-import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ConditionalModule, ConfigModule, ConfigService } from '@nestjs/config';
 import { APP_GUARD } from '@nestjs/core';
 import { LogTransport, MailerModule } from '@nestjs-modules/mailer';
+import { AbsenceSweepQueueModule } from './attendance/absence-sweep.queue';
 import { AttendanceModule } from './attendance/attendance.module';
 import { AuditModule } from './audit/audit.module';
 import { AuthModule } from './auth/auth.module';
@@ -61,6 +62,11 @@ import { HealthController } from './health/health.controller';
     LocationModule,
     CheckModule,
     CalendarModule,
+    // Absence sweeper (05 §12): needs Redis; off in jest so tests never sweep their own data.
+    ConditionalModule.registerWhen(
+      AbsenceSweepQueueModule,
+      (env) => Boolean(env.REDIS_HOST) && env.NODE_ENV !== 'test',
+    ),
   ],
   controllers: [HealthController],
   providers: [
