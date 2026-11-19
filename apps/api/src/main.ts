@@ -31,6 +31,9 @@ async function bootstrap() {
   if (swaggerEnabled()) {
     logger.log(`📘 API docs: http://localhost:${port}/api/docs  (OpenAPI JSON: /api/docs-json)`, 'Bootstrap');
   }
+  if (!process.env.REDIS_HOST) {
+    logger.warn('REDIS_HOST is not set: the absence sweeper is off (05 §12).', 'Bootstrap');
+  }
 }
 
 // A startup failure (e.g. invalid configuration) must stop the process with a clear message.

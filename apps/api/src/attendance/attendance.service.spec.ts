@@ -38,6 +38,8 @@ describe('AttendanceService.correct (TEST-012, TEST-013)', () => {
 
   function createDb(opts: { day?: typeof existingDay | null; activeEntries?: unknown[]; awards?: number } = {}) {
     const db: Record<string, any> = {
+      $queryRaw: jest.fn(),
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       employee: { findFirst: jest.fn().mockResolvedValue({ id: employeeId }) },
       attendanceDay: {
         findUnique: jest.fn().mockResolvedValue(opts.day === undefined ? existingDay : opts.day),

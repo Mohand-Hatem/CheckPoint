@@ -62,6 +62,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | E9 | See fund balance and history; withdraw to my payout method; see payout status. | MVP |
 | E10 | Manage my payout method. | MVP |
 | E11 | Request to work on an off day. | Later (MVP: admin grants exception) |
+| E12 | Explain one of my attendance days with a written excuse and see its status and decision; the excuse alone changes no point (REQ-034, HAS-168). | MVP |
 
 ### Admin
 | ID | Story | Priority |
@@ -77,6 +78,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | A9 | Review fund, perform fund adjustments (ledger entries), review/inquire/manual-resolve payouts. | MVP |
 | A10 | Edit settings (policy toggles, limits, weekly off days). | MVP |
 | A11 | Review audit log. | MVP |
+| A12 | Approve or reject an employee's attendance excuse with a reason; the decision is recorded and audited but changes no point (to change a point I use a correction) (REQ-035, HAS-170). | MVP |
 
 ### System
 | ID | Story | Priority |
@@ -122,6 +124,8 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-ATT-5 | Check-out: GPS + geofence validation; records time; awards overtime Greens; before shift end without an approved early leave adds one RED (DN-08). | MVP |
 | FR-ATT-6 | Admin manual check-in/out and correction (reason mandatory, audited, point effects through ledger reversal + new award). | MVP |
 | FR-ATT-7 | Employee attendance history. | MVP |
+| FR-ATT-8 | Employee attendance excuse (REQ-034): one written excuse per own attendance day (`PENDING`), list and open own excuses with status and decision; another employee's or company's day or excuse answers 404; a second excuse for the same day answers 409; reason 1–1000 characters; any recorded day, also ABSENT and locked months; no effect on attendance or points. Admin review: GAP-030 (not built). | MVP |
+| FR-ATT-9 | Admin decision on an excuse (REQ-035): `attendance.write` only (else 403); `APPROVED` or `REJECTED` with a reason of 1–1000 characters; only a `PENDING` excuse, once (repeat or race ⇒ 409, the first decision is kept); stores decider, time, status and reason and audits it; changes no attendance, classification or point entry; missing or other-company excuse ⇒ 404; an Admin cannot decide an excuse on their own day (403). Finding excuses to review: GAP-031. | MVP |
 
 ### 4.4 Points
 | ID | Requirement | Priority |
@@ -381,7 +385,7 @@ Fund credit (EGP) = remaining (unconsumed, unreversed) Greens × configured Gree
 | DN-23 | Money representation: `NUMERIC(14,2)` EGP vs integer piasters (planning proposal). Rounding is half-up once either way. | `NUMERIC(14,2)`. |
 | DN-24 | ~~`WorkOffer` / `AdditionalWorkCalculation` purpose~~ (**closed — team decision 2026-10-22**): `work_offers` is the off-day-work exception record and `additional_work_calculations` stores its pay, always salary ÷ 30 and 1 GREEN (FR-CAL-3). `monthly_hours_divisor` is not used for pay. | As decided. |
 | DN-25 | One unused Green (1000 EGP) outweighs the RED deduction (250 EGP) it cancels. Intended? | Config-driven; no change. |
-| DN-26 | `attendance_excuses` (employee excuse + admin decision) exists in the schema but no requirement defines it. | Kept, unused in MVP; needs a requirement before any endpoint writes it. |
+| DN-26 | `attendance_excuses` (employee excuse + admin decision) exists in the schema but no requirement defines it. | **Closed** by spec v0.6.0 (CHG-007, REQ-034, D-22): employees submit and view excuses (FR-ATT-8). The Admin decision stays open (GAP-030). |
 | DN-27 | Login protection: account **lockout** (planning proposal, 5 failures → 15 min) vs the implemented **rate limit** per email+IP (HTTP 429). | Rate limit (implemented); planning GAP-024. |
 
 ## 10. Superseded v2 Rules (must NOT be reused)

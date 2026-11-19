@@ -1981,6 +1981,187 @@
         ]
       }
     },
+    "/api/me/points": {
+      "get": {
+        "description": "Only the signed-in employee's own points of one payroll month, newest work date first, each with its state: GREENs consumed, available or settled; REDs and BLACKs cancelled or active; reversed entries count for nothing. Filter by type; paged. Defaults to the current company month.",
+        "operationId": "MyPointsController_list",
+        "parameters": [
+          {
+            "name": "month",
+            "required": false,
+            "in": "query",
+            "description": "Payroll month of the points (YYYY-MM); default: the current company month.",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          },
+          {
+            "name": "type",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "enum": [
+                "GREEN",
+                "WHITE",
+                "RED",
+                "BLACK"
+              ]
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPointsResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My point ledger for one month",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/me/points/summary": {
+      "get": {
+        "description": "Totals by colour and state for the signed-in employee in one payroll month: e.g. 3 GREENs = 2 available + 1 used to cancel a RED. Defaults to the current company month.",
+        "operationId": "MyPointsController_summary",
+        "parameters": [
+          {
+            "name": "month",
+            "required": false,
+            "in": "query",
+            "description": "Payroll month of the points (YYYY-MM); default: the current company month.",
+            "schema": {
+              "example": "2026-11",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MyPointsSummaryDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My point totals for one month",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
     "/api/admin/company-policy": {
       "get": {
         "operationId": "SchedulesController_getCompanyPolicy",
@@ -2671,6 +2852,353 @@
         ]
       }
     },
+    "/api/admin/attendance-excuses/{id}/decision": {
+      "post": {
+        "description": "Decide a PENDING excuse once, APPROVED or REJECTED, with a reason. The decision is a record only and is audited: it does not change the attendance day, its classification or any point (to change a point, use an attendance correction). A repeated or concurrent decision answers 409 EXCUSE_ALREADY_DECIDED and keeps the first; your own excuse answers 403 SELF_DECISION_FORBIDDEN; a missing or other-company excuse answers 404.",
+        "operationId": "AdminAttendanceExcusesController_decide",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideAttendanceExcuseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No attendance.write, or SELF_DECISION_FORBIDDEN (your own attendance day).\n\nThe caller is authenticated but lacks the `attendance.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing excuse, or one of another company."
+          },
+          "409": {
+            "description": "EXCUSE_ALREADY_DECIDED: only a PENDING excuse can be decided."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Approve or reject an attendance excuse (REQ-035)",
+        "tags": [
+          "Admin · Attendance"
+        ]
+      }
+    },
+    "/api/me/attendance/{attendanceDayId}/excuse": {
+      "post": {
+        "description": "Submit one written excuse for your own recorded day (any result, ABSENT included). It starts PENDING and changes no attendance or points. Someone else's day, another company's day or a missing day answers 404; a second excuse for the same day answers 409 EXCUSE_EXISTS.",
+        "operationId": "MyAttendanceController_submitExcuse",
+        "parameters": [
+          {
+            "name": "attendanceDayId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAttendanceExcuseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not my attendance day (or no employee profile)."
+          },
+          "409": {
+            "description": "EXCUSE_EXISTS: the day already has an excuse; it cannot be resubmitted."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Explain one of my attendance days (REQ-034)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/me/attendance-excuses": {
+      "get": {
+        "description": "Only my own excuses in my company, newest first, each with its status and decision (empty while PENDING). Paged.",
+        "operationId": "MyAttendanceController_listExcuses",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceExcuseListDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My attendance excuses (REQ-034)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/me/attendance-excuses/{id}": {
+      "get": {
+        "description": "Status and decision of one of my own excuses. Another employee's or company's excuse answers 404.",
+        "operationId": "MyAttendanceController_getExcuse",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not my excuse."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "One of my attendance excuses (REQ-034)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
     "/api/me/attendance": {
       "get": {
         "description": "Only the signed-in employee's own days, oldest first: check-in and check-out times, the result and the day's point colour. Defaults to the current company month.",
@@ -2741,6 +3269,383 @@
         "summary": "My attendance history for one month (FR-ATT-7)",
         "tags": [
           "Me"
+        ]
+      }
+    },
+    "/api/admin/holidays": {
+      "get": {
+        "operationId": "CalendarController_listHolidays",
+        "parameters": [
+          {
+            "name": "year",
+            "required": false,
+            "in": "query",
+            "description": "Only holidays in this calendar year.",
+            "schema": {
+              "example": 2026,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/HolidayResponseDto"
+                  }
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "List the company's holidays (optionally one year), by date",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      },
+      "post": {
+        "description": "No attendance is expected on a holiday. One holiday per date per company; the change is audited.",
+        "operationId": "CalendarController_createHoliday",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateHolidayDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolidayResponseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "The company already has a holiday on that date."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Add a holiday (FR-CAL-1)",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      }
+    },
+    "/api/admin/holidays/{id}": {
+      "delete": {
+        "operationId": "CalendarController_deleteHoliday",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HolidayResponseDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Holiday not found in this company."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Remove a holiday (audited)",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      }
+    },
+    "/api/admin/settings/weekly-off-days": {
+      "get": {
+        "operationId": "CalendarController_getWeeklyOffDays",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyOffDaysDto"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Weekly off days of the company",
+        "tags": [
+          "Admin · Calendar"
+        ]
+      },
+      "put": {
+        "description": "Duplicates are ignored and the days are stored in week order. All seven days off is refused (400). Audited.",
+        "operationId": "CalendarController_setWeeklyOffDays",
+        "parameters": [],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WeeklyOffDaysDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WeeklyOffDaysDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): settings.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Replace the weekly off days (FR-CAL-1)",
+        "tags": [
+          "Admin · Calendar"
         ]
       }
     },
@@ -4074,7 +4979,7 @@
     },
     "/api/employee/attendance/check-in": {
       "post": {
-        "description": "Validates the logged-in employee's GPS position and starts a check-in that must be confirmed by scanning the kiosk QR code within 15 minutes (step 2). **Nothing is recorded or awarded yet.** Calling again while a check-in is pending returns the same one. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment. GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW; already checked in today answers 409 ALREADY_CHECKED_IN.",
+        "description": "Validates the logged-in employee's GPS position and starts a check-in that must be confirmed by scanning the kiosk QR code within 15 minutes (step 2). **Nothing is recorded or awarded yet.** Calling again while a check-in is pending returns the same one. Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment, and from the end of the red period (422 ATTENDANCE_CLOSED: the absence sweep records the day). GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW; already checked in today answers 409 ALREADY_CHECKED_IN.",
         "operationId": "CheckController_checkIn",
         "parameters": [],
         "requestBody": {
@@ -4403,383 +5308,6 @@
         "summary": "Check out for today (REQ-014, FR-ATT-5)",
         "tags": [
           "Employee · Attendance"
-        ]
-      }
-    },
-    "/api/admin/holidays": {
-      "get": {
-        "operationId": "CalendarController_listHolidays",
-        "parameters": [
-          {
-            "name": "year",
-            "required": false,
-            "in": "query",
-            "description": "Only holidays in this calendar year.",
-            "schema": {
-              "example": 2026,
-              "type": "number"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/HolidayResponseDto"
-                  }
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No token, an invalid token, or an expired access token (15 minutes).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 401,
-                  "message": "Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 403,
-                  "message": "Access denied: requires permission(s): settings.read",
-                  "error": "Forbidden"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "access-token": []
-          },
-          {
-            "cookie-auth": []
-          }
-        ],
-        "summary": "List the company's holidays (optionally one year), by date",
-        "tags": [
-          "Admin · Calendar"
-        ]
-      },
-      "post": {
-        "description": "No attendance is expected on a holiday. One holiday per date per company; the change is audited.",
-        "operationId": "CalendarController_createHoliday",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/CreateHolidayDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "201": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HolidayResponseDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 400,
-                  "message": [
-                    "Must be a valid email address"
-                  ],
-                  "error": "Bad Request"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No token, an invalid token, or an expired access token (15 minutes).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 401,
-                  "message": "Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 403,
-                  "message": "Access denied: requires permission(s): settings.write",
-                  "error": "Forbidden"
-                }
-              }
-            }
-          },
-          "409": {
-            "description": "The company already has a holiday on that date."
-          }
-        },
-        "security": [
-          {
-            "access-token": []
-          },
-          {
-            "cookie-auth": []
-          }
-        ],
-        "summary": "Add a holiday (FR-CAL-1)",
-        "tags": [
-          "Admin · Calendar"
-        ]
-      }
-    },
-    "/api/admin/holidays/{id}": {
-      "delete": {
-        "operationId": "CalendarController_deleteHoliday",
-        "parameters": [
-          {
-            "name": "id",
-            "required": true,
-            "in": "path",
-            "schema": {
-              "format": "uuid",
-              "type": "string"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HolidayResponseDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No token, an invalid token, or an expired access token (15 minutes).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 401,
-                  "message": "Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 403,
-                  "message": "Access denied: requires permission(s): settings.write",
-                  "error": "Forbidden"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Holiday not found in this company."
-          }
-        },
-        "security": [
-          {
-            "access-token": []
-          },
-          {
-            "cookie-auth": []
-          }
-        ],
-        "summary": "Remove a holiday (audited)",
-        "tags": [
-          "Admin · Calendar"
-        ]
-      }
-    },
-    "/api/admin/settings/weekly-off-days": {
-      "get": {
-        "operationId": "CalendarController_getWeeklyOffDays",
-        "parameters": [],
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WeeklyOffDaysDto"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No token, an invalid token, or an expired access token (15 minutes).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 401,
-                  "message": "Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The caller is authenticated but lacks the `settings.read` permission (ADMIN has it, EMPLOYEE does not).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 403,
-                  "message": "Access denied: requires permission(s): settings.read",
-                  "error": "Forbidden"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "access-token": []
-          },
-          {
-            "cookie-auth": []
-          }
-        ],
-        "summary": "Weekly off days of the company",
-        "tags": [
-          "Admin · Calendar"
-        ]
-      },
-      "put": {
-        "description": "Duplicates are ignored and the days are stored in week order. All seven days off is refused (400). Audited.",
-        "operationId": "CalendarController_setWeeklyOffDays",
-        "parameters": [],
-        "requestBody": {
-          "required": true,
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/WeeklyOffDaysDto"
-              }
-            }
-          }
-        },
-        "responses": {
-          "200": {
-            "description": "",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/WeeklyOffDaysDto"
-                }
-              }
-            }
-          },
-          "400": {
-            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 400,
-                  "message": [
-                    "Must be a valid email address"
-                  ],
-                  "error": "Bad Request"
-                }
-              }
-            }
-          },
-          "401": {
-            "description": "No token, an invalid token, or an expired access token (15 minutes).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 401,
-                  "message": "Unauthorized"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "The caller is authenticated but lacks the `settings.write` permission (ADMIN has it, EMPLOYEE does not).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorResponseDto"
-                },
-                "example": {
-                  "statusCode": 403,
-                  "message": "Access denied: requires permission(s): settings.write",
-                  "error": "Forbidden"
-                }
-              }
-            }
-          }
-        },
-        "security": [
-          {
-            "access-token": []
-          },
-          {
-            "cookie-auth": []
-          }
-        ],
-        "summary": "Replace the weekly off days (FR-CAL-1)",
-        "tags": [
-          "Admin · Calendar"
         ]
       }
     }
@@ -5821,6 +6349,224 @@
         "type": "object",
         "properties": {}
       },
+      "MyPointDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "pointType": {
+            "type": "string",
+            "enum": [
+              "GREEN",
+              "WHITE",
+              "RED",
+              "BLACK"
+            ]
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-11-02",
+            "description": "The day the point belongs to; decides its payroll month."
+          },
+          "quantity": {
+            "type": "number",
+            "example": 1,
+            "description": "Points in this entry (overtime can give several GREENs at once)."
+          },
+          "sourceType": {
+            "type": "string",
+            "example": "ATTENDANCE",
+            "description": "ATTENDANCE, OVERTIME, EARLY_CHECKOUT or ADMIN."
+          },
+          "reason": {
+            "type": "object",
+            "nullable": true,
+            "example": "Attendance check-in classified as GREEN."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "reversed": {
+            "type": "boolean",
+            "description": "Reversed by an admin or a correction; it counts for nothing."
+          },
+          "monthLocked": {
+            "type": "boolean",
+            "description": "Its payroll month is closed."
+          },
+          "consumedQty": {
+            "type": "number",
+            "description": "GREEN: points used to cancel penalties."
+          },
+          "cancelledQty": {
+            "type": "number",
+            "description": "RED / BLACK: points cancelled by GREENs."
+          },
+          "availableQty": {
+            "type": "number",
+            "description": "GREEN: still free in an open month."
+          },
+          "settledQty": {
+            "type": "number",
+            "description": "GREEN: unused when its month was locked (settled to the Fund)."
+          },
+          "activeQty": {
+            "type": "number",
+            "description": "RED / BLACK: still counting against you."
+          }
+        },
+        "required": [
+          "id",
+          "pointType",
+          "workDate",
+          "quantity",
+          "sourceType",
+          "reason",
+          "createdAt",
+          "reversed",
+          "monthLocked",
+          "consumedQty",
+          "cancelledQty",
+          "availableQty",
+          "settledQty",
+          "activeQty"
+        ]
+      },
+      "PaginationDto": {
+        "type": "object",
+        "properties": {
+          "page": {
+            "type": "number"
+          },
+          "limit": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "totalPages": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "page",
+          "limit",
+          "total",
+          "totalPages"
+        ]
+      },
+      "MyPointsResponseDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/MyPointDto"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationDto"
+          }
+        },
+        "required": [
+          "month",
+          "items",
+          "pagination"
+        ]
+      },
+      "GreenSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "available": {
+            "type": "number"
+          },
+          "consumed": {
+            "type": "number"
+          },
+          "settled": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "available",
+          "consumed",
+          "settled"
+        ]
+      },
+      "PenaltySummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          },
+          "active": {
+            "type": "number"
+          },
+          "cancelled": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total",
+          "active",
+          "cancelled"
+        ]
+      },
+      "WhiteSummaryDto": {
+        "type": "object",
+        "properties": {
+          "total": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "total"
+        ]
+      },
+      "MyPointsSummaryDto": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "example": "2026-11"
+          },
+          "green": {
+            "$ref": "#/components/schemas/GreenSummaryDto"
+          },
+          "red": {
+            "$ref": "#/components/schemas/PenaltySummaryDto"
+          },
+          "black": {
+            "$ref": "#/components/schemas/PenaltySummaryDto"
+          },
+          "white": {
+            "description": "WHITE is shown only; it never cancels or costs anything.",
+            "allOf": [
+              {
+                "$ref": "#/components/schemas/WhiteSummaryDto"
+              }
+            ]
+          }
+        },
+        "required": [
+          "month",
+          "green",
+          "red",
+          "black",
+          "white"
+        ]
+      },
       "CreateCompanyPolicyVersionDto": {
         "type": "object",
         "properties": {}
@@ -5840,6 +6586,172 @@
       "CorrectAttendanceDto": {
         "type": "object",
         "properties": {}
+      },
+      "DecideAttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "example": "APPROVED"
+          },
+          "decisionReason": {
+            "type": "string",
+            "example": "Reviewed the employee explanation.",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Trimmed; 1–1000 characters (AC-REQ-035-02)."
+          }
+        },
+        "required": [
+          "decision",
+          "decisionReason"
+        ]
+      },
+      "AdminAttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attendanceDayId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "employeeReason": {
+            "type": "string",
+            "example": "I was delayed by a transit disruption."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "example": "APPROVED"
+          },
+          "decisionReason": {
+            "type": "object",
+            "nullable": true,
+            "example": "Reviewed the employee explanation."
+          },
+          "submittedByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decidedByUserId": {
+            "type": "object",
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "attendanceDayId",
+          "employeeReason",
+          "status",
+          "decisionReason",
+          "submittedByUserId",
+          "decidedByUserId",
+          "createdAt",
+          "decidedAt"
+        ]
+      },
+      "CreateAttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "employeeReason": {
+            "type": "string",
+            "example": "The bus broke down on the ring road.",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Trimmed; 1–1000 characters (AC-REQ-034-01/-06)."
+          }
+        },
+        "required": [
+          "employeeReason"
+        ]
+      },
+      "AttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attendanceDayId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-11-02"
+          },
+          "employeeReason": {
+            "type": "string",
+            "example": "The bus broke down on the ring road."
+          },
+          "status": {
+            "type": "string",
+            "example": "PENDING",
+            "description": "PENDING until an Admin decides (Admin review is not built yet, GAP-030)."
+          },
+          "decisionReason": {
+            "type": "object",
+            "nullable": true,
+            "description": "The Admin's reason; null while PENDING."
+          },
+          "decidedAt": {
+            "type": "object",
+            "nullable": true,
+            "description": "When the Admin decided; null while PENDING."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "attendanceDayId",
+          "workDate",
+          "employeeReason",
+          "status",
+          "decisionReason",
+          "decidedAt",
+          "createdAt"
+        ]
+      },
+      "AttendanceExcuseListDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttendanceExcuseDto"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationDto"
+          }
+        },
+        "required": [
+          "items",
+          "pagination"
+        ]
       },
       "MyAttendanceDayDto": {
         "type": "object",
@@ -5865,7 +6777,7 @@
           "checkInResult": {
             "type": "string",
             "example": "GREEN",
-            "description": "GREEN / WHITE / RED / BLACK, OFF_DAY_WORK, CORRECTED, EXEMPT or SCHEDULED."
+            "description": "GREEN / WHITE / RED / BLACK, OFF_DAY_WORK, CORRECTED, EXEMPT, ABSENT (no check-in, set by the absence sweep) or SCHEDULED."
           },
           "classification": {
             "type": "string",
@@ -5927,6 +6839,74 @@
         },
         "required": [
           "month",
+          "days"
+        ]
+      },
+      "HolidayResponseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "date": {
+            "type": "string",
+            "example": "2026-12-25"
+          },
+          "name": {
+            "type": "string",
+            "example": "Christmas"
+          }
+        },
+        "required": [
+          "id",
+          "date",
+          "name"
+        ]
+      },
+      "CreateHolidayDto": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "example": "2026-12-25",
+            "description": "Company-local date (YYYY-MM-DD)."
+          },
+          "name": {
+            "type": "string",
+            "example": "Christmas"
+          }
+        },
+        "required": [
+          "date",
+          "name"
+        ]
+      },
+      "WeeklyOffDaysDto": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "array",
+            "example": [
+              "FRI",
+              "SAT"
+            ],
+            "description": "Days with no attendance expected; at least one day must remain a working day.",
+            "items": {
+              "type": "string",
+              "enum": [
+                "SUN",
+                "MON",
+                "TUE",
+                "WED",
+                "THU",
+                "FRI",
+                "SAT"
+              ]
+            }
+          }
+        },
+        "required": [
           "days"
         ]
       },
@@ -6501,74 +7481,6 @@
         "required": [
           "checkOutAt",
           "overtimeGreens"
-        ]
-      },
-      "HolidayResponseDto": {
-        "type": "object",
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "date": {
-            "type": "string",
-            "example": "2026-12-25"
-          },
-          "name": {
-            "type": "string",
-            "example": "Christmas"
-          }
-        },
-        "required": [
-          "id",
-          "date",
-          "name"
-        ]
-      },
-      "CreateHolidayDto": {
-        "type": "object",
-        "properties": {
-          "date": {
-            "type": "string",
-            "example": "2026-12-25",
-            "description": "Company-local date (YYYY-MM-DD)."
-          },
-          "name": {
-            "type": "string",
-            "example": "Christmas"
-          }
-        },
-        "required": [
-          "date",
-          "name"
-        ]
-      },
-      "WeeklyOffDaysDto": {
-        "type": "object",
-        "properties": {
-          "days": {
-            "type": "array",
-            "example": [
-              "FRI",
-              "SAT"
-            ],
-            "description": "Days with no attendance expected; at least one day must remain a working day.",
-            "items": {
-              "type": "string",
-              "enum": [
-                "SUN",
-                "MON",
-                "TUE",
-                "WED",
-                "THU",
-                "FRI",
-                "SAT"
-              ]
-            }
-          }
-        },
-        "required": [
-          "days"
         ]
       }
     }

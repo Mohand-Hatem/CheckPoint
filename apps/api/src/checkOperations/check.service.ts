@@ -26,7 +26,7 @@ import {
   classifyCheckIn,
   computeWindows,
   overtimeGreens,
-  ShiftTimes,
+  scheduleForDay,
 } from '../attendance/attendance-rules';
 import { CalendarService } from '../calendar/calendar.service';
 import { CompanyPolicyService } from '../company/company-policy.service';
@@ -34,6 +34,7 @@ import { EmployeesService } from '../employees/employees.service';
 import { LocationService } from '../location/location.service';
 import { PointAllocationService } from '../points/point-allocation.service';
 import { PointsService } from '../points/points.service';
+import { lockEmployee } from '../points/lock-employee';
 import { PrismaService } from '../prisma/prisma.service';
 import { WorkOffersService } from '../work-offers/work-offers.service';
 import { PositionDto } from './dto/check.dto';
@@ -171,23 +172,12 @@ export class CheckService {
       checkInTime,
     );
 
-    const shift = employee.currentShift.versions.find(
-      (version) =>
-        version.effectiveFrom <= workDate &&
-        (!version.effectiveTo || version.effectiveTo >= workDate),
-    ) as ShiftTimes | undefined;
-    if (!employee.currentShift.isActive || !shift) {
+    const { shift, assignment } = scheduleForDay(employee, workDate);
+    if (!shift) {
       throw new BadRequestException(
         'Employee has no active shift effective on this work date.',
       );
     }
-
-    const assignment = employee.shiftAssignments.find(
-      (item) =>
-        item.shiftId === employee.currentShift.id &&
-        item.effectiveFrom <= workDate &&
-        (!item.effectiveTo || item.effectiveTo >= workDate),
-    );
     const windows = computeWindows(workDate, shift, timezone);
     const dateKey = workDate.toISOString().slice(0, 10);
     const base = { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment };
@@ -212,6 +202,15 @@ export class CheckService {
     }
 
     let result = classifyCheckIn(checkInTime, windows);
+    if (result === PointType.BLACK) {
+      // 05 §4.2 step 5: after the red period the absence sweep owns the day (ABSENT + BLACK).
+      throw new UnprocessableEntityException({
+        statusCode: 422,
+        message: 'Check-in is closed for today: the red period has ended.',
+        error: 'Unprocessable Entity',
+        code: 'ATTENDANCE_CLOSED',
+      });
+    }
     const awards: CheckInPoint[] = [];
 
     if (result === 'NOT_OPEN') {
@@ -253,6 +252,7 @@ export class CheckService {
   ) {
     const { companyId, employeeId, userId, checkInTime, timezone, workDate, windows, assignment, result, checkInResult, awards } = plan;
     return this.prisma.$transaction(async (tx) => {
+      await lockEmployee(tx, employeeId);
       // Only the request that flips PENDING to CONFIRMED may record the day, so a double scan cannot award twice.
       const { count } = await tx.attendanceVerification.updateMany({
         where: { id: verificationId, status: VerificationStatus.PENDING },
@@ -332,6 +332,7 @@ export class CheckService {
     const leftEarly = checkOutAt < day.scheduledEndAt;
 
     return this.prisma.$transaction(async (tx) => {
+      await lockEmployee(tx, employeeId);
       // Only the request that flips check_out_at from NULL may continue, so retries and races cannot award twice.
       const { count } = await tx.attendanceDay.updateMany({
         where: { id: day.id, companyId, employeeId, checkOutAt: null },

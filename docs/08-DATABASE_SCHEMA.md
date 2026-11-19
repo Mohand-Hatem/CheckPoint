@@ -36,7 +36,7 @@ erDiagram
   EMPLOYEES ||--o{ SHIFT_ASSIGNMENTS : assigned
   SHIFTS ||--o{ SHIFT_ASSIGNMENTS : used_by
   EMPLOYEES ||--o{ ATTENDANCE_DAYS : records
-  ATTENDANCE_DAYS ||--o| ATTENDANCE_EXCUSES : "excuse (unused in MVP)"
+  ATTENDANCE_DAYS ||--o| ATTENDANCE_EXCUSES : "excuse (REQ-034)"
   EMPLOYEES ||--o{ WORK_OFFERS : "off-day exceptions"
   WORK_OFFERS ||--o{ ADDITIONAL_WORK_CALCULATIONS : "off-day pay"
   EMPLOYEES ||--o{ POINT_LEDGER_ENTRIES : earns
@@ -229,8 +229,8 @@ Phase 3 evidence: `left_early` bool NN default false (checkout before `scheduled
 #### `attendance_verifications` (Phase 3, migration `20261109010000_attendance_verifications`)
 GPS-validated attempts awaiting QR: `company_id`, `employee_id`, `work_date`, `location_id` (company-scoped FKs), status enum `VerificationStatus` `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min` (CHECK `expires_at > started_at`), `confirmed_at` (set iff `CONFIRMED`, CHECK), `latitude`/`longitude` numeric(9,6), `accuracy_m` numeric(7,2). Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'` (`attendance_verifications_one_pending_key`, migration only; Prisma cannot express it).
 
-#### `attendance_excuses` (unused in MVP)
-`attendance_day_id` UNIQUE, `submitted_by_user_id`, `employee_reason`, status (`PENDING`), `decided_by_user_id`, `decision_reason`, `decided_at`. No spec requirement defines an employee excuse flow (**DN-26**); no MVP endpoint writes it.
+#### `attendance_excuses` (employee excuse, REQ-034)
+`attendance_day_id` UNIQUE (one excuse per day: a second one is `409`), `submitted_by_user_id`, `employee_reason` (1–1000 characters, checked in the service), status (`PENDING` → `APPROVED` or `REJECTED`, once), `decided_by_user_id`, `decision_reason`, `decided_at`. CHECKs (migration `20261119030000_attendance_excuse_checks`): status is one of the three; the decision fields are all set exactly when status is not `PENDING`. Written by `POST /me/attendance/{attendanceDayId}/excuse` (create) and `POST /admin/attendance-excuses/{id}/decision` (decide) (`05` §4.8); neither changes attendance or points.
 
 ### 3.4 Points
 
@@ -254,9 +254,10 @@ Constraint **[ADD]**: `UNIQUE (company_id, point_type, effective_from)`. Seeds: 
 | entry_kind | text NN | `AWARD` / `REVERSAL` (enum recommended) |
 | direction | smallint NN | `+1` award, `−1` reversal |
 | quantity | int NN | `> 0`; one row may carry N points of one source |
+| work_date | date NN | **[ADD Phase 4]** the Cairo date the point belongs to: the attendance day for `ATTENDANCE` / `OVERTIME` / `EARLY_CHECKOUT` and absence Blacks, the Cairo date of the add for `ADMIN`; a reversal copies its target's date. Decides the payroll month (`date_trunc('month', work_date)`) and the offset order `(work_date, created_at, id)`. Existing rows backfilled from their attendance day, else the Cairo date of `created_at`. Index `(company_id, employee_id, work_date)` |
 | point_value_version_id | uuid FK | |
 | value_per_point_piasters | bigint NN | snapshot (DN-23: the only piaster column) |
-| source_type / source_id | text NN / uuid | `ATTENDANCE`, `OVERTIME`, `OFF_DAY_WORK`, `ADMIN` |
+| source_type / source_id | text NN / uuid | `ATTENDANCE`, `OVERTIME`, `EARLY_CHECKOUT` (D-21), `OFF_DAY_WORK`, `ADMIN` |
 | idempotency_key | text NN UNIQUE | replaces the earlier `dedupe_key` |
 | reverses_entry_id | uuid FK self | a reversal references the entry it reverses |
 | reason | text | mandatory for `ADMIN` and `REVERSAL` |
@@ -269,7 +270,20 @@ Rules: never UPDATE/DELETE (trigger with the Phase 4 migrations); an entry is re
 `green_entry_id` → GREEN entry, `penalty_entry_id` → RED or BLACK entry, `quantity` (Greens used, CHECK > 0), `reverses_allocation_id` (nullable, UNIQUE, FK to this table), `created_at`. One RED needs 1 Green, one BLACK needs exactly 5 (no partial). **Append-only** (migration `20261117000000_point_offset_undo`, triggers block UPDATE/DELETE/TRUNCATE): an APPLY row has `reverses_allocation_id = NULL`; an **UNDO** row copies an APPLY row and points at it. Active = APPLY with no UNDO. When a Green or penalty is reversed, the engine writes UNDO rows for **every** active row of each affected penalty (a BLACK's whole group), then re-matches (U-5 resolved). The old `UNIQUE (green_entry_id, penalty_entry_id)` is dropped so a pair can be re-applied after an undo.
 
 #### `point_state` (VIEW, Phase 4)
-Derives `AVAILABLE / CONSUMED / SETTLED_TO_FUND / REVERSED / CANCELLED / ACTIVE / RECORDED` from the immutable rows (`05-SYSTEM_DESIGN.md` §5.2).
+Derives `AVAILABLE / CONSUMED / SETTLED_TO_FUND / REVERSED / CANCELLED / ACTIVE / RECORDED` from the immutable rows (`05-SYSTEM_DESIGN.md` §5.2). One ledger row can carry N points and be partly used, so the view returns **one row per `AWARD` entry with quantities**, not one label:
+
+| Column | Meaning |
+|---|---|
+| `entry_id`, `company_id`, `employee_id`, `point_type`, `work_date`, `payroll_month`, `quantity`, `source_type`, `source_id`, `reason`, `created_at` | from the entry; `payroll_month = date_trunc('month', work_date)`. Built: migration `20261119020000_point_state_view` (not a Prisma model; read with `$queryRaw`) |
+| `reversed` | a `REVERSAL` row targets the entry |
+| `month_locked` | `payroll_months` row for `(company_id, payroll_month)` is `LOCKED` |
+| `consumed_qty` | GREEN: Greens used by active offsets (APPLY without UNDO); else 0 |
+| `cancelled_qty` | RED/BLACK: penalty points cancelled by active offsets (`floor(greens_used / ratio)`, ratio 1 for RED, 5 for BLACK); else 0 |
+| `available_qty` | GREEN, not reversed, month open: `quantity − consumed_qty`; else 0 |
+| `settled_qty` | GREEN, not reversed, month locked: `quantity − consumed_qty`; else 0 |
+| `active_qty` | RED/BLACK, not reversed: `quantity − cancelled_qty`; else 0 |
+
+A reversed entry has every `*_qty` at 0. WHITE rows show only `quantity` (`RECORDED`).
 
 #### `audit_events` (append-only; replaces the earlier `audit_logs`)
 `id`, `actor_user_id` (null = system), `action` (e.g. `point.reverse`), `target_type`, `target_id`, `reason`, `changes` jsonb (before/after), `created_at`; **[ADD]** `actor_type` (`ADMIN`/`EMPLOYEE`/`SYSTEM`/`PROVIDER`) and `request_id`. Index `(company_id, target_type, target_id, created_at DESC)`.
@@ -315,12 +329,13 @@ Constraint: partial `UNIQUE (user_id, work_date) WHERE status IN ('PENDING','APP
 #### `payroll_months`
 | Column | Type | Notes |
 |---|---|---|
-| month | date PK | first day; `CHECK (EXTRACT(day FROM month) = 1)` |
+| company_id | uuid NN FK → companies | **[ADD]** REQ-NFR-008; each company closes its own months |
+| month | date NN | first day; `CHECK (EXTRACT(day FROM month) = 1)` |
 | status | month_status NN default 'OPEN' | |
 | locked_at | timestamptz | |
-| locked_by | uuid FK | |
+| locked_by | uuid FK → users | |
 
-`CHECK (status='OPEN' OR (locked_at IS NOT NULL AND locked_by IS NOT NULL))`. No exchange rate is stored (EGP only). A month with no row is OPEN. Once `LOCKED` the row can never change (trigger).
+PK `(company_id, month)`. `CHECK (status='OPEN' OR (locked_at IS NOT NULL AND locked_by IS NOT NULL))`. No exchange rate is stored (EGP only). A month with no row is OPEN. Once `LOCKED` the row can never change (trigger). **Phase 4** creates the table and the point/offset guards only; nothing writes `LOCKED` until Month Close (Phase 6), so tests insert a locked row directly.
 
 #### `payroll_records`
 Purpose: immutable monthly snapshot per employee.
@@ -532,6 +547,7 @@ PK `(company_id, key)` · `value` jsonb NN · `updated_by` uuid FK · `updated_a
 | `trg_append_only` | `BEFORE UPDATE OR DELETE` raises on the five tables above (defense if privileges are misconfigured). |
 | `trg_point_guard` | `BEFORE INSERT` on `point_transactions`: month open; reversal consistency; one active ATTENDANCE award per `(user, work_date)`. |
 | `trg_offset_guard` | `BEFORE INSERT` on `point_offsets`: types, months open, no double consumption/cancellation. |
+| Phase 4 (built names) | The point tables are `point_ledger_entries` and `point_offset_allocations`. Month guard: `BEFORE INSERT` on `point_ledger_entries` raises `MONTH_LOCKED` when `(company_id, date_trunc('month', work_date))` is `LOCKED`; `BEFORE INSERT` on `point_offset_allocations` does the same for the Green's and the penalty's month. |
 | `trg_offset_group_complete` | `DEFERRABLE INITIALLY DEFERRED` constraint trigger: group size is 1 (Red) or `offset_greens_per_black` (Black). |
 | `trg_month_lock` | Blocks writes to `payroll_records`, `payroll_adjustments` (by `applies_to_month`) and any update of a `LOCKED` `payroll_months` row. |
 | `trg_fund_guard` | Negative balance protection (see I12). |

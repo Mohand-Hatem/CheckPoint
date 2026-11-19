@@ -29,7 +29,7 @@ export class CheckController {
     summary: 'Check in, step 1: GPS (FR-ATT-1)',
     description:
       "Validates the logged-in employee's GPS position and starts a check-in that must be confirmed by scanning the kiosk QR code within 15 minutes (step 2). **Nothing is recorded or awarded yet.** Calling again while a check-in is pending returns the same one. " +
-      'Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment. GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW; already checked in today answers 409 ALREADY_CHECKED_IN.',
+      'Rejected before the shift opens (CHECKIN_NOT_OPEN) unless an active EARLY_WORK offer covers this moment, and from the end of the red period (422 ATTENDANCE_CLOSED: the absence sweep records the day). GPS accuracy above the company limit answers 422 GPS_ACCURACY_TOO_LOW; already checked in today answers 409 ALREADY_CHECKED_IN.',
   })
   @ApiCreatedResponse({ type: CheckInStartedResponseDto })
   @ApiUnprocessableEntityResponse({ type: ErrorResponseDto, description: 'GPS_ACCURACY_TOO_LOW.' })

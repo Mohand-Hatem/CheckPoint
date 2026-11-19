@@ -17,6 +17,8 @@ import {
 } from "./attendance-rules";
 import { CorrectAttendanceDto } from "./dto/correct-attendance.dto";
 import { ListAttendanceQuery } from "./dto/list-attendance.query";
+import { lockEmployee } from "../points/lock-employee";
+import { assertMonthOpen } from "../points/month-lock";
 
 const ATTENDANCE_SOURCES = ["ATTENDANCE", "OVERTIME", "EARLY_CHECKOUT"];
 const DATE_ONLY = /^\d{4}-\d{2}-\d{2}$/;
@@ -170,6 +172,8 @@ export class AttendanceService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        await lockEmployee(tx, employee.id);
+        await assertMonthOpen(tx, companyId, workDate);
         const day =
           (await tx.attendanceDay.findUnique({
             where: {
@@ -229,6 +233,7 @@ export class AttendanceService {
               entryKind: "REVERSAL",
               direction: -1,
               quantity: entry.quantity,
+              workDate: entry.workDate,
               pointValueVersionId: entry.pointValueVersionId,
               valuePerPointPiasters: entry.valuePerPointPiasters,
               sourceType: entry.sourceType,
@@ -265,6 +270,7 @@ export class AttendanceService {
               entryKind: "AWARD",
               direction: 1,
               quantity,
+              workDate,
               ...(await resolvePointValue(tx, companyId, pointType, workDate)),
               sourceType,
               sourceId: day.id,

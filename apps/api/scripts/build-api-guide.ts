@@ -392,6 +392,59 @@ async function main() {
   });
   check(dayAudit.json?.total === 3, 'three attendance.correct events');
 
+  const month = workDate.slice(0, 7);
+  await call({
+    title: 'Employee reads their own points for that month',
+    why: 'Only my points, read by token. Each entry shows its state: the reversed GREEN counts for nothing, one overtime GREEN was used to cancel the RED (`consumedQty` / `cancelledQty`), the other is still available.',
+    method: 'GET', path: `/me/points?month=${month}`, token: e.access, expect: 200,
+  });
+  const mySummary = await call({
+    title: 'Employee reads their point totals',
+    why: 'The same month as totals by colour and state.',
+    method: 'GET', path: `/me/points/summary?month=${month}`, token: e.access, expect: 200,
+  });
+  check(mySummary.json?.red?.cancelled === 1 && mySummary.json?.green?.available === 1, 'one RED cancelled, one GREEN left');
+  const excuse = await call({
+    title: 'Employee explains that day with an excuse',
+    why: 'One written excuse per own attendance day (REQ-034). It starts `PENDING` and changes no attendance or points; Admin review is not built yet.',
+    method: 'POST', path: `/me/attendance/${dayId}/excuse`, token: e.access, expect: 201,
+    body: { employeeReason: 'The bus broke down on the ring road.' },
+  });
+  await call({
+    title: 'A second excuse for the same day',
+    why: 'Refused: **409 `EXCUSE_EXISTS`**. An excuse cannot be resubmitted.',
+    method: 'POST', path: `/me/attendance/${dayId}/excuse`, token: e.access, expect: 409,
+    body: { employeeReason: 'Trying again' },
+  });
+  await call({
+    title: 'Employee lists their excuses',
+    why: 'Only my own excuses, newest first, each with its status and decision (empty while `PENDING`).',
+    method: 'GET', path: '/me/attendance-excuses', token: e.access, expect: 200,
+  });
+  await call({
+    title: 'The Admin cannot use the employee route for that excuse',
+    why: 'The record belongs to the employee: anyone else gets **404**, so its existence is not revealed.',
+    method: 'GET', path: `/me/attendance-excuses/${excuse.json.id}`, token: admin.access, expect: 404,
+  });
+  const decided = await call({
+    title: 'Admin approves the excuse',
+    why: 'Needs `attendance.write`. The decision is a record only and is audited: the day, its classification and the points stay as they are (to change a point, use a correction).',
+    method: 'POST', path: `/admin/attendance-excuses/${excuse.json.id}/decision`, token: admin.access, expect: 200,
+    body: { decision: 'APPROVED', decisionReason: 'Reviewed the employee explanation.' },
+  });
+  check(decided.json?.status === 'APPROVED' && decided.json?.decidedByUserId, 'excuse approved with a decider');
+  await call({
+    title: 'A second decision on the same excuse',
+    why: 'Refused: **409 `EXCUSE_ALREADY_DECIDED`**. The first decision is kept.',
+    method: 'POST', path: `/admin/attendance-excuses/${excuse.json.id}/decision`, token: admin.access, expect: 409,
+    body: { decision: 'REJECTED', decisionReason: 'Changed my mind' },
+  });
+  await call({
+    title: 'Employee sees the decision',
+    why: 'Status, decision reason and time; the employee view does not show who decided.',
+    method: 'GET', path: `/me/attendance-excuses/${excuse.json.id}`, token: e.access, expect: 200,
+  });
+
   // ---------------------------------------------------------------- D. sessions
   md.push('### Part D: Tokens, refresh and theft detection', '');
   const refreshed = await call({

@@ -48,6 +48,7 @@ describe("PointAllocationService", () => {
       {
         id: "green-1",
         pointType: PointType.GREEN,
+        workDate: new Date("2026-01-05T00:00:00.000Z"),
         quantity: 3,
         greenAllocations: [],
         penaltyAllocations: [],
@@ -55,6 +56,7 @@ describe("PointAllocationService", () => {
       {
         id: "red-1",
         pointType: PointType.RED,
+        workDate: new Date("2026-01-05T00:00:00.000Z"),
         quantity: 1,
         greenAllocations: [],
         penaltyAllocations: [],
@@ -62,12 +64,14 @@ describe("PointAllocationService", () => {
       {
         id: "black-1",
         pointType: PointType.BLACK,
+        workDate: new Date("2026-01-05T00:00:00.000Z"),
         quantity: 1,
         greenAllocations: [],
         penaltyAllocations: [],
       },
     ];
     const tx = {
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
       pointLedgerEntry: {
         findMany: jest.fn().mockResolvedValue(entries),
@@ -105,7 +109,7 @@ describe("PointAllocationService", () => {
           reversesEntryId: null,
           reversalEntries: { none: {} },
         },
-        orderBy: { createdAt: "asc" },
+        orderBy: [{ workDate: "asc" }, { createdAt: "asc" }, { id: "asc" }],
       }),
     );
     // append-only: new APPLY rows, never an update of an existing row
@@ -124,12 +128,14 @@ describe("PointAllocationService", () => {
 
   it("TEST-ALLOC-04 (FR-PTS-2): returns a no-offset message and does not write when no penalty can be cleared", async () => {
     const tx = {
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
       pointLedgerEntry: {
         findMany: jest.fn().mockResolvedValue([
           {
             id: "green-1",
             pointType: PointType.GREEN,
+            workDate: new Date("2026-01-05T00:00:00.000Z"),
             quantity: 4,
             greenAllocations: [],
             penaltyAllocations: [],
@@ -137,6 +143,7 @@ describe("PointAllocationService", () => {
           {
             id: "black-1",
             pointType: PointType.BLACK,
+            workDate: new Date("2026-01-05T00:00:00.000Z"),
             quantity: 1,
             greenAllocations: [],
             penaltyAllocations: [],
@@ -178,6 +185,7 @@ describe("PointAllocationService", () => {
       { id: "alloc-2", greenEntryId: "green-2", penaltyEntryId: "black-1", quantity: 3 },
     ];
     const tx = {
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
       pointOffsetAllocation: {
         findMany: jest
@@ -189,8 +197,8 @@ describe("PointAllocationService", () => {
       pointLedgerEntry: {
         // after the UNDO rows: green-2 has 3 free, black-1 is open again, green-1 is gone (reversed)
         findMany: jest.fn().mockResolvedValue([
-          { id: "green-2", pointType: PointType.GREEN, quantity: 3, greenAllocations: [], penaltyAllocations: [] },
-          { id: "black-1", pointType: PointType.BLACK, quantity: 1, greenAllocations: [], penaltyAllocations: [] },
+          { id: "green-2", pointType: PointType.GREEN, workDate: new Date("2026-01-05T00:00:00.000Z"), quantity: 3, greenAllocations: [], penaltyAllocations: [] },
+          { id: "black-1", pointType: PointType.BLACK, workDate: new Date("2026-01-05T00:00:00.000Z"), quantity: 1, greenAllocations: [], penaltyAllocations: [] },
         ]),
       },
     };
@@ -220,6 +228,7 @@ describe("PointAllocationService", () => {
 
   it("TEST-ALLOC-10 (05 §5.3): only active rows count; UNDO rows and undone rows are filtered out", async () => {
     const tx = {
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
       pointOffsetAllocation: { findMany: jest.fn().mockResolvedValue([]), createMany: jest.fn() },
       pointLedgerEntry: { findMany: jest.fn().mockResolvedValue([]) },
@@ -238,6 +247,7 @@ describe("PointAllocationService", () => {
 
   it("TEST-ALLOC-08 (FR-PTS-2): uses the provided transaction instead of opening another one", async () => {
     const tx = {
+      payrollMonth: { findFirst: jest.fn().mockResolvedValue(null), findMany: jest.fn().mockResolvedValue([]) },
       $queryRaw: jest.fn().mockResolvedValue([]),
       pointLedgerEntry: {
         findMany: jest.fn().mockResolvedValue([]),
@@ -259,7 +269,8 @@ describe("PointAllocationService", () => {
     );
 
     expect(prisma.$transaction).not.toHaveBeenCalled();
-    expect(tx.$queryRaw).toHaveBeenCalled();
+    // The caller holds lockEmployee (05 §14), so the engine takes no lock of its own.
+    expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(tx.pointLedgerEntry.findMany).toHaveBeenCalled();
   });
 });

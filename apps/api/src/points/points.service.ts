@@ -10,6 +10,8 @@ import { ConfigurePointValuesDto } from './dto/configure-point-values.dto';
 import { CreatePointEntryDto } from './dto/create-point-entry.dto';
 import { ListPointEntriesQueryDto } from './dto/list-point-entries-query.dto';
 import { ReversePointEntryDto } from './dto/reverse-point-entry.dto';
+import { lockEmployee } from './lock-employee';
+import { assertMonthOpen } from './month-lock';
 import { PointAllocationService } from './point-allocation.service';
 import { resolvePointValue } from './point-value';
 
@@ -36,6 +38,7 @@ export type AddPointEntryForSourceInput = {
   idempotencyKey: string;
   reason: string;
   createdByUserId?: string | null;
+  // The point's work date: picks the point value and the payroll month.
   asOfDate: Date;
 };
 
@@ -206,6 +209,7 @@ export class PointsService {
     try {
       return await this.prisma.$transaction(
         async (tx) => {
+          await lockEmployee(tx, dto.employeeId);
           const priorRequest = await tx.pointLedgerEntry.findUnique({
             where: { idempotencyKey: key },
           });
@@ -222,13 +226,10 @@ export class PointsService {
             throw new NotFoundException('Employee not found');
           }
 
+          const workDate = cairoDateOnly(new Date());
+          await assertMonthOpen(tx, companyId, workDate);
           const { pointValueVersionId, valuePerPointPiasters } =
-            await resolvePointValue(
-              tx,
-              companyId,
-              dto.pointType,
-              cairoDateOnly(new Date()),
-            );
+            await resolvePointValue(tx, companyId, dto.pointType, workDate);
           const entry = await tx.pointLedgerEntry.create({
             data: {
               companyId,
@@ -237,6 +238,7 @@ export class PointsService {
               entryKind: 'AWARD',
               direction: 1,
               quantity: dto.quantity,
+              workDate,
               pointValueVersionId,
               valuePerPointPiasters,
               sourceType: 'ADMIN',
@@ -265,7 +267,6 @@ export class PointsService {
           await this.allocation.saveAllocations(companyId, employee.id, tx);
           return serializePointEntry(entry);
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
     } catch (error) {
       if (isUniqueConstraintError(error)) {
@@ -318,7 +319,6 @@ export class PointsService {
 
       const entry = await this.prisma.$transaction(
         (tx) => this.createSourceAward(tx, normalized),
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
       return serializePointEntry(entry);
     } catch (error) {
@@ -366,7 +366,6 @@ export class PointsService {
 
       const reversal = await this.prisma.$transaction(
         (tx) => this.createSourceReversal(tx, { ...input, reason }),
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
       return serializePointEntry(reversal);
     } catch (error) {
@@ -394,6 +393,8 @@ export class PointsService {
       idempotencyKey: string;
     },
   ) {
+    // Re-taking a lock this transaction already holds is a no-op.
+    await lockEmployee(tx, input.employeeId);
     const existing = await tx.pointLedgerEntry.findUnique({
       where: { idempotencyKey: input.idempotencyKey },
     });
@@ -401,6 +402,7 @@ export class PointsService {
       assertSameSourceAward(existing, input);
       return existing;
     }
+    await assertMonthOpen(tx, input.companyId, input.asOfDate);
 
     const employee = await tx.employee.findFirst({
       where: { id: input.employeeId, companyId: input.companyId },
@@ -424,6 +426,7 @@ export class PointsService {
         entryKind: 'AWARD',
         direction: 1,
         quantity: input.quantity,
+        workDate: input.asOfDate,
         ...pointValue,
         sourceType: input.sourceType,
         sourceId: input.sourceId ?? null,
@@ -448,6 +451,7 @@ export class PointsService {
     if (!entry) {
       throw new NotFoundException('Reversible point entry not found');
     }
+    await lockEmployee(tx, entry.employeeId);
 
     const existing = await tx.pointLedgerEntry.findUnique({
       where: { reversesEntryId: entry.id },
@@ -458,6 +462,7 @@ export class PointsService {
       }
       throw new ConflictException('Point entry has already been reversed.');
     }
+    await assertMonthOpen(tx, entry.companyId, entry.workDate);
 
     return tx.pointLedgerEntry.create({
       data: {
@@ -467,6 +472,7 @@ export class PointsService {
         entryKind: 'REVERSAL',
         direction: -1,
         quantity: entry.quantity,
+        workDate: entry.workDate,
         pointValueVersionId: entry.pointValueVersionId,
         valuePerPointPiasters: entry.valuePerPointPiasters,
         sourceType: entry.sourceType,
@@ -505,6 +511,7 @@ export class PointsService {
               'Reversible admin point entry not found',
             );
           }
+          await lockEmployee(tx, entry.employeeId);
 
           const existingReversal = await tx.pointLedgerEntry.findUnique({
             where: { reversesEntryId: entry.id },
@@ -517,6 +524,7 @@ export class PointsService {
               'Point entry has already been reversed.',
             );
           }
+          await assertMonthOpen(tx, companyId, entry.workDate);
 
           const reversal = await tx.pointLedgerEntry.create({
             data: {
@@ -526,6 +534,7 @@ export class PointsService {
               entryKind: 'REVERSAL',
               direction: -1,
               quantity: entry.quantity,
+              workDate: entry.workDate,
               pointValueVersionId: entry.pointValueVersionId,
               valuePerPointPiasters: entry.valuePerPointPiasters,
               sourceType: 'ADMIN',
@@ -560,7 +569,6 @@ export class PointsService {
           );
           return reversal;
         },
-        { isolationLevel: Prisma.TransactionIsolationLevel.Serializable },
       );
       return serializePointEntry(reversal);
     } catch (error) {

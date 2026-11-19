@@ -1,5 +1,5 @@
 import { PointType } from '@prisma/client';
-import { classifyCheckIn, computeWindows, overtimeGreens } from './attendance-rules';
+import { classifyCheckIn, computeWindows, overtimeGreens, scheduleForDay } from './attendance-rules';
 
 // Default shift (docs/05 §4.1): 08:00–16:00, early 60, grace 120, red period 240.
 const version = {
@@ -56,5 +56,34 @@ describe('overtimeGreens (TEST-013, REQ-014)', () => {
     ['19:01 local', '2026-11-02T17:01:00.000Z', 3],
   ])('%s → %i', (_label, iso, expected) => {
     expect(overtimeGreens(new Date(iso), end)).toBe(expected);
+  });
+});
+
+describe('scheduleForDay (check-in and absence sweep share it)', () => {
+  const d = (iso: string) => new Date(`${iso}T00:00:00.000Z`);
+  const employee = (isActive = true) => ({
+    currentShift: {
+      id: 'shift-1',
+      isActive,
+      versions: [
+        { ...version, startTime: new Date('1970-01-01T09:00:00.000Z'), effectiveFrom: d('2026-11-10'), effectiveTo: null },
+        { ...version, effectiveFrom: d('2026-11-01'), effectiveTo: d('2026-11-09') },
+      ],
+    },
+    shiftAssignments: [
+      { id: 'other', shiftId: 'shift-2', effectiveFrom: d('2026-11-01'), effectiveTo: null },
+      { id: 'a-1', shiftId: 'shift-1', effectiveFrom: d('2026-11-05'), effectiveTo: null },
+    ],
+  });
+
+  it('picks the shift version and the current-shift assignment in force that day', () => {
+    expect(scheduleForDay(employee(), d('2026-11-09'))).toMatchObject({ shift: { startTime: version.startTime }, assignment: { id: 'a-1' } });
+    expect(scheduleForDay(employee(), d('2026-11-10')).shift?.startTime).toEqual(new Date('1970-01-01T09:00:00.000Z'));
+  });
+
+  it('has no assignment before it starts and no shift when the shift is inactive or not yet in force', () => {
+    expect(scheduleForDay(employee(), d('2026-11-03')).assignment).toBeUndefined();
+    expect(scheduleForDay(employee(false), d('2026-11-09')).shift).toBeUndefined();
+    expect(scheduleForDay(employee(), d('2026-10-31')).shift).toBeUndefined();
   });
 });

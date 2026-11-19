@@ -14,6 +14,8 @@ export async function generateOpenApiDocument(): Promise<OpenAPIObject> {
   if (!process.env.DATABASE_URL) {
     process.env.DATABASE_URL = 'postgresql://openapi:generation@localhost:5432/only';
   }
+  // Building docs starts no background jobs (the absence sweeper needs REDIS_HOST).
+  process.env.REDIS_HOST = '';
   // Imported only now: ConfigModule validates the environment when app.module loads.
   const { AppModule } = await import('../../src/app.module');
 

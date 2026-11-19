@@ -57,6 +57,7 @@ describe('CheckService', () => {
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
     };
     transaction = {
+      $queryRaw: jest.fn(),
       attendanceDay: { updateMany },
       attendanceVerification: verifications,
     } as unknown as Prisma.TransactionClient;
@@ -341,12 +342,26 @@ describe('CheckService', () => {
     });
   });
 
+  describe('check-in after the red period (05 §4.2 step 5, absence sweep owns the day)', () => {
+    const closed = { status: 422, response: expect.objectContaining({ code: 'ATTENDANCE_CLOSED' }) };
+
+    it('step 1 refuses with 422 ATTENDANCE_CLOSED and creates no verification', async () => {
+      jest.setSystemTime(new Date('2025-03-10T12:30:00.000Z'));
+      await expect(service.checkIn(companyId, employeeId, POSITION)).rejects.toMatchObject(closed);
+      expect(verifications.create).not.toHaveBeenCalled();
+    });
+
+    it('confirming a verification started after the red period records nothing', async () => {
+      await expect(confirmAt('2025-03-10T12:30:00.000Z')).rejects.toMatchObject(closed);
+      nothingRecorded();
+    });
+  });
+
   describe('check-in step 2: kiosk QR confirms the attendance (FR-ATT-2)', () => {
     it.each([
       ['GREEN', '2025-03-10T09:30:00.000Z', PointType.GREEN],
       ['WHITE', '2025-03-10T10:30:00.000Z', PointType.WHITE],
       ['RED', '2025-03-10T11:30:00.000Z', PointType.RED],
-      ['BLACK', '2025-03-10T12:30:00.000Z', PointType.BLACK],
     ])('records a %s day at the step-1 time and awards that point', async (_name, startedAt, type) => {
       const result = await confirmAt(startedAt);
 

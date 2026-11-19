@@ -44,6 +44,8 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /attendance/check-in/{verificationId}/confirm` `{qrToken}` | Step 2: QR ⇒ attendance `CONFIRMED` + point |
 | `POST /attendance/check-out` `{lat,lng,accuracy}` | Check-out + overtime Greens |
 | `GET /me/attendance?month=` | Attendance history |
+| `POST /me/attendance/{attendanceDayId}/excuse` `{employeeReason}` | Submit an excuse for my own day ⇒ `201` `PENDING` (§4.8) |
+| `GET /me/attendance-excuses` · `GET /me/attendance-excuses/{id}` | My excuses with status and decision (§4.8) |
 | `GET /employee/work-offers` | Work offers addressed to this employee or all employees in the company; no acceptance action |
 | `GET /me/points?month=&type=&page=` | Ledger entries with derived state (active / cancelled-by / reversed / consumed / settled) |
 | `GET /me/points/summary?month=` | Counts by type and state |
@@ -66,6 +68,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Calendar | `GET/POST /admin/holidays` · `DELETE /admin/holidays/{id}` · `GET/PUT /admin/settings/weekly-off-days` · off-day-work exceptions via `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) and `PATCH /admin/work-offers/{id}/cancel` (D-20) |
 | Work Offers | `GET /admin/work-offers[/{id}]` · `POST /admin/work-offers` · `PATCH /admin/work-offers/{id}/cancel` |
 | Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
+| Attendance excuses | `POST /admin/attendance-excuses/{id}/decision` `{decision: APPROVED\|REJECTED, decisionReason}` (§4.8, REQ-035); an Admin list is GAP-031 |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
 | Leave | `GET /admin/leaves?status=` · `POST /admin/leaves/{id}/{approve, reject, cancel-approval}` `{note}` |
 | Early leave | `GET /admin/early-leaves?status=` · `POST /admin/early-leaves/{id}/{approve, reject}` `{note}` |
@@ -126,7 +129,7 @@ shift_end     = date + end_time
 8. Insert `attendance_verifications` (`PENDING`, `started_at = now`, `expires_at = now + 15 min`, location, coordinates). The partial unique index "one `PENDING` per user+date" resolves concurrent attempts (loser re-reads and returns the winner's row).
 9. Nothing is awarded; **GPS alone never confirms attendance.**
 
-**Built so far (D-19, D-20):** steps 1-9 (step 2: `409 ALREADY_CHECKED_IN`, or `422 ATTENDANCE_CLOSED` for an exempt/absent day, checked before the working day); step 4 checks the working day and off-day-work exceptions (`422 NOT_A_WORKING_DAY`), while leave checks come with Phase 5 and `CLOSED` still records BLACK until the Phase 4 absence sweeper.
+**Built so far (D-19, D-20):** steps 1-9 (step 2: `409 ALREADY_CHECKED_IN`, or `422 ATTENDANCE_CLOSED` for an exempt/absent day, checked before the working day); step 4 checks the working day and off-day-work exceptions (`422 NOT_A_WORKING_DAY`), while leave checks come with Phase 5. Step 5 `CLOSED` (at or after the red-period end) answers `422 ATTENDANCE_CLOSED` at step 1 and at confirm (Phase 4, with the absence sweep: the day becomes ABSENT + BLACK by the sweep, never by a check-in). Admin corrections still classify such a time as BLACK (§4.7).
 
 ### 4.3 Check-in — step 2 (QR confirmation)
 1. Load verification (must belong to caller). `CONFIRMED` ⇒ `409`; `EXPIRED` or `expires_at ≤ now` ⇒ `410 VERIFICATION_EXPIRED` (row marked `EXPIRED` by the sweeper, or lazily).
@@ -175,6 +178,12 @@ stateDiagram-v2
 **Preserving the original:** the before/after snapshot lives in the append-only audit log and the earlier ledger entries are reversed, never edited; `GET /admin/attendance/{id}` shows both. Offsets and month lock are applied once the offset engine and payroll exist (Phase 4/6).
 `ATTENDANCE`/`OVERTIME` points are changed **only** through corrections (or leave approval); `POST /admin/points/{id}/reverse` accepts only `ADMIN`-source entries.
 
+### 4.8 Employee attendance excuses (REQ-034, HAS-168, D-22)
+`EmployeeAttendanceExcuseService`, table `attendance_excuses` (no migration: it exists with `attendance_day_id` UNIQUE).
+- **Submit** `POST /me/attendance/{attendanceDayId}/excuse {employeeReason}`: the caller's employee is found from the token (no employee profile ⇒ `404`). The day must belong to that employee **and** company; otherwise `404` with one message whether it is someone else's, another company's or missing. `employeeReason` trimmed, 1–1000 characters (`400`). One insert: `status = PENDING`, `submitted_by_user_id` = caller; the unique `attendance_day_id` turns a second excuse (any status, also a race) into `409 EXCUSE_EXISTS`. Same transaction: audit `attendance_excuse.submit` (actor `EMPLOYEE`). Attendance and points are not touched; any recorded day can be excused (ABSENT, locked month too).
+- **Read** `GET /me/attendance-excuses` (newest first, paged `page`/`limit`) and `GET /me/attendance-excuses/{id}`: only the caller's own excuses in the caller's company (`404` otherwise). Response: `id`, `attendanceDayId`, `workDate`, `employeeReason`, `status`, `decisionReason`, `decidedAt` (null while `PENDING`), `createdAt`. The decider's identity is not returned.
+- **Decision** (REQ-035, HAS-170, D-23) `POST /admin/attendance-excuses/{id}/decision {decision, decisionReason}`, `AdminAttendanceExcuseDecisionService`, permission `attendance.write` (else `403`). `decision ∈ {APPROVED, REJECTED}`, `decisionReason` trimmed 1–1000 characters (`400`). One **transaction**, no lock: the excuse is read in the Admin's company (missing or other company ⇒ `404`); if its attendance day belongs to the Admin's own employee record ⇒ `403 SELF_DECISION_FORBIDDEN`; then one conditional `UPDATE … SET status, decision_reason, decided_by_user_id, decided_at = now() WHERE id AND company_id AND status = 'PENDING'`. Zero rows ⇒ `409 EXCUSE_ALREADY_DECIDED` (a repeat or the loser of a race; the first decision stays). Same transaction: audit `attendance_excuse.decide` (actor `ADMIN`, before `PENDING` / after status, reason). Response: `id`, `attendanceDayId`, `employeeReason`, `status`, `decisionReason`, `submittedByUserId`, `decidedByUserId`, `createdAt`, `decidedAt`. Attendance, classification and the ledger are not touched: forgiving a penalty is a separate correction (§4.7). The employee sees the decision in `GET /me/attendance-excuses`. Notifying the employee: GAP-030 (Phase 5 notifications).
+
 ## 5. Points
 
 ### 5.1 Award
@@ -199,9 +208,11 @@ A **view** `point_state` derives status from immutable rows:
 | RED / BLACK | `ACTIVE` | not reversed, not cancelled |
 | WHITE | `RECORDED` | informational only |
 
+**Built shape (Phase 4):** a ledger row can carry N points of one source and be partly used, so the view returns one row per `AWARD` entry with quantities (`consumed_qty`, `cancelled_qty`, `available_qty`, `settled_qty`, `active_qty`, `reversed`, `month_locked`; `08-DATABASE_SCHEMA.md` `point_state`). The states above are read per unit from those counts. Reads (`/me/points`, admin ledger) use the view; the offset engine keeps its own tested calculation, and a test checks the two agree.
+
 ### 5.3 Offset engine (`OffsetEngine.run(tx, userId)`) — event-driven
 Precondition: user lock held. Open months = months without a `LOCKED` row in `payroll_months`.
-1. Load `AVAILABLE` Greens, `ACTIVE` Reds and `ACTIVE` Blacks whose `payroll_month` is open; order each by `(work_date, created_at, id)` ascending (oldest first).
+1. Load `AVAILABLE` Greens, `ACTIVE` Reds and `ACTIVE` Blacks whose `payroll_month` is open; order each by `(work_date, created_at, id)` ascending (oldest first). `work_date` is a column on `point_ledger_entries` (Phase 4); locked-month points are skipped here, and the insert triggers are the backstop.
 2. **Red pass:** while a Red and a Green both remain: take the oldest Red and oldest Green; insert one `point_offsets` APPLY row (`target = Red`, `source = Green`, new `group_id`).
 3. **Black pass:** while a Black remains and ≥ 5 Greens remain (`offset_greens_per_black`): take the oldest Black and the 5 oldest Greens; insert 5 APPLY rows sharing one `group_id` — **all in the same transaction; never partial**.
 4. Return the list of created offsets (for notifications).
@@ -364,12 +375,18 @@ Immutable rows (`type WALLET|BANK`, issuer, `account_encrypted` AES-256-GCM, `ac
 - Per employee, one short **transaction** with user lock: insert `attendance (ABSENT, BLACK, rev 1)` `ON CONFLICT DO NOTHING`; if inserted ⇒ award Black (`dedupe_key = ATT:{userId}:{d}:1`); run engine; notify. Rerun/parallel run ⇒ conflict ⇒ no-op.
 - Month Close is **not** a scheduled job (admin-triggered).
 
+**Built shape (Phase 4):**
+- `AbsenceSweepService.run(now)` holds all the logic and is tested directly against the database. A BullMQ job scheduler (`attendance-sweeper`, every 60 s, worker concurrency 1) only calls it. The queue module is registered only when `REDIS_HOST` is set, so the API and the e2e suite boot without Redis (the sweeper is then off and a boot log says so).
+- Per company (its timezone and `absence_lookback_days` setting): one set-based query lists candidates (active employee, no `attendance_days` row for `d`, no unexpired `PENDING` verification, month of `d` open). Only candidates get the per-employee transaction, which takes the user lock, re-checks the row, then checks the working day, the off-day-work exception and `now ≥ red_period_end(d)` with the **same schedule helper check-in uses**.
+- The Black uses the check-in day-point key `ATT:{employeeId}:{d}`, so a day can never hold both a check-in point and an absence Black. `work_date = d`, `source_type = ATTENDANCE`, `source_id` = the new attendance day.
+- Notifications arrive with Phase 5.
+
 ## 13. Audit
 `AuditService.record(tx, {companyId, actorUserId, actorType, action, targetType, targetId, changes, reason})` (wrapping `recordAuditEvent`) is called inside the business transaction for **every admin mutation** (employees, users/salaries, shifts/versions/assignments, company policy, point values, point add/reverse, attendance corrections; excuses and offers when built). Admins read it through `GET /admin/audit-events` (`audit.read`, own company only). **Append-only in the database:** migrations `20261025000200_audit_append_only` and `20261102000000_point_ledger_append_only` add `BEFORE UPDATE / DELETE / TRUNCATE` triggers on `audit_events` and `point_ledger_entries` that raise an error.
 
 ## 14. Transaction Boundaries
 
-Legend: **Tx** = DB transaction; **UL** = `SELECT … FOR UPDATE` on the user row (user lock); **PL** = row lock on the payout/month row. Locks are used only where a read-then-write race would corrupt points or money.
+Legend: **Tx** = DB transaction; **UL** = row lock on the employee row, taken first (user lock; built as `FOR NO KEY UPDATE`, see below); **PL** = row lock on the payout/month row. Locks are used only where a read-then-write race would corrupt points or money.
 
 | Operation | Tx | Lock | Notes |
 |---|---|---|---|
@@ -382,6 +399,7 @@ Legend: **Tx** = DB transaction; **UL** = `SELECT … FOR UPDATE` on the user ro
 | Attendance correction | Tx | **UL** | reverse + re-award + offsets + audit |
 | Leave approve / cancel approval | Tx | **UL** (employee) | reversals/awards + offsets |
 | Early-leave approve/reject | Tx | none — conditional `UPDATE … WHERE status='PENDING'` | |
+| Excuse decision (REQ-035) | Tx | none — conditional `UPDATE … WHERE status='PENDING'` | + audit; no ledger write |
 | Month Close | one Tx | **PL on `payroll_months`** + **UL on all users (ascending id)** | locks month last |
 | Payroll adjustment | Tx | month check | open month only |
 | Withdrawal | Tx | **UL** | ledger debit + payout + outbox |
@@ -391,6 +409,8 @@ Legend: **Tx** = DB transaction; **UL** = `SELECT … FOR UPDATE` on the user ro
 | Webhook intake | single insert | none | unique event id |
 | Refresh rotation | short Tx | token row `FOR UPDATE` | reuse detection |
 | Settings/CRUD/reads | none or simple Tx | none | no locks "just in case" |
+
+**User lock, as built (Phase 4):** one helper `lockEmployee(tx, employeeId)` runs `SELECT id FROM employees WHERE id = $1 FOR NO KEY UPDATE` as the **first** statement of every transaction that writes points (check-in confirm, check-out, absence sweep, admin add/reverse, attendance correction). The transaction stays at READ COMMITTED (Postgres default): the lock serializes writers for one employee, and every read after it sees the latest committed rows. No `Serializable` on these paths; idempotency comes from unique keys. Taking the lock first matters: inserting a row with an FK to the employee holds `FOR KEY SHARE` on it, so a `FOR UPDATE` taken later by two transactions deadlocks. `FOR NO KEY UPDATE` does not conflict with `FOR KEY SHARE`.
 
 **External calls that MUST happen outside DB transactions:** Paymob `send`/`inquire`/token fetch, Redis/BullMQ enqueue (done by the outbox relay after commit), email/push, any HTTP call. **Lock order:** `payroll_months` → `users` ascending id → `payouts` → other rows.
 

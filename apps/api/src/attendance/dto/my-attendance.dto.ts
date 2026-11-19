@@ -21,7 +21,7 @@ export class MyAttendanceDayDto {
   @ApiProperty({ nullable: true, example: "2026-11-02T14:05:00.000Z" })
   checkOutAt!: Date | null;
 
-  @ApiProperty({ example: "GREEN", description: "GREEN / WHITE / RED / BLACK, OFF_DAY_WORK, CORRECTED, EXEMPT or SCHEDULED." })
+  @ApiProperty({ example: "GREEN", description: "GREEN / WHITE / RED / BLACK, OFF_DAY_WORK, CORRECTED, EXEMPT, ABSENT (no check-in, set by the absence sweep) or SCHEDULED." })
   checkInResult!: string;
 
   @ApiProperty({ nullable: true, enum: ["GREEN", "WHITE", "RED", "BLACK"] })
