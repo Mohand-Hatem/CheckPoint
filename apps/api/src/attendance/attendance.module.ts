@@ -1,6 +1,7 @@
 import {
   ApiConflictResponse,
   ApiCreatedResponse,
+  ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
@@ -15,6 +16,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Module,
   Param,
   ParseUUIDPipe,
@@ -44,6 +46,8 @@ import {
   ListAttendanceExcusesQuery,
 } from "./dto/attendance-excuse.dto";
 import { EmployeeAttendanceExcuseService } from "./employee-attendance-excuse.service";
+import { AdminAttendanceExcuseDecisionService } from "./admin-attendance-excuse-decision.service";
+import { AdminAttendanceExcuseDto, DecideAttendanceExcuseDto } from "./dto/excuse-decision.dto";
 
 @ApiTags("Admin · Attendance")
 @Controller("admin/attendance")
@@ -94,6 +98,35 @@ export class AttendanceController {
     @CurrentUser() admin: AuthenticatedUser,
   ) {
     return this.attendance.correct(admin.companyId, admin.userId, dto);
+  }
+}
+
+@ApiTags("Admin · Attendance")
+@Controller("admin/attendance-excuses")
+export class AdminAttendanceExcusesController {
+  constructor(private readonly decisions: AdminAttendanceExcuseDecisionService) {}
+
+  @Post(":id/decision")
+  @HttpCode(200)
+  @RequirePermission("attendance.write")
+  @ApiProtected()
+  @ApiNeedsPermission("attendance.write")
+  @ApiOperation({
+    summary: "Approve or reject an attendance excuse (REQ-035)",
+    description:
+      "Decide a PENDING excuse once, APPROVED or REJECTED, with a reason. The decision is a record only and is audited: it does not change the attendance day, its classification or any point (to change a point, use an attendance correction). A repeated or concurrent decision answers 409 EXCUSE_ALREADY_DECIDED and keeps the first; your own excuse answers 403 SELF_DECISION_FORBIDDEN; a missing or other-company excuse answers 404.",
+  })
+  @ApiOkResponse({ type: AdminAttendanceExcuseDto })
+  @ApiForbiddenResponse({ description: "No attendance.write, or SELF_DECISION_FORBIDDEN (your own attendance day)." })
+  @ApiNotFoundResponse({ description: "Missing excuse, or one of another company." })
+  @ApiConflictResponse({ description: "EXCUSE_ALREADY_DECIDED: only a PENDING excuse can be decided." })
+  @ApiValidationError()
+  decide(
+    @Param("id", ParseUUIDPipe) id: string,
+    @Body() dto: DecideAttendanceExcuseDto,
+    @CurrentUser() admin: AuthenticatedUser,
+  ) {
+    return this.decisions.decide(admin.companyId, admin.userId, id, dto);
   }
 }
 
@@ -165,10 +198,11 @@ export class MyAttendanceController {
 
 @Module({
   imports: [PrismaModule, PointsModule, EmployeesModule, CalendarModule],
-  controllers: [AttendanceController, MyAttendanceController],
+  controllers: [AttendanceController, AdminAttendanceExcusesController, MyAttendanceController],
   providers: [
     AbsenceSweepService,
     EmployeeAttendanceExcuseService,
+    AdminAttendanceExcuseDecisionService,
     AttendanceService,
     AttendanceValidationService,
     AttendanceDayService,

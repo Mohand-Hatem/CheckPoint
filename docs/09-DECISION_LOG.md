@@ -43,6 +43,7 @@
 | D-20 | Off-day work: check-in step 1 rejects a weekly off day or holiday with `422 NOT_A_WORKING_DAY` unless an `ACTIVE` `OFF_DAY_WORK` work offer addressed to the employee covers the check-in moment. Admins create it through the existing `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) instead of a separate `/admin/off-day-work` route; its `startsAt`/`endsAt` are the accepted check-in times (DN-20). Such a day is recorded `check_in_result = OFF_DAY_WORK`, classified GREEN with exactly 1 GREEN whatever the time (no early-work extras), and checkout awards no overtime. The salary ÷ 30 day pay is computed by payroll (Phase 6) from these days. | Approved plan item 9 (Mohand, 2026-11-09) | FR-CAL-1, FR-CAL-2, FR-CAL-3, DN-20, 05 §4.2 step 4 |
 | D-21 | Early checkout (DN-08): a checkout before `scheduled_end_at` with no `APPROVED` early leave (none, rejected or cancelled) keeps `left_early = true` and adds one separate RED (`source_type = EARLY_CHECKOUT`, idempotency key `EC:{attendanceDayId}`) in the checkout transaction, then runs the offset engine. Any minute early counts; the day's check-in point is kept. | Spec v0.5.0, AC-REQ-013-04, AC-REQ-022-03 (CHG-006, approved by Mohand 2026-11-17) | 02 §6.5, §6.7, FR-ATT-5, FR-EL-2, edge case #11, DN-08; 05 §4.4, §7; 06 Phase 5; 08 `attendance_days` |
 | D-22 | Employee attendance excuse (DN-26): an employee submits one written excuse per own attendance day (`PENDING`) and lists/opens their own excuses with status and decision; another employee's or company's day or excuse answers 404; a second excuse for a day answers 409 (no resubmission); reason 1–1000 characters; any recorded day, also ABSENT and locked months; no effect on attendance or points. Admin review and the effect of an approval stay open (GAP-030). | Spec v0.6.0, REQ-034 (CHG-007, ticket HAS-168, approved by Mohand 2026-11-19) | 02 E12, FR-ATT-8, DN-26; 05 §2.2, §4.8; 08 `attendance_excuses`; 06 Phase 5 |
+| D-23 | Admin decision on excuses (GAP-030 in part): `attendance.write` decides a `PENDING` excuse once, `APPROVED` or `REJECTED` with a reason (1–1000); a repeat or race answers 409 and keeps the first; audited; a record only, no attendance, classification or ledger change (a penalty is forgiven only by a correction); missing or other-company excuse 404; an Admin cannot decide an excuse on their own day (403). DB CHECKs keep status and decision fields consistent. Notification stays GAP-030; an Admin list is GAP-031. | Spec v0.7.0, REQ-035 (CHG-008, ticket HAS-170, approved by Mohand 2026-11-19) | 02 A12, FR-ATT-9; 05 §2.3, §4.8, §14; 08 `attendance_excuses`; 06 Phase 5 |
 
 No two CONFIRMED decisions conflict with each other.
 
@@ -133,6 +134,7 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-015 | `02` §6.1; `05` §12; `07` §7 |
 | REQ-016 | FR-ATT-6; `05` §4.7 |
 | REQ-034 | FR-ATT-8; `05` §4.8; `08` `attendance_excuses` |
+| REQ-035 | FR-ATT-9; `05` §4.8, §14; `08` `attendance_excuses` |
 | REQ-017 | FR-PTS-1 |
 | REQ-018 | FR-PTS-2, FR-PTS-3, FR-PTS-4; `02` §6.4; golden G3-G5, G8 |
 | REQ-019 | FR-PTS-5 |

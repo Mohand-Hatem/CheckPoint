@@ -45,7 +45,7 @@ The command checks the secret before it touches the database.
 **Command** (run by the operator, in `apps/api`)
 
 ```bash
-npm run -s provision:company -- --secret "not-the-secret-0000" --name "Acme 1795102095639" --slug acme-1795102095639 --admin-email owner-1795102095639@acme.test
+npm run -s provision:company -- --secret "not-the-secret-0000" --name "Acme 1795104248788" --slug acme-1795104248788 --admin-email owner-1795104248788@acme.test
 ```
 
 **Output** (exit code 1)
@@ -61,15 +61,15 @@ One transaction creates the company, its default settings and shift, the Admin u
 **Command** (run by the operator, in `apps/api`)
 
 ```bash
-npm run -s provision:company -- --secret "$PROVISIONING_SECRET" --name "Acme 1795102095639" --slug acme-1795102095639 --admin-email owner-1795102095639@acme.test
+npm run -s provision:company -- --secret "$PROVISIONING_SECRET" --name "Acme 1795104248788" --slug acme-1795104248788 --admin-email owner-1795104248788@acme.test
 ```
 
 **Output** (exit code 0)
 
 ```text
-✅ Company created: a9555e02-37fa-494a-adc3-709b5d8f9194
-✅ First Admin: owner-1795102095639@acme.test
-🔑 One-time password (shown once, must be changed): zqOdF6waREMU0hZ9
+✅ Company created: 923fd206-b1cd-4628-88e9-ad59fa103c6a
+✅ First Admin: owner-1795104248788@acme.test
+🔑 One-time password (shown once, must be changed): 3Y4-vBXMT_fXgwA1
 ```
 
 ### Step 3. Run it again: "already provisioned"
@@ -79,13 +79,13 @@ Same slug and same Admin email. Nothing is created or changed, and no password i
 **Command** (run by the operator, in `apps/api`)
 
 ```bash
-npm run -s provision:company -- --secret "$PROVISIONING_SECRET" --name "Acme 1795102095639" --slug acme-1795102095639 --admin-email owner-1795102095639@acme.test
+npm run -s provision:company -- --secret "$PROVISIONING_SECRET" --name "Acme 1795104248788" --slug acme-1795104248788 --admin-email owner-1795104248788@acme.test
 ```
 
 **Output** (exit code 0)
 
 ```text
-ℹ️  Already provisioned: company a9555e02-37fa-494a-adc3-709b5d8f9194, first Admin owner-1795102095639@acme.test. Nothing changed.
+ℹ️  Already provisioned: company 923fd206-b1cd-4628-88e9-ad59fa103c6a, first Admin owner-1795104248788@acme.test. Nothing changed.
 ```
 
 ### Step 4. Same slug, different Admin email: refused
@@ -95,13 +95,13 @@ The message says which value collided. Nothing is created.
 **Command** (run by the operator, in `apps/api`)
 
 ```bash
-npm run -s provision:company -- --secret "$PROVISIONING_SECRET" --name "Acme 1795102095639" --slug acme-1795102095639 --admin-email other-1795102095639@acme.test
+npm run -s provision:company -- --secret "$PROVISIONING_SECRET" --name "Acme 1795104248788" --slug acme-1795104248788 --admin-email other-1795104248788@acme.test
 ```
 
 **Output** (exit code 1)
 
 ```text
-❌ A company with the slug "acme-1795102095639" already exists with a different first Admin
+❌ A company with the slug "acme-1795104248788" already exists with a different first Admin
 ```
 
 ### Step 5. The first Admin signs in with the one-time password
@@ -115,8 +115,8 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "owner-1795102095639@acme.test",
-  "password": "zqOdF6waREMU0hZ9"
+  "email": "owner-1795104248788@acme.test",
+  "password": "3Y4-vBXMT_fXgwA1"
 }
 ```
 
@@ -125,10 +125,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(741 chars)",
-  "refreshToken": "a0f616893c23c33783…(64 chars)",
+  "refreshToken": "524d94fca529ed52fc…(64 chars)",
   "user": {
-    "id": "a9047b9c-bdfe-4deb-97ed-5bf47af8b6df",
-    "email": "owner-1795102095639@acme.test",
+    "id": "31013f17-bb80-4549-85e0-c372f6bfadf9",
+    "email": "owner-1795104248788@acme.test",
     "fullName": "Company Administrator",
     "role": "ADMIN",
     "mustChangePassword": true
@@ -170,7 +170,7 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "currentPassword": "zqOdF6waREMU0hZ9",
+  "currentPassword": "3Y4-vBXMT_fXgwA1",
   "newPassword": "NewPassword456!"
 }
 ```
@@ -195,7 +195,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "owner-1795102095639@acme.test",
+  "email": "owner-1795104248788@acme.test",
   "password": "NewPassword456!"
 }
 ```
@@ -205,10 +205,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(741 chars)",
-  "refreshToken": "6a8d933d85a98b6209…(64 chars)",
+  "refreshToken": "c7ea7b04608abbcc75…(64 chars)",
   "user": {
-    "id": "a9047b9c-bdfe-4deb-97ed-5bf47af8b6df",
-    "email": "owner-1795102095639@acme.test",
+    "id": "31013f17-bb80-4549-85e0-c372f6bfadf9",
+    "email": "owner-1795104248788@acme.test",
     "fullName": "Company Administrator",
     "role": "ADMIN",
     "mustChangePassword": false
@@ -231,9 +231,9 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "userId": "a9047b9c-bdfe-4deb-97ed-5bf47af8b6df",
-  "companyId": "a9555e02-37fa-494a-adc3-709b5d8f9194",
-  "email": "owner-1795102095639@acme.test",
+  "userId": "31013f17-bb80-4549-85e0-c372f6bfadf9",
+  "companyId": "923fd206-b1cd-4628-88e9-ad59fa103c6a",
+  "email": "owner-1795104248788@acme.test",
   "role": "ADMIN",
   "permissions": [
     "auth.read",
@@ -277,8 +277,8 @@ Authorization: Bearer <accessToken>
 {
   "data": [
     {
-      "id": "a9047b9c-bdfe-4deb-97ed-5bf47af8b6df",
-      "email": "owner-1795102095639@acme.test",
+      "id": "31013f17-bb80-4549-85e0-c372f6bfadf9",
+      "email": "owner-1795104248788@acme.test",
       "fullName": "Company Administrator",
       "employeeCode": "ADMIN-001",
       "phone": null,
@@ -286,8 +286,8 @@ Authorization: Bearer <accessToken>
       "mustChangePassword": false,
       "activeFrom": "2026-11-19T00:00:00.000Z",
       "disabledAt": null,
-      "createdAt": "2026-11-19T15:28:29.214Z",
-      "updatedAt": "2026-11-19T15:28:53.178Z",
+      "createdAt": "2026-11-19T16:04:17.173Z",
+      "updatedAt": "2026-11-19T16:04:26.529Z",
       "role": {
         "code": "ADMIN",
         "name": "Administrator"
@@ -320,18 +320,18 @@ Authorization: Bearer <accessToken>
 {
   "data": [
     {
-      "id": "1b0f26a1-e28c-4358-b12a-69987c1151ee",
-      "createdAt": "2026-11-19T15:28:29.241Z",
+      "id": "55d17771-4fa7-4a3c-8322-8a194a00a154",
+      "createdAt": "2026-11-19T16:04:17.200Z",
       "actorUserId": null,
       "actorType": "SYSTEM",
       "action": "company.provision",
       "targetType": "company",
-      "targetId": "a9555e02-37fa-494a-adc3-709b5d8f9194",
+      "targetId": "923fd206-b1cd-4628-88e9-ad59fa103c6a",
       "reason": null,
       "changes": {
-        "name": "Acme 1795102095639",
-        "slug": "acme-1795102095639",
-        "adminEmail": "owner-1795102095639@acme.test"
+        "name": "Acme 1795104248788",
+        "slug": "acme-1795104248788",
+        "adminEmail": "owner-1795104248788@acme.test"
       }
     }
   ],
@@ -367,7 +367,7 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(732 chars)",
-  "refreshToken": "b6cd322aad41b34359…(64 chars)",
+  "refreshToken": "f22efcae3821ad60f8…(64 chars)",
   "user": {
     "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
     "email": "admin@checkpoint.local",
@@ -483,9 +483,9 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "email": "sara-1795102095639@acme.test",
+  "email": "sara-1795104248788@acme.test",
   "fullName": "Sara Ahmed",
-  "employeeCode": "GUIDE-1795102095639",
+  "employeeCode": "GUIDE-1795104248788",
   "password": "Password123!",
   "roleCode": "EMPLOYEE",
   "initialSalary": 12000,
@@ -497,27 +497,27 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "6dc0d784-fcc9-4eaa-938a-f53332776daa",
-  "email": "sara-1795102095639@acme.test",
+  "id": "2d782b0b-7fc0-4116-9cdb-233fb024e57a",
+  "email": "sara-1795104248788@acme.test",
   "fullName": "Sara Ahmed",
-  "employeeCode": "GUIDE-1795102095639",
+  "employeeCode": "GUIDE-1795104248788",
   "phone": "+201001234567",
   "active": true,
   "mustChangePassword": true,
   "activeFrom": "2026-11-19T00:00:00.000Z",
   "disabledAt": null,
-  "createdAt": "2026-11-19T15:28:53.822Z",
-  "updatedAt": "2026-11-19T15:28:53.822Z",
+  "createdAt": "2026-11-19T16:04:27.125Z",
+  "updatedAt": "2026-11-19T16:04:27.125Z",
   "role": {
     "code": "EMPLOYEE",
     "name": "Employee"
   },
   "currentSalary": {
-    "id": "f55e4756-c892-48b9-97cf-603543aefbe7",
+    "id": "7da3deb8-bbc9-4fb6-ae54-90f55a7889fb",
     "amount": "12000",
     "currency": "EGP",
     "effectiveFrom": "2026-11-01T00:00:00.000Z",
-    "createdAt": "2026-11-19T15:28:53.930Z",
+    "createdAt": "2026-11-19T16:04:27.202Z",
     "creator": {
       "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "email": "admin@checkpoint.local"
@@ -534,7 +534,7 @@ Paginated and company-scoped. `search` matches email, name or employee code.
 **Request**
 
 ```http
-GET /api/admin/users?search=GUIDE-1795102095639&limit=5
+GET /api/admin/users?search=GUIDE-1795104248788&limit=5
 Authorization: Bearer <accessToken>
 ```
 
@@ -544,27 +544,27 @@ Authorization: Bearer <accessToken>
 {
   "data": [
     {
-      "id": "6dc0d784-fcc9-4eaa-938a-f53332776daa",
-      "email": "sara-1795102095639@acme.test",
+      "id": "2d782b0b-7fc0-4116-9cdb-233fb024e57a",
+      "email": "sara-1795104248788@acme.test",
       "fullName": "Sara Ahmed",
-      "employeeCode": "GUIDE-1795102095639",
+      "employeeCode": "GUIDE-1795104248788",
       "phone": "+201001234567",
       "active": true,
       "mustChangePassword": true,
       "activeFrom": "2026-11-19T00:00:00.000Z",
       "disabledAt": null,
-      "createdAt": "2026-11-19T15:28:53.822Z",
-      "updatedAt": "2026-11-19T15:28:53.822Z",
+      "createdAt": "2026-11-19T16:04:27.125Z",
+      "updatedAt": "2026-11-19T16:04:27.125Z",
       "role": {
         "code": "EMPLOYEE",
         "name": "Employee"
       },
       "currentSalary": {
-        "id": "f55e4756-c892-48b9-97cf-603543aefbe7",
+        "id": "7da3deb8-bbc9-4fb6-ae54-90f55a7889fb",
         "amount": "12000",
         "currency": "EGP",
         "effectiveFrom": "2026-11-01T00:00:00.000Z",
-        "createdAt": "2026-11-19T15:28:53.930Z",
+        "createdAt": "2026-11-19T16:04:27.202Z",
         "creator": {
           "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
           "email": "admin@checkpoint.local"
@@ -587,7 +587,7 @@ Salaries are versioned, never edited. The date must be the 1st of a month. This 
 **Request**
 
 ```http
-POST /api/admin/users/6dc0d784-fcc9-4eaa-938a-f53332776daa/salaries
+POST /api/admin/users/2d782b0b-7fc0-4116-9cdb-233fb024e57a/salaries
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
@@ -601,11 +601,11 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "e3e2a6b8-f454-4178-97b3-af311957b1b6",
+  "id": "23b3960e-cee4-4e83-bb42-9f34180aff10",
   "amount": "13500",
   "currency": "EGP",
   "effectiveFrom": "2027-01-01T00:00:00.000Z",
-  "createdAt": "2026-11-19T15:28:54.049Z"
+  "createdAt": "2026-11-19T16:04:27.324Z"
 }
 ```
 
@@ -616,7 +616,7 @@ Shows `currentSalary` (in force today), `upcomingSalary` (the future raise) and,
 **Request**
 
 ```http
-GET /api/admin/users/6dc0d784-fcc9-4eaa-938a-f53332776daa
+GET /api/admin/users/2d782b0b-7fc0-4116-9cdb-233fb024e57a
 Authorization: Bearer <accessToken>
 ```
 
@@ -624,38 +624,38 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "id": "6dc0d784-fcc9-4eaa-938a-f53332776daa",
-  "email": "sara-1795102095639@acme.test",
+  "id": "2d782b0b-7fc0-4116-9cdb-233fb024e57a",
+  "email": "sara-1795104248788@acme.test",
   "fullName": "Sara Ahmed",
-  "employeeCode": "GUIDE-1795102095639",
+  "employeeCode": "GUIDE-1795104248788",
   "phone": "+201001234567",
   "active": true,
   "mustChangePassword": true,
   "activeFrom": "2026-11-19T00:00:00.000Z",
   "disabledAt": null,
-  "createdAt": "2026-11-19T15:28:53.822Z",
-  "updatedAt": "2026-11-19T15:28:53.822Z",
+  "createdAt": "2026-11-19T16:04:27.125Z",
+  "updatedAt": "2026-11-19T16:04:27.125Z",
   "role": {
     "code": "EMPLOYEE",
     "name": "Employee"
   },
   "currentSalary": {
-    "id": "f55e4756-c892-48b9-97cf-603543aefbe7",
+    "id": "7da3deb8-bbc9-4fb6-ae54-90f55a7889fb",
     "amount": "12000",
     "currency": "EGP",
     "effectiveFrom": "2026-11-01T00:00:00.000Z",
-    "createdAt": "2026-11-19T15:28:53.930Z",
+    "createdAt": "2026-11-19T16:04:27.202Z",
     "creator": {
       "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "email": "admin@checkpoint.local"
     }
   },
   "upcomingSalary": {
-    "id": "e3e2a6b8-f454-4178-97b3-af311957b1b6",
+    "id": "23b3960e-cee4-4e83-bb42-9f34180aff10",
     "amount": "13500",
     "currency": "EGP",
     "effectiveFrom": "2027-01-01T00:00:00.000Z",
-    "createdAt": "2026-11-19T15:28:54.049Z",
+    "createdAt": "2026-11-19T16:04:27.324Z",
     "creator": {
       "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "email": "admin@checkpoint.local"
@@ -663,22 +663,22 @@ Authorization: Bearer <accessToken>
   },
   "salaries": [
     {
-      "id": "e3e2a6b8-f454-4178-97b3-af311957b1b6",
+      "id": "23b3960e-cee4-4e83-bb42-9f34180aff10",
       "amount": "13500",
       "currency": "EGP",
       "effectiveFrom": "2027-01-01T00:00:00.000Z",
-      "createdAt": "2026-11-19T15:28:54.049Z",
+      "createdAt": "2026-11-19T16:04:27.324Z",
       "creator": {
         "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
         "email": "admin@checkpoint.local"
       }
     },
     {
-      "id": "f55e4756-c892-48b9-97cf-603543aefbe7",
+      "id": "7da3deb8-bbc9-4fb6-ae54-90f55a7889fb",
       "amount": "12000",
       "currency": "EGP",
       "effectiveFrom": "2026-11-01T00:00:00.000Z",
-      "createdAt": "2026-11-19T15:28:53.930Z",
+      "createdAt": "2026-11-19T16:04:27.202Z",
       "creator": {
         "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
         "email": "admin@checkpoint.local"
@@ -701,7 +701,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "sara-1795102095639@acme.test",
+  "email": "sara-1795104248788@acme.test",
   "password": "Password123!"
 }
 ```
@@ -711,10 +711,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(512 chars)",
-  "refreshToken": "e0c54228b8edbfa3b1…(64 chars)",
+  "refreshToken": "74410a04803556c0b0…(64 chars)",
   "user": {
-    "id": "6dc0d784-fcc9-4eaa-938a-f53332776daa",
-    "email": "sara-1795102095639@acme.test",
+    "id": "2d782b0b-7fc0-4116-9cdb-233fb024e57a",
+    "email": "sara-1795104248788@acme.test",
     "fullName": "Sara Ahmed",
     "role": "EMPLOYEE",
     "mustChangePassword": true
@@ -781,7 +781,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "sara-1795102095639@acme.test",
+  "email": "sara-1795104248788@acme.test",
   "password": "BrandNew#Pass9"
 }
 ```
@@ -791,10 +791,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(512 chars)",
-  "refreshToken": "108b47866e54100f5f…(64 chars)",
+  "refreshToken": "a40947aa04c48422e2…(64 chars)",
   "user": {
-    "id": "6dc0d784-fcc9-4eaa-938a-f53332776daa",
-    "email": "sara-1795102095639@acme.test",
+    "id": "2d782b0b-7fc0-4116-9cdb-233fb024e57a",
+    "email": "sara-1795104248788@acme.test",
     "fullName": "Sara Ahmed",
     "role": "EMPLOYEE",
     "mustChangePassword": false
@@ -816,9 +816,9 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "email": "newhire-1795102095639@acme.test",
+  "email": "newhire-1795104248788@acme.test",
   "fullName": "New Hire",
-  "employeeCode": "INV-1795102095639"
+  "employeeCode": "INV-1795104248788"
 }
 ```
 
@@ -826,17 +826,17 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "cb473a87-34c5-4db6-914c-155cbd89af0e",
-  "email": "newhire-1795102095639@acme.test",
+  "id": "fbfbae4b-f4b3-4b59-97cc-d7ca2d832d17",
+  "email": "newhire-1795104248788@acme.test",
   "fullName": "New Hire",
-  "employeeNumber": "INV-1795102095639",
+  "employeeNumber": "INV-1795104248788",
   "status": "PENDING",
-  "expiresAt": "2026-11-26T15:28:54.646Z",
+  "expiresAt": "2026-11-26T16:04:27.871Z",
   "acceptedAt": null,
   "revokedAt": null,
-  "createdAt": "2026-11-19T15:28:54.662Z",
-  "token": "07d12e1de7d1d99fa1…(64 chars)",
-  "invitationLink": "http://localhost:3000/invitations/accept?token=07d12e1de7d1d99fa1b7461348a3018a68cf8381a1d77bafedeb0eeb448a126d",
+  "createdAt": "2026-11-19T16:04:27.887Z",
+  "token": "ec86b7c61c8ed30789…(64 chars)",
+  "invitationLink": "http://localhost:3000/invitations/accept?token=ec86b7c61c8ed30789c65e66bd03abb28cca0ac0e2b989fb944d8d4593988f57",
   "emailSent": false
 }
 ```
@@ -857,13 +857,35 @@ Authorization: Bearer <accessToken>
 ```json
 [
   {
+    "id": "fbfbae4b-f4b3-4b59-97cc-d7ca2d832d17",
+    "email": "newhire-1795104248788@acme.test",
+    "fullName": "New Hire",
+    "employeeNumber": "INV-1795104248788",
+    "status": "PENDING",
+    "expiresAt": "2026-11-26T16:04:27.871Z",
+    "acceptedAt": null,
+    "revokedAt": null,
+    "createdAt": "2026-11-19T16:04:27.887Z"
+  },
+  {
+    "id": "5afdd4e9-02bf-4e82-a7bc-031ca5632acc",
+    "email": "revoked-1795102095639@acme.test",
+    "fullName": "Revoked Person",
+    "employeeNumber": "REV-1795102095639",
+    "status": "REVOKED",
+    "expiresAt": "2026-11-26T15:28:55.751Z",
+    "acceptedAt": null,
+    "revokedAt": "2026-11-19T15:28:55.786Z",
+    "createdAt": "2026-11-19T15:28:55.763Z"
+  },
+  {
     "id": "cb473a87-34c5-4db6-914c-155cbd89af0e",
     "email": "newhire-1795102095639@acme.test",
     "fullName": "New Hire",
     "employeeNumber": "INV-1795102095639",
-    "status": "PENDING",
+    "status": "ACCEPTED",
     "expiresAt": "2026-11-26T15:28:54.646Z",
-    "acceptedAt": null,
+    "acceptedAt": "2026-11-19T15:28:54.741Z",
     "revokedAt": null,
     "createdAt": "2026-11-19T15:28:54.662Z"
   },
@@ -904,9 +926,9 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "email": "newhire-1795102095639@acme.test",
+  "email": "newhire-1795104248788@acme.test",
   "fullName": "New Hire",
-  "employeeCode": "INV-OTHER-1795102095639"
+  "employeeCode": "INV-OTHER-1795104248788"
 }
 ```
 
@@ -931,7 +953,7 @@ POST /api/auth/invitations/accept
 Content-Type: application/json
 
 {
-  "token": "07d12e1de7d1d99fa1…(64 chars)",
+  "token": "ec86b7c61c8ed30789…(64 chars)",
   "password": "Password123!"
 }
 ```
@@ -940,7 +962,7 @@ Content-Type: application/json
 
 ```json
 {
-  "email": "newhire-1795102095639@acme.test",
+  "email": "newhire-1795104248788@acme.test",
   "message": "Account created. You can now sign in."
 }
 ```
@@ -956,7 +978,7 @@ POST /api/auth/invitations/accept
 Content-Type: application/json
 
 {
-  "token": "07d12e1de7d1d99fa1…(64 chars)",
+  "token": "ec86b7c61c8ed30789…(64 chars)",
   "password": "Password123!"
 }
 ```
@@ -982,7 +1004,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "newhire-1795102095639@acme.test",
+  "email": "newhire-1795104248788@acme.test",
   "password": "Password123!"
 }
 ```
@@ -992,10 +1014,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(516 chars)",
-  "refreshToken": "0261602a32b3013afb…(64 chars)",
+  "refreshToken": "54b0779057dc10cfc9…(64 chars)",
   "user": {
-    "id": "569be8b2-7f66-4c1e-be3a-cc4352735884",
-    "email": "newhire-1795102095639@acme.test",
+    "id": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
+    "email": "newhire-1795104248788@acme.test",
     "fullName": "New Hire",
     "role": "EMPLOYEE",
     "mustChangePassword": false
@@ -1018,10 +1040,10 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "id": "569be8b2-7f66-4c1e-be3a-cc4352735884",
-  "email": "newhire-1795102095639@acme.test",
+  "id": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
+  "email": "newhire-1795104248788@acme.test",
   "fullName": "New Hire",
-  "employeeCode": "INV-1795102095639",
+  "employeeCode": "INV-1795104248788",
   "phone": null,
   "role": "EMPLOYEE",
   "mustChangePassword": false,
@@ -1062,9 +1084,9 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "email": "x-1795102095639@acme.test",
+  "email": "x-1795104248788@acme.test",
   "fullName": "X",
-  "employeeCode": "X-1795102095639",
+  "employeeCode": "X-1795104248788",
   "password": "Password123!",
   "roleCode": "ADMIN"
 }
@@ -1228,7 +1250,7 @@ Employee records of my company. Accepting the invitation also created a shift as
 **Request**
 
 ```http
-GET /api/admin/employees?search=INV-1795102095639
+GET /api/admin/employees?search=INV-1795104248788
 Authorization: Bearer <accessToken>
 ```
 
@@ -1238,20 +1260,20 @@ Authorization: Bearer <accessToken>
 {
   "items": [
     {
-      "id": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "id": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
       "currentShiftId": "879c80b4-2f34-4469-babe-643fe218d505",
-      "userId": "569be8b2-7f66-4c1e-be3a-cc4352735884",
-      "employeeNumber": "INV-1795102095639",
+      "userId": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
+      "employeeNumber": "INV-1795104248788",
       "fullName": "New Hire",
       "isActive": true,
       "phone": null,
       "activeFrom": "2026-11-19T00:00:00.000Z",
       "deactivatedAt": null,
-      "createdAt": "2026-11-19T15:28:54.828Z",
-      "updatedAt": "2026-11-19T15:28:54.844Z",
+      "createdAt": "2026-11-19T16:04:28.032Z",
+      "updatedAt": "2026-11-19T16:04:28.047Z",
       "user": {
-        "email": "newhire-1795102095639@acme.test",
+        "email": "newhire-1795104248788@acme.test",
         "isActive": true
       },
       "currentShift": {
@@ -1281,7 +1303,7 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
   "workDate": "2026-11-19",
   "action": "SET_CHECK_IN",
   "at": "2026-11-19T08:30:00+02:00",
@@ -1293,10 +1315,10 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+  "id": "9d142796-6468-4bbe-8e76-b158d284bf78",
   "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
-  "shiftAssignmentId": "ebd64f7d-c7f7-4ae2-96e7-7d669d1bb041",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
+  "shiftAssignmentId": "b0b82b4f-6ed3-4bcf-af36-5d48a272a8a2",
   "workDate": "2026-11-19T00:00:00.000Z",
   "timezone": "Africa/Cairo",
   "scheduledStartAt": "2026-11-19T06:00:00.000Z",
@@ -1310,8 +1332,8 @@ Content-Type: application/json
   "classification": "GREEN",
   "leftEarly": false,
   "overtimeGreens": 0,
-  "createdAt": "2026-11-19T15:28:55.181Z",
-  "updatedAt": "2026-11-19T15:28:55.221Z"
+  "createdAt": "2026-11-19T16:04:28.321Z",
+  "updatedAt": "2026-11-19T16:04:28.355Z"
 }
 ```
 
@@ -1327,7 +1349,7 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
   "workDate": "2026-11-19",
   "action": "SET_CHECK_IN",
   "at": "2026-11-19T10:30:00+02:00",
@@ -1339,10 +1361,10 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+  "id": "9d142796-6468-4bbe-8e76-b158d284bf78",
   "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
-  "shiftAssignmentId": "ebd64f7d-c7f7-4ae2-96e7-7d669d1bb041",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
+  "shiftAssignmentId": "b0b82b4f-6ed3-4bcf-af36-5d48a272a8a2",
   "workDate": "2026-11-19T00:00:00.000Z",
   "timezone": "Africa/Cairo",
   "scheduledStartAt": "2026-11-19T06:00:00.000Z",
@@ -1356,8 +1378,8 @@ Content-Type: application/json
   "classification": "RED",
   "leftEarly": false,
   "overtimeGreens": 0,
-  "createdAt": "2026-11-19T15:28:55.181Z",
-  "updatedAt": "2026-11-19T15:28:55.273Z"
+  "createdAt": "2026-11-19T16:04:28.321Z",
+  "updatedAt": "2026-11-19T16:04:28.412Z"
 }
 ```
 
@@ -1373,7 +1395,7 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
   "workDate": "2026-11-19",
   "action": "SET_CHECK_OUT",
   "at": "2026-11-19T18:05:00+02:00",
@@ -1385,10 +1407,10 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+  "id": "9d142796-6468-4bbe-8e76-b158d284bf78",
   "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
-  "shiftAssignmentId": "ebd64f7d-c7f7-4ae2-96e7-7d669d1bb041",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
+  "shiftAssignmentId": "b0b82b4f-6ed3-4bcf-af36-5d48a272a8a2",
   "workDate": "2026-11-19T00:00:00.000Z",
   "timezone": "Africa/Cairo",
   "scheduledStartAt": "2026-11-19T06:00:00.000Z",
@@ -1402,8 +1424,8 @@ Content-Type: application/json
   "classification": "RED",
   "leftEarly": false,
   "overtimeGreens": 2,
-  "createdAt": "2026-11-19T15:28:55.181Z",
-  "updatedAt": "2026-11-19T15:28:55.344Z"
+  "createdAt": "2026-11-19T16:04:28.321Z",
+  "updatedAt": "2026-11-19T16:04:28.465Z"
 }
 ```
 
@@ -1419,7 +1441,7 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
   "workDate": "2026-11-19",
   "action": "EXEMPT",
   "reason": ""
@@ -1445,7 +1467,7 @@ The day as it is now, every ledger entry it produced (originals and their revers
 **Request**
 
 ```http
-GET /api/admin/attendance/4dc2990d-a41a-45b1-8f2e-5d255ec84b6e
+GET /api/admin/attendance/9d142796-6468-4bbe-8e76-b158d284bf78
 Authorization: Bearer <accessToken>
 ```
 
@@ -1453,10 +1475,10 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "id": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+  "id": "9d142796-6468-4bbe-8e76-b158d284bf78",
   "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-  "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
-  "shiftAssignmentId": "ebd64f7d-c7f7-4ae2-96e7-7d669d1bb041",
+  "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
+  "shiftAssignmentId": "b0b82b4f-6ed3-4bcf-af36-5d48a272a8a2",
   "workDate": "2026-11-19T00:00:00.000Z",
   "timezone": "Africa/Cairo",
   "scheduledStartAt": "2026-11-19T06:00:00.000Z",
@@ -1470,18 +1492,18 @@ Authorization: Bearer <accessToken>
   "classification": "RED",
   "leftEarly": false,
   "overtimeGreens": 2,
-  "createdAt": "2026-11-19T15:28:55.181Z",
-  "updatedAt": "2026-11-19T15:28:55.344Z",
+  "createdAt": "2026-11-19T16:04:28.321Z",
+  "updatedAt": "2026-11-19T16:04:28.465Z",
   "employee": {
-    "id": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
-    "employeeNumber": "INV-1795102095639",
+    "id": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
+    "employeeNumber": "INV-1795104248788",
     "fullName": "New Hire"
   },
   "pointEntries": [
     {
-      "id": "2febcecc-5544-4dd7-b334-8fbc6a267779",
+      "id": "b3ea9cb7-2954-4753-93a6-04b614d08419",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-      "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "pointType": "GREEN",
       "entryKind": "AWARD",
       "direction": 1,
@@ -1490,17 +1512,17 @@ Authorization: Bearer <accessToken>
       "pointValueVersionId": "8b4d2d01-0c9f-417e-ae10-d4c66c46065a",
       "valuePerPointPiasters": "100000",
       "sourceType": "ATTENDANCE",
-      "sourceId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
-      "idempotencyKey": "ATT:4dc2990d-a41a-45b1-8f2e-5d255ec84b6e:1",
+      "sourceId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+      "idempotencyKey": "ATT:9d142796-6468-4bbe-8e76-b158d284bf78:1",
       "reversesEntryId": null,
       "reason": "Forgot to scan the QR",
       "createdByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
-      "createdAt": "2026-11-19T15:28:55.199Z"
+      "createdAt": "2026-11-19T16:04:28.334Z"
     },
     {
-      "id": "ea30ad6d-ca56-41a0-b109-f28020721da5",
+      "id": "330266d9-1510-4671-a78b-89d1740da2cd",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-      "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "pointType": "GREEN",
       "entryKind": "REVERSAL",
       "direction": -1,
@@ -1509,17 +1531,17 @@ Authorization: Bearer <accessToken>
       "pointValueVersionId": "8b4d2d01-0c9f-417e-ae10-d4c66c46065a",
       "valuePerPointPiasters": "100000",
       "sourceType": "ATTENDANCE",
-      "sourceId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
-      "idempotencyKey": "attendance-reversal:2febcecc-5544-4dd7-b334-8fbc6a267779",
-      "reversesEntryId": "2febcecc-5544-4dd7-b334-8fbc6a267779",
+      "sourceId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+      "idempotencyKey": "attendance-reversal:b3ea9cb7-2954-4753-93a6-04b614d08419",
+      "reversesEntryId": "b3ea9cb7-2954-4753-93a6-04b614d08419",
       "reason": "Camera shows a later arrival",
       "createdByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
-      "createdAt": "2026-11-19T15:28:55.250Z"
+      "createdAt": "2026-11-19T16:04:28.393Z"
     },
     {
-      "id": "a4b8575f-6ba8-4fc9-97f4-b6720db9ea74",
+      "id": "a89bcdd0-ee04-4741-9cf1-d638505bf42b",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-      "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "pointType": "RED",
       "entryKind": "AWARD",
       "direction": 1,
@@ -1528,17 +1550,17 @@ Authorization: Bearer <accessToken>
       "pointValueVersionId": "817ceb46-b649-4f44-9c06-180035db467e",
       "valuePerPointPiasters": "25000",
       "sourceType": "ATTENDANCE",
-      "sourceId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
-      "idempotencyKey": "ATT:4dc2990d-a41a-45b1-8f2e-5d255ec84b6e:2",
+      "sourceId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+      "idempotencyKey": "ATT:9d142796-6468-4bbe-8e76-b158d284bf78:2",
       "reversesEntryId": null,
       "reason": "Camera shows a later arrival",
       "createdByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
-      "createdAt": "2026-11-19T15:28:55.259Z"
+      "createdAt": "2026-11-19T16:04:28.400Z"
     },
     {
-      "id": "a4b30402-6193-44a2-b257-932b060ca722",
+      "id": "493b5e28-2517-49ed-a6f8-43ef789d6b87",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-      "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "pointType": "RED",
       "entryKind": "REVERSAL",
       "direction": -1,
@@ -1547,17 +1569,17 @@ Authorization: Bearer <accessToken>
       "pointValueVersionId": "817ceb46-b649-4f44-9c06-180035db467e",
       "valuePerPointPiasters": "25000",
       "sourceType": "ATTENDANCE",
-      "sourceId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
-      "idempotencyKey": "attendance-reversal:a4b8575f-6ba8-4fc9-97f4-b6720db9ea74",
-      "reversesEntryId": "a4b8575f-6ba8-4fc9-97f4-b6720db9ea74",
+      "sourceId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+      "idempotencyKey": "attendance-reversal:a89bcdd0-ee04-4741-9cf1-d638505bf42b",
+      "reversesEntryId": "a89bcdd0-ee04-4741-9cf1-d638505bf42b",
       "reason": "Stayed for the stock count",
       "createdByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
-      "createdAt": "2026-11-19T15:28:55.313Z"
+      "createdAt": "2026-11-19T16:04:28.439Z"
     },
     {
-      "id": "e4d68abd-05a5-4113-96ba-22299c50ee6b",
+      "id": "79dc162f-1e82-490d-be08-0c0bd1d85a69",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-      "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "pointType": "RED",
       "entryKind": "AWARD",
       "direction": 1,
@@ -1566,17 +1588,17 @@ Authorization: Bearer <accessToken>
       "pointValueVersionId": "817ceb46-b649-4f44-9c06-180035db467e",
       "valuePerPointPiasters": "25000",
       "sourceType": "ATTENDANCE",
-      "sourceId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
-      "idempotencyKey": "ATT:4dc2990d-a41a-45b1-8f2e-5d255ec84b6e:3",
+      "sourceId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+      "idempotencyKey": "ATT:9d142796-6468-4bbe-8e76-b158d284bf78:3",
       "reversesEntryId": null,
       "reason": "Stayed for the stock count",
       "createdByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
-      "createdAt": "2026-11-19T15:28:55.319Z"
+      "createdAt": "2026-11-19T16:04:28.445Z"
     },
     {
-      "id": "7605a81b-b2e5-4344-a55a-8f9d0868a1ea",
+      "id": "35ab156a-aaff-407e-9a69-af4b4f79bbbe",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
-      "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+      "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
       "pointType": "GREEN",
       "entryKind": "AWARD",
       "direction": 1,
@@ -1585,22 +1607,22 @@ Authorization: Bearer <accessToken>
       "pointValueVersionId": "8b4d2d01-0c9f-417e-ae10-d4c66c46065a",
       "valuePerPointPiasters": "100000",
       "sourceType": "OVERTIME",
-      "sourceId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
-      "idempotencyKey": "OT:4dc2990d-a41a-45b1-8f2e-5d255ec84b6e:3",
+      "sourceId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+      "idempotencyKey": "OT:9d142796-6468-4bbe-8e76-b158d284bf78:3",
       "reversesEntryId": null,
       "reason": "Stayed for the stock count",
       "createdByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
-      "createdAt": "2026-11-19T15:28:55.326Z"
+      "createdAt": "2026-11-19T16:04:28.449Z"
     }
   ],
   "corrections": [
     {
-      "id": "48d02c6a-6e2d-43c9-98ce-fb11fe452dc9",
+      "id": "caa23c4d-ea79-4d04-9665-f8ad721f1404",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "action": "attendance.correct",
       "targetType": "attendance_day",
-      "targetId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "targetId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "reason": "Forgot to scan the QR",
       "changes": {
         "after": {
@@ -1617,24 +1639,24 @@ Authorization: Bearer <accessToken>
           "classification": null
         },
         "workDate": "2026-11-19",
-        "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+        "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
         "reversedEntryIds": []
       },
       "actorType": "ADMIN",
       "requestId": null,
-      "createdAt": "2026-11-19T15:28:55.225Z",
+      "createdAt": "2026-11-19T16:04:28.358Z",
       "actor": {
         "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
         "email": "admin@checkpoint.local"
       }
     },
     {
-      "id": "3b4bd006-6c0f-4c60-9caa-b02549618e8f",
+      "id": "75c4baad-c854-4c46-902b-59c6eb52052d",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "action": "attendance.correct",
       "targetType": "attendance_day",
-      "targetId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "targetId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "reason": "Camera shows a later arrival",
       "changes": {
         "after": {
@@ -1651,26 +1673,26 @@ Authorization: Bearer <accessToken>
           "classification": "GREEN"
         },
         "workDate": "2026-11-19",
-        "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+        "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
         "reversedEntryIds": [
-          "2febcecc-5544-4dd7-b334-8fbc6a267779"
+          "b3ea9cb7-2954-4753-93a6-04b614d08419"
         ]
       },
       "actorType": "ADMIN",
       "requestId": null,
-      "createdAt": "2026-11-19T15:28:55.275Z",
+      "createdAt": "2026-11-19T16:04:28.414Z",
       "actor": {
         "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
         "email": "admin@checkpoint.local"
       }
     },
     {
-      "id": "b90bf0f1-0eec-4465-a6f0-6509b71ceb87",
+      "id": "f8311460-e078-4ce3-9925-9ee6cb5f565c",
       "companyId": "e921838a-b509-4f6b-8ab3-5b78468b2174",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "action": "attendance.correct",
       "targetType": "attendance_day",
-      "targetId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "targetId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "reason": "Stayed for the stock count",
       "changes": {
         "after": {
@@ -1687,14 +1709,14 @@ Authorization: Bearer <accessToken>
           "classification": "RED"
         },
         "workDate": "2026-11-19",
-        "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+        "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
         "reversedEntryIds": [
-          "a4b8575f-6ba8-4fc9-97f4-b6720db9ea74"
+          "a89bcdd0-ee04-4741-9cf1-d638505bf42b"
         ]
       },
       "actorType": "ADMIN",
       "requestId": null,
-      "createdAt": "2026-11-19T15:28:55.346Z",
+      "createdAt": "2026-11-19T16:04:28.467Z",
       "actor": {
         "id": "affdc33c-9a38-4287-bf0f-70ff63016004",
         "email": "admin@checkpoint.local"
@@ -1711,7 +1733,7 @@ Each correction is one `attendance.correct` event, written in the same transacti
 **Request**
 
 ```http
-GET /api/admin/audit-events?targetType=attendance_day&targetId=4dc2990d-a41a-45b1-8f2e-5d255ec84b6e
+GET /api/admin/audit-events?targetType=attendance_day&targetId=9d142796-6468-4bbe-8e76-b158d284bf78
 Authorization: Bearer <accessToken>
 ```
 
@@ -1721,13 +1743,13 @@ Authorization: Bearer <accessToken>
 {
   "data": [
     {
-      "id": "b90bf0f1-0eec-4465-a6f0-6509b71ceb87",
-      "createdAt": "2026-11-19T15:28:55.346Z",
+      "id": "f8311460-e078-4ce3-9925-9ee6cb5f565c",
+      "createdAt": "2026-11-19T16:04:28.467Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "attendance.correct",
       "targetType": "attendance_day",
-      "targetId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "targetId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "reason": "Stayed for the stock count",
       "changes": {
         "after": {
@@ -1744,20 +1766,20 @@ Authorization: Bearer <accessToken>
           "classification": "RED"
         },
         "workDate": "2026-11-19",
-        "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+        "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
         "reversedEntryIds": [
-          "a4b8575f-6ba8-4fc9-97f4-b6720db9ea74"
+          "a89bcdd0-ee04-4741-9cf1-d638505bf42b"
         ]
       }
     },
     {
-      "id": "3b4bd006-6c0f-4c60-9caa-b02549618e8f",
-      "createdAt": "2026-11-19T15:28:55.275Z",
+      "id": "75c4baad-c854-4c46-902b-59c6eb52052d",
+      "createdAt": "2026-11-19T16:04:28.414Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "attendance.correct",
       "targetType": "attendance_day",
-      "targetId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "targetId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "reason": "Camera shows a later arrival",
       "changes": {
         "after": {
@@ -1774,20 +1796,20 @@ Authorization: Bearer <accessToken>
           "classification": "GREEN"
         },
         "workDate": "2026-11-19",
-        "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+        "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
         "reversedEntryIds": [
-          "2febcecc-5544-4dd7-b334-8fbc6a267779"
+          "b3ea9cb7-2954-4753-93a6-04b614d08419"
         ]
       }
     },
     {
-      "id": "48d02c6a-6e2d-43c9-98ce-fb11fe452dc9",
-      "createdAt": "2026-11-19T15:28:55.225Z",
+      "id": "caa23c4d-ea79-4d04-9665-f8ad721f1404",
+      "createdAt": "2026-11-19T16:04:28.358Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "attendance.correct",
       "targetType": "attendance_day",
-      "targetId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "targetId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "reason": "Forgot to scan the QR",
       "changes": {
         "after": {
@@ -1804,7 +1826,7 @@ Authorization: Bearer <accessToken>
           "classification": null
         },
         "workDate": "2026-11-19",
-        "employeeId": "f639ca6d-9ae8-493b-96df-0fa2a3275b8a",
+        "employeeId": "228a78f5-6e39-4e02-9f0b-5f0787285cf3",
         "reversedEntryIds": []
       }
     }
@@ -1834,13 +1856,13 @@ Authorization: Bearer <accessToken>
   "month": "2026-11",
   "items": [
     {
-      "id": "7605a81b-b2e5-4344-a55a-8f9d0868a1ea",
+      "id": "35ab156a-aaff-407e-9a69-af4b4f79bbbe",
       "pointType": "GREEN",
       "workDate": "2026-11-19",
       "quantity": 2,
       "sourceType": "OVERTIME",
       "reason": "Stayed for the stock count",
-      "createdAt": "2026-11-19T15:28:55.326Z",
+      "createdAt": "2026-11-19T16:04:28.449Z",
       "reversed": false,
       "monthLocked": false,
       "consumedQty": 1,
@@ -1850,13 +1872,13 @@ Authorization: Bearer <accessToken>
       "activeQty": 0
     },
     {
-      "id": "e4d68abd-05a5-4113-96ba-22299c50ee6b",
+      "id": "79dc162f-1e82-490d-be08-0c0bd1d85a69",
       "pointType": "RED",
       "workDate": "2026-11-19",
       "quantity": 1,
       "sourceType": "ATTENDANCE",
       "reason": "Stayed for the stock count",
-      "createdAt": "2026-11-19T15:28:55.319Z",
+      "createdAt": "2026-11-19T16:04:28.445Z",
       "reversed": false,
       "monthLocked": false,
       "consumedQty": 0,
@@ -1866,13 +1888,13 @@ Authorization: Bearer <accessToken>
       "activeQty": 0
     },
     {
-      "id": "a4b8575f-6ba8-4fc9-97f4-b6720db9ea74",
+      "id": "a89bcdd0-ee04-4741-9cf1-d638505bf42b",
       "pointType": "RED",
       "workDate": "2026-11-19",
       "quantity": 1,
       "sourceType": "ATTENDANCE",
       "reason": "Camera shows a later arrival",
-      "createdAt": "2026-11-19T15:28:55.259Z",
+      "createdAt": "2026-11-19T16:04:28.400Z",
       "reversed": true,
       "monthLocked": false,
       "consumedQty": 0,
@@ -1882,13 +1904,13 @@ Authorization: Bearer <accessToken>
       "activeQty": 0
     },
     {
-      "id": "2febcecc-5544-4dd7-b334-8fbc6a267779",
+      "id": "b3ea9cb7-2954-4753-93a6-04b614d08419",
       "pointType": "GREEN",
       "workDate": "2026-11-19",
       "quantity": 1,
       "sourceType": "ATTENDANCE",
       "reason": "Forgot to scan the QR",
-      "createdAt": "2026-11-19T15:28:55.199Z",
+      "createdAt": "2026-11-19T16:04:28.334Z",
       "reversed": true,
       "monthLocked": false,
       "consumedQty": 0,
@@ -1952,7 +1974,7 @@ One written excuse per own attendance day (REQ-034). It starts `PENDING` and cha
 **Request**
 
 ```http
-POST /api/me/attendance/4dc2990d-a41a-45b1-8f2e-5d255ec84b6e/excuse
+POST /api/me/attendance/9d142796-6468-4bbe-8e76-b158d284bf78/excuse
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
@@ -1965,13 +1987,13 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "3df6fd56-102d-421b-8824-61aa0e29d3f9",
-  "attendanceDayId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+  "id": "3b656ff1-52c5-4477-9136-4bcdd4e8645b",
+  "attendanceDayId": "9d142796-6468-4bbe-8e76-b158d284bf78",
   "employeeReason": "The bus broke down on the ring road.",
   "status": "PENDING",
   "decisionReason": null,
   "decidedAt": null,
-  "createdAt": "2026-11-19T15:28:55.445Z",
+  "createdAt": "2026-11-19T16:04:28.591Z",
   "workDate": "2026-11-19"
 }
 ```
@@ -1983,7 +2005,7 @@ Refused: **409 `EXCUSE_EXISTS`**. An excuse cannot be resubmitted.
 **Request**
 
 ```http
-POST /api/me/attendance/4dc2990d-a41a-45b1-8f2e-5d255ec84b6e/excuse
+POST /api/me/attendance/9d142796-6468-4bbe-8e76-b158d284bf78/excuse
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
@@ -2020,13 +2042,13 @@ Authorization: Bearer <accessToken>
 {
   "items": [
     {
-      "id": "3df6fd56-102d-421b-8824-61aa0e29d3f9",
-      "attendanceDayId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e",
+      "id": "3b656ff1-52c5-4477-9136-4bcdd4e8645b",
+      "attendanceDayId": "9d142796-6468-4bbe-8e76-b158d284bf78",
       "employeeReason": "The bus broke down on the ring road.",
       "status": "PENDING",
       "decisionReason": null,
       "decidedAt": null,
-      "createdAt": "2026-11-19T15:28:55.445Z",
+      "createdAt": "2026-11-19T16:04:28.591Z",
       "workDate": "2026-11-19"
     }
   ],
@@ -2046,7 +2068,7 @@ The record belongs to the employee: anyone else gets **404**, so its existence i
 **Request**
 
 ```http
-GET /api/me/attendance-excuses/3df6fd56-102d-421b-8824-61aa0e29d3f9
+GET /api/me/attendance-excuses/3b656ff1-52c5-4477-9136-4bcdd4e8645b
 Authorization: Bearer <accessToken>
 ```
 
@@ -2060,9 +2082,96 @@ Authorization: Bearer <accessToken>
 }
 ```
 
+### Step 48. Admin approves the excuse
+
+Needs `attendance.write`. The decision is a record only and is audited: the day, its classification and the points stay as they are (to change a point, use a correction).
+
+**Request**
+
+```http
+POST /api/admin/attendance-excuses/3b656ff1-52c5-4477-9136-4bcdd4e8645b/decision
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "decision": "APPROVED",
+  "decisionReason": "Reviewed the employee explanation."
+}
+```
+
+**Response 200**
+
+```json
+{
+  "id": "3b656ff1-52c5-4477-9136-4bcdd4e8645b",
+  "attendanceDayId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+  "employeeReason": "The bus broke down on the ring road.",
+  "status": "APPROVED",
+  "decisionReason": "Reviewed the employee explanation.",
+  "submittedByUserId": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
+  "decidedByUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
+  "createdAt": "2026-11-19T16:04:28.591Z",
+  "decidedAt": "2026-11-19T16:04:28.679Z"
+}
+```
+
+### Step 49. A second decision on the same excuse
+
+Refused: **409 `EXCUSE_ALREADY_DECIDED`**. The first decision is kept.
+
+**Request**
+
+```http
+POST /api/admin/attendance-excuses/3b656ff1-52c5-4477-9136-4bcdd4e8645b/decision
+Authorization: Bearer <accessToken>
+Content-Type: application/json
+
+{
+  "decision": "REJECTED",
+  "decisionReason": "Changed my mind"
+}
+```
+
+**Response 409**
+
+```json
+{
+  "statusCode": 409,
+  "message": "This excuse has already been decided.",
+  "error": "Conflict",
+  "code": "EXCUSE_ALREADY_DECIDED"
+}
+```
+
+### Step 50. Employee sees the decision
+
+Status, decision reason and time; the employee view does not show who decided.
+
+**Request**
+
+```http
+GET /api/me/attendance-excuses/3b656ff1-52c5-4477-9136-4bcdd4e8645b
+Authorization: Bearer <accessToken>
+```
+
+**Response 200**
+
+```json
+{
+  "id": "3b656ff1-52c5-4477-9136-4bcdd4e8645b",
+  "attendanceDayId": "9d142796-6468-4bbe-8e76-b158d284bf78",
+  "employeeReason": "The bus broke down on the ring road.",
+  "status": "APPROVED",
+  "decisionReason": "Reviewed the employee explanation.",
+  "decidedAt": "2026-11-19T16:04:28.679Z",
+  "createdAt": "2026-11-19T16:04:28.591Z",
+  "workDate": "2026-11-19"
+}
+```
+
 ### Part D: Tokens, refresh and theft detection
 
-### Step 48. Refresh
+### Step 51. Refresh
 
 Returns a NEW pair. The refresh token you sent is now spent: replace both stored tokens.
 
@@ -2073,7 +2182,7 @@ POST /api/auth/refresh
 Content-Type: application/json
 
 {
-  "refreshToken": "0261602a32b3013afb…(64 chars)"
+  "refreshToken": "54b0779057dc10cfc9…(64 chars)"
 }
 ```
 
@@ -2082,11 +2191,11 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(516 chars)",
-  "refreshToken": "be38ec848dca60ce30…(64 chars)"
+  "refreshToken": "46a59e23d8476f6b19…(64 chars)"
 }
 ```
 
-### Step 49. Replay the spent refresh token (a stolen copy)
+### Step 52. Replay the spent refresh token (a stolen copy)
 
 Reuse is treated as theft: the whole session family is revoked and this returns 401.
 
@@ -2097,7 +2206,7 @@ POST /api/auth/refresh
 Content-Type: application/json
 
 {
-  "refreshToken": "0261602a32b3013afb…(64 chars)"
+  "refreshToken": "54b0779057dc10cfc9…(64 chars)"
 }
 ```
 
@@ -2111,7 +2220,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 50. The legitimate newer token is dead too
+### Step 53. The legitimate newer token is dead too
 
 Because the family was revoked, the user must sign in again. This is the intended safety behaviour.
 
@@ -2122,7 +2231,7 @@ POST /api/auth/refresh
 Content-Type: application/json
 
 {
-  "refreshToken": "be38ec848dca60ce30…(64 chars)"
+  "refreshToken": "46a59e23d8476f6b19…(64 chars)"
 }
 ```
 
@@ -2136,7 +2245,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 51. Sign in again, then sign out
+### Step 54. Sign in again, then sign out
 
 Sign-in works as before.
 
@@ -2147,7 +2256,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "newhire-1795102095639@acme.test",
+  "email": "newhire-1795104248788@acme.test",
   "password": "Password123!"
 }
 ```
@@ -2157,10 +2266,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(516 chars)",
-  "refreshToken": "47bf122cb547db907a…(64 chars)",
+  "refreshToken": "5ecf58407d8eac469e…(64 chars)",
   "user": {
-    "id": "569be8b2-7f66-4c1e-be3a-cc4352735884",
-    "email": "newhire-1795102095639@acme.test",
+    "id": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
+    "email": "newhire-1795104248788@acme.test",
     "fullName": "New Hire",
     "role": "EMPLOYEE",
     "mustChangePassword": false
@@ -2168,7 +2277,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 52. Logout
+### Step 55. Logout
 
 Revokes the whole session. The access token keeps working until it expires (up to 15 minutes).
 
@@ -2179,7 +2288,7 @@ POST /api/auth/logout
 Content-Type: application/json
 
 {
-  "refreshToken": "47bf122cb547db907a…(64 chars)"
+  "refreshToken": "5ecf58407d8eac469e…(64 chars)"
 }
 ```
 
@@ -2192,7 +2301,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 53. Refresh after logout
+### Step 56. Refresh after logout
 
 Refreshing a signed-out session fails.
 
@@ -2203,7 +2312,7 @@ POST /api/auth/refresh
 Content-Type: application/json
 
 {
-  "refreshToken": "47bf122cb547db907a…(64 chars)"
+  "refreshToken": "5ecf58407d8eac469e…(64 chars)"
 }
 ```
 
@@ -2219,7 +2328,7 @@ Content-Type: application/json
 
 ### Part E: Deactivate and revoke
 
-### Step 54. Invite someone, then change your mind
+### Step 57. Invite someone, then change your mind
 
 Create another invitation to revoke.
 
@@ -2231,9 +2340,9 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "email": "revoked-1795102095639@acme.test",
+  "email": "revoked-1795104248788@acme.test",
   "fullName": "Revoked Person",
-  "employeeCode": "REV-1795102095639"
+  "employeeCode": "REV-1795104248788"
 }
 ```
 
@@ -2241,29 +2350,29 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "5afdd4e9-02bf-4e82-a7bc-031ca5632acc",
-  "email": "revoked-1795102095639@acme.test",
+  "id": "71a59268-97ea-451e-96cc-35bc6ae81ab5",
+  "email": "revoked-1795104248788@acme.test",
   "fullName": "Revoked Person",
-  "employeeNumber": "REV-1795102095639",
+  "employeeNumber": "REV-1795104248788",
   "status": "PENDING",
-  "expiresAt": "2026-11-26T15:28:55.751Z",
+  "expiresAt": "2026-11-26T16:04:28.922Z",
   "acceptedAt": null,
   "revokedAt": null,
-  "createdAt": "2026-11-19T15:28:55.763Z",
-  "token": "8e0d694c7e9201fd29…(64 chars)",
-  "invitationLink": "http://localhost:3000/invitations/accept?token=8e0d694c7e9201fd290721cad01f9341921b6ce564b94c7e8ccdf5842474581e",
+  "createdAt": "2026-11-19T16:04:28.935Z",
+  "token": "0f7f6af0d779a8e6ac…(64 chars)",
+  "invitationLink": "http://localhost:3000/invitations/accept?token=0f7f6af0d779a8e6ac44f2933a2e1e85d5cb622ae8016d2d9c6a3bd9377b6dc4",
   "emailSent": false
 }
 ```
 
-### Step 55. Revoke the invitation
+### Step 58. Revoke the invitation
 
 Its token stops working immediately.
 
 **Request**
 
 ```http
-DELETE /api/admin/invitations/5afdd4e9-02bf-4e82-a7bc-031ca5632acc
+DELETE /api/admin/invitations/71a59268-97ea-451e-96cc-35bc6ae81ab5
 Authorization: Bearer <accessToken>
 ```
 
@@ -2271,19 +2380,19 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "id": "5afdd4e9-02bf-4e82-a7bc-031ca5632acc",
-  "email": "revoked-1795102095639@acme.test",
+  "id": "71a59268-97ea-451e-96cc-35bc6ae81ab5",
+  "email": "revoked-1795104248788@acme.test",
   "fullName": "Revoked Person",
-  "employeeNumber": "REV-1795102095639",
+  "employeeNumber": "REV-1795104248788",
   "status": "REVOKED",
-  "expiresAt": "2026-11-26T15:28:55.751Z",
+  "expiresAt": "2026-11-26T16:04:28.922Z",
   "acceptedAt": null,
-  "revokedAt": "2026-11-19T15:28:55.786Z",
-  "createdAt": "2026-11-19T15:28:55.763Z"
+  "revokedAt": "2026-11-19T16:04:28.957Z",
+  "createdAt": "2026-11-19T16:04:28.935Z"
 }
 ```
 
-### Step 56. Try to redeem the revoked token
+### Step 59. Try to redeem the revoked token
 
 Same generic 400 as any invalid token.
 
@@ -2294,7 +2403,7 @@ POST /api/auth/invitations/accept
 Content-Type: application/json
 
 {
-  "token": "8e0d694c7e9201fd29…(64 chars)",
+  "token": "0f7f6af0d779a8e6ac…(64 chars)",
   "password": "Password123!"
 }
 ```
@@ -2309,14 +2418,14 @@ Content-Type: application/json
 }
 ```
 
-### Step 57. Deactivate the new employee
+### Step 60. Deactivate the new employee
 
 Revokes all their refresh tokens immediately and stops absences from being recorded.
 
 **Request**
 
 ```http
-PATCH /api/admin/users/569be8b2-7f66-4c1e-be3a-cc4352735884/status
+PATCH /api/admin/users/2cc357d5-8815-4b8b-87b0-f5810cc3be6a/status
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
@@ -2329,17 +2438,17 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "569be8b2-7f66-4c1e-be3a-cc4352735884",
-  "email": "newhire-1795102095639@acme.test",
+  "id": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
+  "email": "newhire-1795104248788@acme.test",
   "fullName": "New Hire",
-  "employeeCode": "INV-1795102095639",
+  "employeeCode": "INV-1795104248788",
   "phone": null,
   "active": false,
   "mustChangePassword": false,
   "activeFrom": "2026-11-19T00:00:00.000Z",
-  "disabledAt": "2026-11-19T15:28:55.862Z",
-  "createdAt": "2026-11-19T15:28:54.824Z",
-  "updatedAt": "2026-11-19T15:28:55.860Z",
+  "disabledAt": "2026-11-19T16:04:29.026Z",
+  "createdAt": "2026-11-19T16:04:28.027Z",
+  "updatedAt": "2026-11-19T16:04:29.025Z",
   "role": {
     "code": "EMPLOYEE",
     "name": "Employee"
@@ -2349,7 +2458,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 58. A deactivated user cannot sign in
+### Step 61. A deactivated user cannot sign in
 
 The account is refused at login.
 
@@ -2360,7 +2469,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "newhire-1795102095639@acme.test",
+  "email": "newhire-1795104248788@acme.test",
   "password": "Password123!"
 }
 ```
@@ -2375,7 +2484,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 59. Their old access token stops working immediately
+### Step 62. Their old access token stops working immediately
 
 The token was still within its 15 minutes, but every request checks that the account is active, so it is refused at once.
 
@@ -2398,7 +2507,7 @@ Authorization: Bearer <accessToken>
 
 ### Part E2: The audit log
 
-### Step 60. Who did what? (newest first)
+### Step 63. Who did what? (newest first)
 
 Every admin mutation and security event is recorded with the actor, the target and what changed, in the same transaction as the change. Passwords, hashes and tokens never appear.
 
@@ -2415,13 +2524,13 @@ Authorization: Bearer <accessToken>
 {
   "data": [
     {
-      "id": "395c8e06-4baf-45a8-ad55-9d53545fec52",
-      "createdAt": "2026-11-19T15:28:55.866Z",
+      "id": "16f01212-3dd9-4eb7-a508-c13ab0b76f10",
+      "createdAt": "2026-11-19T16:04:29.029Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "user.deactivate",
       "targetType": "user",
-      "targetId": "569be8b2-7f66-4c1e-be3a-cc4352735884",
+      "targetId": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
       "reason": null,
       "changes": {
         "isActive": {
@@ -2431,16 +2540,16 @@ Authorization: Bearer <accessToken>
       }
     },
     {
-      "id": "3763b7f1-ba38-4e5e-a7d3-c51fdd7a8150",
-      "createdAt": "2026-11-19T15:28:55.791Z",
+      "id": "149d321f-528a-4700-bc10-04fea47c364d",
+      "createdAt": "2026-11-19T16:04:28.961Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "invitation.revoke",
       "targetType": "invitation",
-      "targetId": "5afdd4e9-02bf-4e82-a7bc-031ca5632acc",
+      "targetId": "71a59268-97ea-451e-96cc-35bc6ae81ab5",
       "reason": null,
       "changes": {
-        "email": "revoked-1795102095639@acme.test",
+        "email": "revoked-1795104248788@acme.test",
         "status": {
           "to": "REVOKED",
           "from": "PENDING"
@@ -2448,49 +2557,54 @@ Authorization: Bearer <accessToken>
       }
     },
     {
-      "id": "2c0d7bb2-3085-4940-86bf-75d0c6bc0e36",
-      "createdAt": "2026-11-19T15:28:55.764Z",
+      "id": "19514ead-dfab-4d4b-a3df-d54b422338dd",
+      "createdAt": "2026-11-19T16:04:28.938Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "invitation.create",
       "targetType": "invitation",
-      "targetId": "5afdd4e9-02bf-4e82-a7bc-031ca5632acc",
+      "targetId": "71a59268-97ea-451e-96cc-35bc6ae81ab5",
       "reason": null,
       "changes": {
-        "email": "revoked-1795102095639@acme.test",
-        "expiresAt": "2026-11-26T15:28:55.751Z",
-        "employeeNumber": "REV-1795102095639"
+        "email": "revoked-1795104248788@acme.test",
+        "expiresAt": "2026-11-26T16:04:28.922Z",
+        "employeeNumber": "REV-1795104248788"
       }
     },
     {
-      "id": "7d9888c1-ab8d-4039-9c89-28819e1d4457",
-      "createdAt": "2026-11-19T15:28:55.450Z",
-      "actorUserId": "569be8b2-7f66-4c1e-be3a-cc4352735884",
-      "actorType": "EMPLOYEE",
-      "action": "attendance_excuse.submit",
+      "id": "93920407-22f2-4015-b9b5-0761149edd7a",
+      "createdAt": "2026-11-19T16:04:28.684Z",
+      "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
+      "actorType": "ADMIN",
+      "action": "attendance_excuse.decide",
       "targetType": "attendance_excuse",
-      "targetId": "3df6fd56-102d-421b-8824-61aa0e29d3f9",
-      "reason": null,
+      "targetId": "3b656ff1-52c5-4477-9136-4bcdd4e8645b",
+      "reason": "Reviewed the employee explanation.",
       "changes": {
-        "attendanceDayId": "4dc2990d-a41a-45b1-8f2e-5d255ec84b6e"
+        "after": {
+          "status": "APPROVED"
+        },
+        "before": {
+          "status": "PENDING"
+        }
       }
     }
   ],
-  "total": 56,
+  "total": 74,
   "page": 1,
   "limit": 4,
-  "totalPages": 14
+  "totalPages": 19
 }
 ```
 
-### Step 61. Filter by action and target
+### Step 64. Filter by action and target
 
 For example the deactivation of one user. `changes` shows before and after.
 
 **Request**
 
 ```http
-GET /api/admin/audit-events?action=user.deactivate&targetId=569be8b2-7f66-4c1e-be3a-cc4352735884
+GET /api/admin/audit-events?action=user.deactivate&targetId=2cc357d5-8815-4b8b-87b0-f5810cc3be6a
 Authorization: Bearer <accessToken>
 ```
 
@@ -2500,13 +2614,13 @@ Authorization: Bearer <accessToken>
 {
   "data": [
     {
-      "id": "395c8e06-4baf-45a8-ad55-9d53545fec52",
-      "createdAt": "2026-11-19T15:28:55.866Z",
+      "id": "16f01212-3dd9-4eb7-a508-c13ab0b76f10",
+      "createdAt": "2026-11-19T16:04:29.029Z",
       "actorUserId": "affdc33c-9a38-4287-bf0f-70ff63016004",
       "actorType": "ADMIN",
       "action": "user.deactivate",
       "targetType": "user",
-      "targetId": "569be8b2-7f66-4c1e-be3a-cc4352735884",
+      "targetId": "2cc357d5-8815-4b8b-87b0-f5810cc3be6a",
       "reason": null,
       "changes": {
         "isActive": {
@@ -2523,7 +2637,7 @@ Authorization: Bearer <accessToken>
 }
 ```
 
-### Step 62. An employee cannot read the log
+### Step 65. An employee cannot read the log
 
 It needs the `audit.read` permission, which only ADMIN has: **403**.
 
@@ -2546,7 +2660,7 @@ Authorization: Bearer <accessToken>
 
 ### Part F: Company isolation (two companies)
 
-### Step 63. Sign in as the Admin of a second company
+### Step 66. Sign in as the Admin of a second company
 
 A second company exists (created by the operator provisioning command, never over HTTP). This Admin's token carries a different `companyId`.
 
@@ -2557,7 +2671,7 @@ POST /api/auth/login
 Content-Type: application/json
 
 {
-  "email": "admin-beta-1795102095639@beta.test",
+  "email": "admin-beta-1795104248788@beta.test",
   "password": "Password123!"
 }
 ```
@@ -2567,10 +2681,10 @@ Content-Type: application/json
 ```json
 {
   "accessToken": "eyJhbGciOiJIUzI1Ni…(748 chars)",
-  "refreshToken": "b39f832f34fd2464c9…(64 chars)",
+  "refreshToken": "192e84bfb27e84977d…(64 chars)",
   "user": {
-    "id": "4d775113-38b2-483c-add3-c8195b8a3720",
-    "email": "admin-beta-1795102095639@beta.test",
+    "id": "735418b1-30fc-41f1-b90e-ce0fcf18bd73",
+    "email": "admin-beta-1795104248788@beta.test",
     "fullName": "Company Administrator",
     "role": "ADMIN",
     "mustChangePassword": false
@@ -2578,14 +2692,14 @@ Content-Type: application/json
 }
 ```
 
-### Step 64. Read a user of the OTHER company
+### Step 67. Read a user of the OTHER company
 
 Answered exactly like an id that does not exist: **404**. Nothing reveals that the record exists.
 
 **Request**
 
 ```http
-GET /api/admin/users/6dc0d784-fcc9-4eaa-938a-f53332776daa
+GET /api/admin/users/2d782b0b-7fc0-4116-9cdb-233fb024e57a
 Authorization: Bearer <accessToken>
 ```
 
@@ -2593,20 +2707,20 @@ Authorization: Bearer <accessToken>
 
 ```json
 {
-  "message": "User with ID '6dc0d784-fcc9-4eaa-938a-f53332776daa' not found",
+  "message": "User with ID '2d782b0b-7fc0-4116-9cdb-233fb024e57a' not found",
   "error": "Not Found",
   "statusCode": 404
 }
 ```
 
-### Step 65. Change a user of the OTHER company
+### Step 68. Change a user of the OTHER company
 
 Also 404, and nothing is changed.
 
 **Request**
 
 ```http
-PATCH /api/admin/users/6dc0d784-fcc9-4eaa-938a-f53332776daa/status
+PATCH /api/admin/users/2d782b0b-7fc0-4116-9cdb-233fb024e57a/status
 Authorization: Bearer <accessToken>
 Content-Type: application/json
 
@@ -2619,7 +2733,7 @@ Content-Type: application/json
 
 ```json
 {
-  "message": "User with ID '6dc0d784-fcc9-4eaa-938a-f53332776daa' not found",
+  "message": "User with ID '2d782b0b-7fc0-4116-9cdb-233fb024e57a' not found",
   "error": "Not Found",
   "statusCode": 404
 }
@@ -2629,7 +2743,7 @@ Content-Type: application/json
 
 A browser app (Next.js) keeps the tokens in HttpOnly cookies, so page JavaScript can never read them. It asks for this with the header `X-Auth-Mode: cookie`. Everything else is the same API. Mobile apps and tools keep using the bearer header, as in Parts A to G. If a request carries both, the header wins. In production the cookies are also `Secure`, and browsers may call the API only from the origins in `CORS_ORIGINS`.
 
-### Step 66. Sign in in cookie mode
+### Step 69. Sign in in cookie mode
 
 The tokens arrive as `Set-Cookie` (HttpOnly, SameSite=Lax) and are NOT in the body. The body holds the user and a `csrfToken`. Keep the `csrfToken` in memory.
 
@@ -2649,8 +2763,8 @@ Content-Type: application/json
 **Response 200**
 
 ```http
-cp_access=eyJhbGciOiJI…; Max-Age=900; Path=/api; Expires=Thu, 19 Nov 2026 15:43:56 GMT; HttpOnly; SameSite=Lax
-cp_refresh=1e1e5c49e41e…; Max-Age=2592000; Path=/api/auth; Expires=Sat, 19 Dec 2026 15:28:56 GMT; HttpOnly; SameSite=Lax
+cp_access=eyJhbGciOiJI…; Max-Age=900; Path=/api; Expires=Thu, 19 Nov 2026 16:19:29 GMT; HttpOnly; SameSite=Lax
+cp_refresh=41e06146047f…; Max-Age=2592000; Path=/api/auth; Expires=Sat, 19 Dec 2026 16:04:29 GMT; HttpOnly; SameSite=Lax
 ```
 
 ```json
@@ -2662,11 +2776,11 @@ cp_refresh=1e1e5c49e41e…; Max-Age=2592000; Path=/api/auth; Expires=Sat, 19 Dec
     "role": "ADMIN",
     "mustChangePassword": false
   },
-  "csrfToken": "AyQH8j_Kg57BV4Vgi3…(43 chars)"
+  "csrfToken": "2QuAbO6PRL9FMEplKp…(43 chars)"
 }
 ```
 
-### Step 67. Call a route with the cookie only
+### Step 70. Call a route with the cookie only
 
 The browser sends the cookie by itself. `GET /auth/me` also returns the current `csrfToken`, which is how a reloaded page gets it back.
 
@@ -2707,11 +2821,11 @@ Cookie: cp_access=eyJhbGciOiJI…
     "audit.read"
   ],
   "mustChangePassword": false,
-  "csrfToken": "AyQH8j_Kg57BV4Vgi3…(43 chars)"
+  "csrfToken": "2QuAbO6PRL9FMEplKp…(43 chars)"
 }
 ```
 
-### Step 68. A write without the CSRF header is refused
+### Step 71. A write without the CSRF header is refused
 
 Browsers attach cookies automatically, so a write that came by cookie must also prove it comes from our page. **403** with code `CSRF_TOKEN_INVALID`.
 
@@ -2723,9 +2837,9 @@ Cookie: cp_access=eyJhbGciOiJI…
 Content-Type: application/json
 
 {
-  "email": "web-1795102095639@acme.test",
+  "email": "web-1795104248788@acme.test",
   "fullName": "Web User",
-  "employeeCode": "WEB-1795102095639",
+  "employeeCode": "WEB-1795104248788",
   "password": "Password123!",
   "roleCode": "EMPLOYEE"
 }
@@ -2742,7 +2856,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 69. The same write with X-CSRF-Token works
+### Step 72. The same write with X-CSRF-Token works
 
 Send the `csrfToken` back in the `X-CSRF-Token` header. Reads (GET) never need it, and neither do requests sent with the Authorization header.
 
@@ -2751,13 +2865,13 @@ Send the `csrfToken` back in the `X-CSRF-Token` header. Reads (GET) never need i
 ```http
 POST /api/admin/users
 Cookie: cp_access=eyJhbGciOiJI…
-X-CSRF-Token: AyQH8j_Kg57BV4Vgi3OFhfTClC0qJhrOA7A7AFUPmMo
+X-CSRF-Token: 2QuAbO6PRL9FMEplKpn4PC17v4aWfXbE-uoFnEy7YaI
 Content-Type: application/json
 
 {
-  "email": "web-1795102095639@acme.test",
+  "email": "web-1795104248788@acme.test",
   "fullName": "Web User",
-  "employeeCode": "WEB-1795102095639",
+  "employeeCode": "WEB-1795104248788",
   "password": "Password123!",
   "roleCode": "EMPLOYEE"
 }
@@ -2767,17 +2881,17 @@ Content-Type: application/json
 
 ```json
 {
-  "id": "baca66b4-b280-4c78-b402-d4ad11990172",
-  "email": "web-1795102095639@acme.test",
+  "id": "82484080-b981-4786-8cd3-cf19c156794b",
+  "email": "web-1795104248788@acme.test",
   "fullName": "Web User",
-  "employeeCode": "WEB-1795102095639",
+  "employeeCode": "WEB-1795104248788",
   "phone": null,
   "active": true,
   "mustChangePassword": true,
   "activeFrom": "2026-11-19T00:00:00.000Z",
   "disabledAt": null,
-  "createdAt": "2026-11-19T15:28:57.135Z",
-  "updatedAt": "2026-11-19T15:28:57.135Z",
+  "createdAt": "2026-11-19T16:04:30.010Z",
+  "updatedAt": "2026-11-19T16:04:30.010Z",
   "role": {
     "code": "EMPLOYEE",
     "name": "Employee"
@@ -2787,7 +2901,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 70. Refresh in cookie mode
+### Step 73. Refresh in cookie mode
 
 No body: the browser sends the `cp_refresh` cookie (only to `/api/auth`). Both cookies are replaced and a new `csrfToken` comes back.
 
@@ -2796,23 +2910,23 @@ No body: the browser sends the `cp_refresh` cookie (only to `/api/auth`). Both c
 ```http
 POST /api/auth/refresh
 X-Auth-Mode: cookie
-Cookie: cp_refresh=1e1e5c49e41e…
+Cookie: cp_refresh=41e06146047f…
 ```
 
 **Response 200**
 
 ```http
-cp_access=eyJhbGciOiJI…; Max-Age=900; Path=/api; Expires=Thu, 19 Nov 2026 15:43:57 GMT; HttpOnly; SameSite=Lax
-cp_refresh=600dabf57cc8…; Max-Age=2592000; Path=/api/auth; Expires=Sat, 19 Dec 2026 15:28:57 GMT; HttpOnly; SameSite=Lax
+cp_access=eyJhbGciOiJI…; Max-Age=900; Path=/api; Expires=Thu, 19 Nov 2026 16:19:30 GMT; HttpOnly; SameSite=Lax
+cp_refresh=7ba6dd0f4e02…; Max-Age=2592000; Path=/api/auth; Expires=Sat, 19 Dec 2026 16:04:30 GMT; HttpOnly; SameSite=Lax
 ```
 
 ```json
 {
-  "csrfToken": "xtwbQy8R4UeAhv3Uy5…(43 chars)"
+  "csrfToken": "OJxmrLGbiEvtfGt5WU…(43 chars)"
 }
 ```
 
-### Step 71. Sign out in cookie mode
+### Step 74. Sign out in cookie mode
 
 Revokes the whole session family and clears both cookies (`Max-Age=0` / expired).
 
@@ -2821,7 +2935,7 @@ Revokes the whole session family and clears both cookies (`Max-Age=0` / expired)
 ```http
 POST /api/auth/logout
 X-Auth-Mode: cookie
-Cookie: cp_refresh=600dabf57cc8…
+Cookie: cp_refresh=7ba6dd0f4e02…
 ```
 
 **Response 200**
@@ -2838,7 +2952,7 @@ cp_refresh=; Path=/api/auth; Expires=Thu, 01 Jan …; HttpOnly; SameSite=Lax
 }
 ```
 
-### Step 72. The refresh cookie no longer works
+### Step 75. The refresh cookie no longer works
 
 After sign-out the old refresh token is revoked: **401**.
 
@@ -2847,7 +2961,7 @@ After sign-out the old refresh token is revoked: **401**.
 ```http
 POST /api/auth/refresh
 X-Auth-Mode: cookie
-Cookie: cp_refresh=600dabf57cc8…
+Cookie: cp_refresh=7ba6dd0f4e02…
 ```
 
 **Response 401**
@@ -2867,7 +2981,7 @@ cp_refresh=; Path=/api/auth; Expires=Thu, 01 Jan …; HttpOnly; SameSite=Lax
 
 ### Part G: Common errors
 
-### Step 73. No token
+### Step 76. No token
 
 Every protected route needs a token: **401**.
 
@@ -2886,7 +3000,7 @@ GET /api/admin/users
 }
 ```
 
-### Step 74. Wrong password
+### Step 77. Wrong password
 
 Same message as an unknown email, so accounts cannot be probed.
 
@@ -2912,7 +3026,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 75. Invalid body
+### Step 78. Invalid body
 
 Validation errors list every problem; unknown fields are rejected too.
 
@@ -2943,7 +3057,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 76. Duplicate employee code
+### Step 79. Duplicate employee code
 
 Employee codes are unique within a company: **409**.
 
@@ -2955,9 +3069,9 @@ Authorization: Bearer <accessToken>
 Content-Type: application/json
 
 {
-  "email": "dup-1795102095639@acme.test",
+  "email": "dup-1795104248788@acme.test",
   "fullName": "Dup",
-  "employeeCode": "GUIDE-1795102095639",
+  "employeeCode": "GUIDE-1795104248788",
   "password": "Password123!",
   "roleCode": "EMPLOYEE"
 }
@@ -2973,7 +3087,7 @@ Content-Type: application/json
 }
 ```
 
-### Step 77. Too many login attempts
+### Step 80. Too many login attempts
 
 More than 5 attempts per minute for one IP and email returns **429**. (The first five answered 401; the sixth:)
 
@@ -3028,6 +3142,7 @@ POST /api/auth/login   (6th attempt in one minute)
 | `GET` | `/api/admin/attendance` | Bearer token or cookie | List attendance days of my company |
 | `GET` | `/api/admin/attendance/{id}` | Bearer token or cookie | One day with its point entries and correction history |
 | `POST` | `/api/admin/attendance/corrections` | Bearer token or cookie | Correct a day: set check-in, set check-out or exempt |
+| `POST` | `/api/admin/attendance-excuses/{id}/decision` | Bearer token or cookie | Approve or reject an attendance excuse (REQ-035) |
 | `POST` | `/api/me/attendance/{attendanceDayId}/excuse` | Bearer token or cookie | Explain one of my attendance days (REQ-034) |
 | `GET` | `/api/me/attendance-excuses` | Bearer token or cookie | My attendance excuses (REQ-034) |
 | `GET` | `/api/me/attendance-excuses/{id}` | Bearer token or cookie | One of my attendance excuses (REQ-034) |

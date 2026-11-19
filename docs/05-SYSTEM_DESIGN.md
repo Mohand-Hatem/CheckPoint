@@ -68,6 +68,7 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | Calendar | `GET/POST /admin/holidays` · `DELETE /admin/holidays/{id}` · `GET/PUT /admin/settings/weekly-off-days` · off-day-work exceptions via `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) and `PATCH /admin/work-offers/{id}/cancel` (D-20) |
 | Work Offers | `GET /admin/work-offers[/{id}]` · `POST /admin/work-offers` · `PATCH /admin/work-offers/{id}/cancel` |
 | Attendance | `GET /admin/attendance?employeeId=&from=&to=` · `GET /admin/attendance/{id}` (day + ledger entries + correction history) · `POST /admin/attendance/corrections` (§4.7) |
+| Attendance excuses | `POST /admin/attendance-excuses/{id}/decision` `{decision: APPROVED\|REJECTED, decisionReason}` (§4.8, REQ-035); an Admin list is GAP-031 |
 | Points | `GET /admin/points?userId=&month=` · `POST /admin/points` `{userId,type,quantity,workDate,reason}` · `POST /admin/points/{id}/reverse` `{reason}` · `GET/POST /admin/point-values` |
 | Leave | `GET /admin/leaves?status=` · `POST /admin/leaves/{id}/{approve, reject, cancel-approval}` `{note}` |
 | Early leave | `GET /admin/early-leaves?status=` · `POST /admin/early-leaves/{id}/{approve, reject}` `{note}` |
@@ -181,7 +182,7 @@ stateDiagram-v2
 `EmployeeAttendanceExcuseService`, table `attendance_excuses` (no migration: it exists with `attendance_day_id` UNIQUE).
 - **Submit** `POST /me/attendance/{attendanceDayId}/excuse {employeeReason}`: the caller's employee is found from the token (no employee profile ⇒ `404`). The day must belong to that employee **and** company; otherwise `404` with one message whether it is someone else's, another company's or missing. `employeeReason` trimmed, 1–1000 characters (`400`). One insert: `status = PENDING`, `submitted_by_user_id` = caller; the unique `attendance_day_id` turns a second excuse (any status, also a race) into `409 EXCUSE_EXISTS`. Same transaction: audit `attendance_excuse.submit` (actor `EMPLOYEE`). Attendance and points are not touched; any recorded day can be excused (ABSENT, locked month too).
 - **Read** `GET /me/attendance-excuses` (newest first, paged `page`/`limit`) and `GET /me/attendance-excuses/{id}`: only the caller's own excuses in the caller's company (`404` otherwise). Response: `id`, `attendanceDayId`, `workDate`, `employeeReason`, `status`, `decisionReason`, `decidedAt` (null while `PENDING`), `createdAt`. The decider's identity is not returned.
-- **Decision:** not built. Admin review and the effect of an approved excuse are GAP-030; until then every excuse stays `PENDING`.
+- **Decision** (REQ-035, HAS-170, D-23) `POST /admin/attendance-excuses/{id}/decision {decision, decisionReason}`, `AdminAttendanceExcuseDecisionService`, permission `attendance.write` (else `403`). `decision ∈ {APPROVED, REJECTED}`, `decisionReason` trimmed 1–1000 characters (`400`). One **transaction**, no lock: the excuse is read in the Admin's company (missing or other company ⇒ `404`); if its attendance day belongs to the Admin's own employee record ⇒ `403 SELF_DECISION_FORBIDDEN`; then one conditional `UPDATE … SET status, decision_reason, decided_by_user_id, decided_at = now() WHERE id AND company_id AND status = 'PENDING'`. Zero rows ⇒ `409 EXCUSE_ALREADY_DECIDED` (a repeat or the loser of a race; the first decision stays). Same transaction: audit `attendance_excuse.decide` (actor `ADMIN`, before `PENDING` / after status, reason). Response: `id`, `attendanceDayId`, `employeeReason`, `status`, `decisionReason`, `submittedByUserId`, `decidedByUserId`, `createdAt`, `decidedAt`. Attendance, classification and the ledger are not touched: forgiving a penalty is a separate correction (§4.7). The employee sees the decision in `GET /me/attendance-excuses`. Notifying the employee: GAP-030 (Phase 5 notifications).
 
 ## 5. Points
 
@@ -398,6 +399,7 @@ Legend: **Tx** = DB transaction; **UL** = row lock on the employee row, taken fi
 | Attendance correction | Tx | **UL** | reverse + re-award + offsets + audit |
 | Leave approve / cancel approval | Tx | **UL** (employee) | reversals/awards + offsets |
 | Early-leave approve/reject | Tx | none — conditional `UPDATE … WHERE status='PENDING'` | |
+| Excuse decision (REQ-035) | Tx | none — conditional `UPDATE … WHERE status='PENDING'` | + audit; no ledger write |
 | Month Close | one Tx | **PL on `payroll_months`** + **UL on all users (ascending id)** | locks month last |
 | Payroll adjustment | Tx | month check | open month only |
 | Withdrawal | Tx | **UL** | ledger debit + payout + outbox |

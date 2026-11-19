@@ -426,6 +426,24 @@ async function main() {
     why: 'The record belongs to the employee: anyone else gets **404**, so its existence is not revealed.',
     method: 'GET', path: `/me/attendance-excuses/${excuse.json.id}`, token: admin.access, expect: 404,
   });
+  const decided = await call({
+    title: 'Admin approves the excuse',
+    why: 'Needs `attendance.write`. The decision is a record only and is audited: the day, its classification and the points stay as they are (to change a point, use a correction).',
+    method: 'POST', path: `/admin/attendance-excuses/${excuse.json.id}/decision`, token: admin.access, expect: 200,
+    body: { decision: 'APPROVED', decisionReason: 'Reviewed the employee explanation.' },
+  });
+  check(decided.json?.status === 'APPROVED' && decided.json?.decidedByUserId, 'excuse approved with a decider');
+  await call({
+    title: 'A second decision on the same excuse',
+    why: 'Refused: **409 `EXCUSE_ALREADY_DECIDED`**. The first decision is kept.',
+    method: 'POST', path: `/admin/attendance-excuses/${excuse.json.id}/decision`, token: admin.access, expect: 409,
+    body: { decision: 'REJECTED', decisionReason: 'Changed my mind' },
+  });
+  await call({
+    title: 'Employee sees the decision',
+    why: 'Status, decision reason and time; the employee view does not show who decided.',
+    method: 'GET', path: `/me/attendance-excuses/${excuse.json.id}`, token: e.access, expect: 200,
+  });
 
   // ---------------------------------------------------------------- D. sessions
   md.push('### Part D: Tokens, refresh and theft detection', '');

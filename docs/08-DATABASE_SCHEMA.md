@@ -230,7 +230,7 @@ Phase 3 evidence: `left_early` bool NN default false (checkout before `scheduled
 GPS-validated attempts awaiting QR: `company_id`, `employee_id`, `work_date`, `location_id` (company-scoped FKs), status enum `VerificationStatus` `PENDING/CONFIRMED/EXPIRED`, `started_at`, `expires_at = started_at + 15 min` (CHECK `expires_at > started_at`), `confirmed_at` (set iff `CONFIRMED`, CHECK), `latitude`/`longitude` numeric(9,6), `accuracy_m` numeric(7,2). Partial `UNIQUE (employee_id, work_date) WHERE status='PENDING'` (`attendance_verifications_one_pending_key`, migration only; Prisma cannot express it).
 
 #### `attendance_excuses` (employee excuse, REQ-034)
-`attendance_day_id` UNIQUE (one excuse per day: a second one is `409`), `submitted_by_user_id`, `employee_reason` (1–1000 characters, checked in the service), status (`PENDING`; decisions are GAP-030), `decided_by_user_id`, `decision_reason`, `decided_at`. Written only by `POST /me/attendance/{attendanceDayId}/excuse` (`05` §4.8); it never changes attendance or points.
+`attendance_day_id` UNIQUE (one excuse per day: a second one is `409`), `submitted_by_user_id`, `employee_reason` (1–1000 characters, checked in the service), status (`PENDING` → `APPROVED` or `REJECTED`, once), `decided_by_user_id`, `decision_reason`, `decided_at`. CHECKs (migration `20261119030000_attendance_excuse_checks`): status is one of the three; the decision fields are all set exactly when status is not `PENDING`. Written by `POST /me/attendance/{attendanceDayId}/excuse` (create) and `POST /admin/attendance-excuses/{id}/decision` (decide) (`05` §4.8); neither changes attendance or points.
 
 ### 3.4 Points
 

@@ -78,6 +78,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | A9 | Review fund, perform fund adjustments (ledger entries), review/inquire/manual-resolve payouts. | MVP |
 | A10 | Edit settings (policy toggles, limits, weekly off days). | MVP |
 | A11 | Review audit log. | MVP |
+| A12 | Approve or reject an employee's attendance excuse with a reason; the decision is recorded and audited but changes no point (to change a point I use a correction) (REQ-035, HAS-170). | MVP |
 
 ### System
 | ID | Story | Priority |
@@ -124,6 +125,7 @@ Windows use **half-open intervals** `[from, to)`: 09:00:00 is NORMAL, 10:00:00 i
 | FR-ATT-6 | Admin manual check-in/out and correction (reason mandatory, audited, point effects through ledger reversal + new award). | MVP |
 | FR-ATT-7 | Employee attendance history. | MVP |
 | FR-ATT-8 | Employee attendance excuse (REQ-034): one written excuse per own attendance day (`PENDING`), list and open own excuses with status and decision; another employee's or company's day or excuse answers 404; a second excuse for the same day answers 409; reason 1–1000 characters; any recorded day, also ABSENT and locked months; no effect on attendance or points. Admin review: GAP-030 (not built). | MVP |
+| FR-ATT-9 | Admin decision on an excuse (REQ-035): `attendance.write` only (else 403); `APPROVED` or `REJECTED` with a reason of 1–1000 characters; only a `PENDING` excuse, once (repeat or race ⇒ 409, the first decision is kept); stores decider, time, status and reason and audits it; changes no attendance, classification or point entry; missing or other-company excuse ⇒ 404; an Admin cannot decide an excuse on their own day (403). Finding excuses to review: GAP-031. | MVP |
 
 ### 4.4 Points
 | ID | Requirement | Priority |

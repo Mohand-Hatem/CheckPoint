@@ -99,4 +99,13 @@ Depends on: 8–10.
 - [x] Code: `EmployeeAttendanceExcuseService` + 3 routes on `MyAttendanceController` (`POST /me/attendance/:attendanceDayId/excuse`, `GET /me/attendance-excuses`, `GET /me/attendance-excuses/:id`); audit `attendance_excuse.submit`; no migration (unique `attendance_day_id` gives the 409)
 - [x] e2e `test/my-attendance-excuses.e2e-spec.ts` (red: 404 routes; green after): AC-01..06, same 404 for other employee / other company / missing, 409 incl. race, own-only list and get, 401
 - [x] Swagger, openapi.json (66 operations), guide 77 steps; unit 287/287, e2e 22 suites / 145 tests, build, lint
-- [ ] Commit, push (ask each)
+- [x] Committed (40a05db) and pushed on phase-4-completed
+
+## Task 14: HAS-170 Admin excuse decision (branch `phase-5`, from phase-4-completed at 40a05db)
+- [x] Spec v0.7.0 / CHG-008: REQ-035 (AC-01..07 incl. self-decision block), DEC-030, GAP-030 narrowed to notification, GAP-031 (Admin excuse list). Approved by Mohand in chat, recorded in `SPEC_APPROVAL.md` at his instruction
+- [x] Docs: 02 A12, FR-ATT-9; 05 §2.3, §4.8, §14 row; 08 CHECKs; 09 D-23 + REQ-035 traceability; 06 Phase 5 note
+- [x] Migration `20261119030000_attendance_excuse_checks`: status IN (PENDING, APPROVED, REJECTED); decision fields set exactly when not PENDING
+- [x] Code: `AdminAttendanceExcuseDecisionService`, `POST /admin/attendance-excuses/:id/decision` (`attendance.write`, 200): conditional UPDATE WHERE status = PENDING, 409 `EXCUSE_ALREADY_DECIDED`, 403 `SELF_DECISION_FORBIDDEN`, 404, audit `attendance_excuse.decide`; no attendance or ledger write
+- [x] e2e `test/admin-excuse-decision.e2e-spec.ts` (red: route missing; green after): AC-01..07, race (one 200, one 409, one audit row), employee sees the decision, DB CHECKs
+- [x] Swagger, openapi.json (67 operations), guide 80 steps; unit 287/287, e2e 23 suites / 153 tests, build, lint
+- [ ] Commit, push, PR phase-5 → main (ask each)

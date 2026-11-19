@@ -2852,6 +2852,108 @@
         ]
       }
     },
+    "/api/admin/attendance-excuses/{id}/decision": {
+      "post": {
+        "description": "Decide a PENDING excuse once, APPROVED or REJECTED, with a reason. The decision is a record only and is audited: it does not change the attendance day, its classification or any point (to change a point, use an attendance correction). A repeated or concurrent decision answers 409 EXCUSE_ALREADY_DECIDED and keeps the first; your own excuse answers 403 SELF_DECISION_FORBIDDEN; a missing or other-company excuse answers 404.",
+        "operationId": "AdminAttendanceExcusesController_decide",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DecideAttendanceExcuseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "No attendance.write, or SELF_DECISION_FORBIDDEN (your own attendance day).\n\nThe caller is authenticated but lacks the `attendance.write` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.write",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Missing excuse, or one of another company."
+          },
+          "409": {
+            "description": "EXCUSE_ALREADY_DECIDED: only a PENDING excuse can be decided."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Approve or reject an attendance excuse (REQ-035)",
+        "tags": [
+          "Admin · Attendance"
+        ]
+      }
+    },
     "/api/me/attendance/{attendanceDayId}/excuse": {
       "post": {
         "description": "Submit one written excuse for your own recorded day (any result, ABSENT included). It starts PENDING and changes no attendance or points. Someone else's day, another company's day or a missing day answers 404; a second excuse for the same day answers 409 EXCUSE_EXISTS.",
@@ -6484,6 +6586,89 @@
       "CorrectAttendanceDto": {
         "type": "object",
         "properties": {}
+      },
+      "DecideAttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "decision": {
+            "type": "string",
+            "enum": [
+              "APPROVED",
+              "REJECTED"
+            ],
+            "example": "APPROVED"
+          },
+          "decisionReason": {
+            "type": "string",
+            "example": "Reviewed the employee explanation.",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Trimmed; 1–1000 characters (AC-REQ-035-02)."
+          }
+        },
+        "required": [
+          "decision",
+          "decisionReason"
+        ]
+      },
+      "AdminAttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attendanceDayId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "employeeReason": {
+            "type": "string",
+            "example": "I was delayed by a transit disruption."
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "PENDING",
+              "APPROVED",
+              "REJECTED"
+            ],
+            "example": "APPROVED"
+          },
+          "decisionReason": {
+            "type": "object",
+            "nullable": true,
+            "example": "Reviewed the employee explanation."
+          },
+          "submittedByUserId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "decidedByUserId": {
+            "type": "object",
+            "format": "uuid",
+            "nullable": true
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decidedAt": {
+            "type": "object",
+            "nullable": true
+          }
+        },
+        "required": [
+          "id",
+          "attendanceDayId",
+          "employeeReason",
+          "status",
+          "decisionReason",
+          "submittedByUserId",
+          "decidedByUserId",
+          "createdAt",
+          "decidedAt"
+        ]
       },
       "CreateAttendanceExcuseDto": {
         "type": "object",
