@@ -92,3 +92,11 @@ Depends on: 8–10.
 - [ ] push
 - [ ] PR to main
 - [ ] merge
+
+## Task 13: HAS-168 employee attendance excuses (added to this branch, 2026-11-19)
+- [x] Spec v0.6.0 / CHG-007: REQ-034 (AC-01..05 confirmed, AC-06/07 proposals), DEC-029, GAP-030 (Admin review). Approved by Mohand in chat, recorded in `SPEC_APPROVAL.md` at his instruction
+- [x] Docs: 02 E12, FR-ATT-8, DN-26 closed; 05 §2.2 + §4.8; 08 `attendance_excuses`; 09 D-22, C-19 closed, REQ-034 traceability; 06 Phase 5 note
+- [x] Code: `EmployeeAttendanceExcuseService` + 3 routes on `MyAttendanceController` (`POST /me/attendance/:attendanceDayId/excuse`, `GET /me/attendance-excuses`, `GET /me/attendance-excuses/:id`); audit `attendance_excuse.submit`; no migration (unique `attendance_day_id` gives the 409)
+- [x] e2e `test/my-attendance-excuses.e2e-spec.ts` (red: 404 routes; green after): AC-01..06, same 404 for other employee / other company / missing, 409 incl. race, own-only list and get, 401
+- [x] Swagger, openapi.json (66 operations), guide 77 steps; unit 287/287, e2e 22 suites / 145 tests, build, lint
+- [ ] Commit, push (ask each)

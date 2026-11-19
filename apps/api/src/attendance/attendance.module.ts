@@ -1,5 +1,7 @@
 import {
+  ApiConflictResponse,
   ApiCreatedResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -35,6 +37,13 @@ import { MyAttendanceQuery, MyAttendanceResponseDto } from "./dto/my-attendance.
 import { AbsenceSweepService } from "./absence-sweep.service";
 import { CalendarModule } from "../calendar/calendar.module";
 import { EmployeesModule } from "../employees/employees.module";
+import {
+  AttendanceExcuseDto,
+  AttendanceExcuseListDto,
+  CreateAttendanceExcuseDto,
+  ListAttendanceExcusesQuery,
+} from "./dto/attendance-excuse.dto";
+import { EmployeeAttendanceExcuseService } from "./employee-attendance-excuse.service";
 
 @ApiTags("Admin · Attendance")
 @Controller("admin/attendance")
@@ -91,7 +100,54 @@ export class AttendanceController {
 @ApiTags("Me")
 @Controller("me")
 export class MyAttendanceController {
-  constructor(private readonly attendance: AttendanceService) {}
+  constructor(
+    private readonly attendance: AttendanceService,
+    private readonly excuses: EmployeeAttendanceExcuseService,
+  ) {}
+
+  @Post("attendance/:attendanceDayId/excuse")
+  @ApiProtected()
+  @ApiOperation({
+    summary: "Explain one of my attendance days (REQ-034)",
+    description:
+      "Submit one written excuse for your own recorded day (any result, ABSENT included). It starts PENDING and changes no attendance or points. Someone else's day, another company's day or a missing day answers 404; a second excuse for the same day answers 409 EXCUSE_EXISTS.",
+  })
+  @ApiCreatedResponse({ type: AttendanceExcuseDto })
+  @ApiNotFoundResponse({ description: "Not my attendance day (or no employee profile)." })
+  @ApiConflictResponse({ description: "EXCUSE_EXISTS: the day already has an excuse; it cannot be resubmitted." })
+  @ApiValidationError()
+  submitExcuse(
+    @Param("attendanceDayId", ParseUUIDPipe) attendanceDayId: string,
+    @Body() dto: CreateAttendanceExcuseDto,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    return this.excuses.submit(user.companyId, user.userId, attendanceDayId, dto.employeeReason);
+  }
+
+  @Get("attendance-excuses")
+  @ApiProtected()
+  @ApiOperation({
+    summary: "My attendance excuses (REQ-034)",
+    description: "Only my own excuses in my company, newest first, each with its status and decision (empty while PENDING). Paged.",
+  })
+  @ApiOkResponse({ type: AttendanceExcuseListDto })
+  @ApiValidationError()
+  listExcuses(@Query() query: ListAttendanceExcusesQuery, @CurrentUser() user: AuthenticatedUser) {
+    return this.excuses.listMine(user.companyId, user.userId, query);
+  }
+
+  @Get("attendance-excuses/:id")
+  @ApiProtected()
+  @ApiOperation({
+    summary: "One of my attendance excuses (REQ-034)",
+    description: "Status and decision of one of my own excuses. Another employee's or company's excuse answers 404.",
+  })
+  @ApiOkResponse({ type: AttendanceExcuseDto })
+  @ApiNotFoundResponse({ description: "Not my excuse." })
+  @ApiValidationError()
+  getExcuse(@Param("id", ParseUUIDPipe) id: string, @CurrentUser() user: AuthenticatedUser) {
+    return this.excuses.getMine(user.companyId, user.userId, id);
+  }
 
   @Get("attendance")
   @ApiProtected()
@@ -112,6 +168,7 @@ export class MyAttendanceController {
   controllers: [AttendanceController, MyAttendanceController],
   providers: [
     AbsenceSweepService,
+    EmployeeAttendanceExcuseService,
     AttendanceService,
     AttendanceValidationService,
     AttendanceDayService,

@@ -215,6 +215,7 @@ Each step's tests should name the planning `TEST-xxx` / `AC-REQ-xxx` they prove 
 - **[BE]**: Early leave effects at check-out (approved: no penalty, no overtime; none/rejected: one RED, D-21); link to attendance.
 - **[BE]**: Admin attendance correction endpoints (manual check-in/out, `correct`).
 - **[BE]**: In-app notifications for decisions and penalties.
+- **[BE]**: Employee attendance excuses (REQ-034, HAS-168): submit and view own excuses. **Built early, 2026-11-19, with Phase 4** (`05` §4.8). Admin review of excuses waits for GAP-030.
 - **[WEB]**: Admin leave & early leave review queues (with Approve/Reject/Cancel actions); attendance calendar correction interface.
 - **[MOB]**: Employee Leave Request form (date range picker, leave type, reason), Early Leave request modal, request status history.
 

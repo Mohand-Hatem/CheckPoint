@@ -42,6 +42,7 @@
 | D-19 | Two-step check-in: `POST /employee/attendance/check-in` (GPS) only creates a 15-minute `PENDING` row in `attendance_verifications` (one per employee and day, partial unique index); `POST /employee/attendance/check-in/confirm` with the kiosk QR of the same location records the day at the step-1 time and awards its points. Expiry is enforced on use (`410 VERIFICATION_EXPIRED`, row marked `EXPIRED`); no BullMQ job or injectable `Clock` until the Phase 4 absence sweeper needs a scheduler. **Deviation kept until Phase 4:** a check-in after the late period still records BLACK instead of `ATTENDANCE_CLOSED`, so the penalty works before the absence sweeper exists. | Explicit user approval (Mohand, 2026-11-09) | FR-ATT-1, FR-ATT-2, 05 §4.2-4.3, 08 `attendance_verifications` |
 | D-20 | Off-day work: check-in step 1 rejects a weekly off day or holiday with `422 NOT_A_WORKING_DAY` unless an `ACTIVE` `OFF_DAY_WORK` work offer addressed to the employee covers the check-in moment. Admins create it through the existing `POST /admin/work-offers` (`offerType: OFF_DAY_WORK`) instead of a separate `/admin/off-day-work` route; its `startsAt`/`endsAt` are the accepted check-in times (DN-20). Such a day is recorded `check_in_result = OFF_DAY_WORK`, classified GREEN with exactly 1 GREEN whatever the time (no early-work extras), and checkout awards no overtime. The salary ÷ 30 day pay is computed by payroll (Phase 6) from these days. | Approved plan item 9 (Mohand, 2026-11-09) | FR-CAL-1, FR-CAL-2, FR-CAL-3, DN-20, 05 §4.2 step 4 |
 | D-21 | Early checkout (DN-08): a checkout before `scheduled_end_at` with no `APPROVED` early leave (none, rejected or cancelled) keeps `left_early = true` and adds one separate RED (`source_type = EARLY_CHECKOUT`, idempotency key `EC:{attendanceDayId}`) in the checkout transaction, then runs the offset engine. Any minute early counts; the day's check-in point is kept. | Spec v0.5.0, AC-REQ-013-04, AC-REQ-022-03 (CHG-006, approved by Mohand 2026-11-17) | 02 §6.5, §6.7, FR-ATT-5, FR-EL-2, edge case #11, DN-08; 05 §4.4, §7; 06 Phase 5; 08 `attendance_days` |
+| D-22 | Employee attendance excuse (DN-26): an employee submits one written excuse per own attendance day (`PENDING`) and lists/opens their own excuses with status and decision; another employee's or company's day or excuse answers 404; a second excuse for a day answers 409 (no resubmission); reason 1–1000 characters; any recorded day, also ABSENT and locked months; no effect on attendance or points. Admin review and the effect of an approval stay open (GAP-030). | Spec v0.6.0, REQ-034 (CHG-007, ticket HAS-168, approved by Mohand 2026-11-19) | 02 E12, FR-ATT-8, DN-26; 05 §2.2, §4.8; 08 `attendance_excuses`; 06 Phase 5 |
 
 No two CONFIRMED decisions conflict with each other.
 
@@ -67,7 +68,7 @@ No two CONFIRMED decisions conflict with each other.
 | C-16 | User vs employee | Docs used one `users` table; schema splits `users` (login) and `employees` (person). | Keep the split. **[ADD]** `users.must_change_password`, `employees.active_from`, `employees.deactivated_at` (needed by FR-AUTH-5 and the absence job). Later-phase tables reference `employees.id`. | Done in docs |
 | C-17 | Check-in windows | Docs `work_schedules` (early/normal/late minutes). Schema `shift_versions` (grace/red-period minutes only). | Keep shift versions; **[ADD]** `early_minutes` (default 60). Read `grace_minutes` = WHITE end (120) and `red_period_minutes` = RED end (240). **[ADD]** `attendance_days.early_end_at` and `classification`. | Done in docs; interpretation to confirm with the model's author |
 | C-18 | Audit table | Docs `audit_logs`; schema `audit_events`. | Keep `audit_events` (`changes` holds before/after); **[ADD]** `actor_type`, `request_id`. | Done in docs |
-| C-19 | Attendance excuses | Schema has `attendance_excuses`; no requirement. | Kept, unused in MVP. | Open: DN-26 |
+| C-19 | Attendance excuses | Schema has `attendance_excuses`; no requirement. | Spec v0.6.0 REQ-034: employee submit/view (D-22); Admin decision GAP-030. | Closed (D-22) |
 | C-20 | Login protection | Spec proposal: account lockout (5 failures → 15 min). Docs/code: rate limit per email+IP (429). v1.0 of this log wrongly called them the same. | Keep the rate limit; recorded as planning GAP-024. | Open: DN-27 |
 | C-21 | Missing models | Schema has no `refresh_tokens` or `settings`, which the auth/users code and Step 1.5 need. | **[ADD]** both (`settings` keyed by `(company_id, key)`). Other later-phase tables arrive with their roadmap phase. | Step 4 |
 | C-22 | Point month | 05 §5.1/§5.3 order offsets by `work_date` and decide month lock by `payroll_month(work_date)`; `point_ledger_entries` had no date, and the engine sorted by `created_at`. | **[ADD]** `point_ledger_entries.work_date` (date NN), backfilled; offsets ordered `(work_date, created_at, id)`. Admin points use the Cairo date of the add. | Phase 4 (2026-11-19) |
@@ -103,7 +104,7 @@ No two CONFIRMED decisions conflict with each other.
 | DN-21 | Fund credit uses the GREEN value at Month Close or at each Green's work date? | Stakeholder |
 | DN-22 / DN-23 | Refresh token lifetime; money representation. | Team |
 | DN-25 | 1000 EGP Green vs 250 EGP Red: intended? (GAP-018) | Stakeholder |
-| DN-26 | Is an employee excuse flow wanted (`attendance_excuses`)? | Stakeholder |
+| DN-26 | ~~Is an employee excuse flow wanted (`attendance_excuses`)?~~ Closed by D-22; Admin review is GAP-030. | Stakeholder |
 | DN-27 | Lockout vs rate limit. | Stakeholder / team |
 | C-17 | Confirm the grace / red-period reading with the author of the 2026-10-22 model. | Model author |
 | ~~U-5~~ | **Resolved 2026-11-17:** UNDO rows via `point_offset_allocations.reverses_allocation_id` (append-only, `08` §`point_offset_allocations`). | Phase 4 |
@@ -131,6 +132,7 @@ No two CONFIRMED decisions conflict with each other.
 | REQ-013, REQ-014 | FR-ATT-5; `02` §6.5; `07` §5-6; AC-REQ-013-04 → D-21 |
 | REQ-015 | `02` §6.1; `05` §12; `07` §7 |
 | REQ-016 | FR-ATT-6; `05` §4.7 |
+| REQ-034 | FR-ATT-8; `05` §4.8; `08` `attendance_excuses` |
 | REQ-017 | FR-PTS-1 |
 | REQ-018 | FR-PTS-2, FR-PTS-3, FR-PTS-4; `02` §6.4; golden G3-G5, G8 |
 | REQ-019 | FR-PTS-5 |

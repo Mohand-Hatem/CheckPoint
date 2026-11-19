@@ -404,6 +404,28 @@ async function main() {
     method: 'GET', path: `/me/points/summary?month=${month}`, token: e.access, expect: 200,
   });
   check(mySummary.json?.red?.cancelled === 1 && mySummary.json?.green?.available === 1, 'one RED cancelled, one GREEN left');
+  const excuse = await call({
+    title: 'Employee explains that day with an excuse',
+    why: 'One written excuse per own attendance day (REQ-034). It starts `PENDING` and changes no attendance or points; Admin review is not built yet.',
+    method: 'POST', path: `/me/attendance/${dayId}/excuse`, token: e.access, expect: 201,
+    body: { employeeReason: 'The bus broke down on the ring road.' },
+  });
+  await call({
+    title: 'A second excuse for the same day',
+    why: 'Refused: **409 `EXCUSE_EXISTS`**. An excuse cannot be resubmitted.',
+    method: 'POST', path: `/me/attendance/${dayId}/excuse`, token: e.access, expect: 409,
+    body: { employeeReason: 'Trying again' },
+  });
+  await call({
+    title: 'Employee lists their excuses',
+    why: 'Only my own excuses, newest first, each with its status and decision (empty while `PENDING`).',
+    method: 'GET', path: '/me/attendance-excuses', token: e.access, expect: 200,
+  });
+  await call({
+    title: 'The Admin cannot use the employee route for that excuse',
+    why: 'The record belongs to the employee: anyone else gets **404**, so its existence is not revealed.',
+    method: 'GET', path: `/me/attendance-excuses/${excuse.json.id}`, token: admin.access, expect: 404,
+  });
 
   // ---------------------------------------------------------------- D. sessions
   md.push('### Part D: Tokens, refresh and theft detection', '');

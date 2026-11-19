@@ -44,6 +44,8 @@ Common error codes: `UNAUTHENTICATED`, `FORBIDDEN`, `VALIDATION_FAILED`, `NOT_FO
 | `POST /attendance/check-in/{verificationId}/confirm` `{qrToken}` | Step 2: QR ⇒ attendance `CONFIRMED` + point |
 | `POST /attendance/check-out` `{lat,lng,accuracy}` | Check-out + overtime Greens |
 | `GET /me/attendance?month=` | Attendance history |
+| `POST /me/attendance/{attendanceDayId}/excuse` `{employeeReason}` | Submit an excuse for my own day ⇒ `201` `PENDING` (§4.8) |
+| `GET /me/attendance-excuses` · `GET /me/attendance-excuses/{id}` | My excuses with status and decision (§4.8) |
 | `GET /employee/work-offers` | Work offers addressed to this employee or all employees in the company; no acceptance action |
 | `GET /me/points?month=&type=&page=` | Ledger entries with derived state (active / cancelled-by / reversed / consumed / settled) |
 | `GET /me/points/summary?month=` | Counts by type and state |
@@ -174,6 +176,12 @@ stateDiagram-v2
 **Transaction:** reverse every un-reversed `ATTENDANCE` and `OVERTIME` entry of the day (compensating `REVERSAL` rows, `reason` = the correction reason; originals stay untouched); apply the change to `attendance_days`; recompute `classifyCheckIn` (a check-in at or after the absence threshold ⇒ BLACK) and `overtimeGreens = floor(minutes after scheduled_end / 60)`; award the new entries (`EXEMPT` ⇒ no new point, `classification = null`) with `source_type = ATTENDANCE`, `source_id = attendance_day.id`, value snapshot effective on `work_date`; write the audit row with before/after and the reason. The revision is the count of earlier `ATTENDANCE` awards for the day; the idempotency key `ATT:{dayId}:{rev}` makes a concurrent second correction fail with `409` instead of double-awarding.
 **Preserving the original:** the before/after snapshot lives in the append-only audit log and the earlier ledger entries are reversed, never edited; `GET /admin/attendance/{id}` shows both. Offsets and month lock are applied once the offset engine and payroll exist (Phase 4/6).
 `ATTENDANCE`/`OVERTIME` points are changed **only** through corrections (or leave approval); `POST /admin/points/{id}/reverse` accepts only `ADMIN`-source entries.
+
+### 4.8 Employee attendance excuses (REQ-034, HAS-168, D-22)
+`EmployeeAttendanceExcuseService`, table `attendance_excuses` (no migration: it exists with `attendance_day_id` UNIQUE).
+- **Submit** `POST /me/attendance/{attendanceDayId}/excuse {employeeReason}`: the caller's employee is found from the token (no employee profile ⇒ `404`). The day must belong to that employee **and** company; otherwise `404` with one message whether it is someone else's, another company's or missing. `employeeReason` trimmed, 1–1000 characters (`400`). One insert: `status = PENDING`, `submitted_by_user_id` = caller; the unique `attendance_day_id` turns a second excuse (any status, also a race) into `409 EXCUSE_EXISTS`. Same transaction: audit `attendance_excuse.submit` (actor `EMPLOYEE`). Attendance and points are not touched; any recorded day can be excused (ABSENT, locked month too).
+- **Read** `GET /me/attendance-excuses` (newest first, paged `page`/`limit`) and `GET /me/attendance-excuses/{id}`: only the caller's own excuses in the caller's company (`404` otherwise). Response: `id`, `attendanceDayId`, `workDate`, `employeeReason`, `status`, `decisionReason`, `decidedAt` (null while `PENDING`), `createdAt`. The decider's identity is not returned.
+- **Decision:** not built. Admin review and the effect of an approved excuse are GAP-030; until then every excuse stays `PENDING`.
 
 ## 5. Points
 

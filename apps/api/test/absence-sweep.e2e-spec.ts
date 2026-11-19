@@ -137,7 +137,7 @@ describe('Absence sweep (real database)', () => {
       expect(await sweep.run(AFTER_BLACK)).toMatchObject({ absences: 0, failed: 0 });
     }
     expect(await count()).toEqual(before);
-  });
+  }, 300000); // every run sweeps all companies in the shared test database
 
   it('five sweeps in parallel give one ABSENT and one BLACK per day', async () => {
     const { currentShiftId } = await prisma.employee.findUniqueOrThrow({ where: { id: emp.a } });
@@ -150,5 +150,5 @@ describe('Absence sweep (real database)', () => {
     expect(results.map((r) => r.failed)).toEqual([0, 0, 0, 0, 0]);
     expect(await dates(e)).toEqual(['2026-03-01', '2026-03-03', '2026-03-04']);
     expect(await prisma.attendanceDay.count({ where: { companyId, employeeId: e } })).toBe(3);
-  });
+  }, 300000);
 });

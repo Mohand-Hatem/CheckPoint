@@ -2852,6 +2852,251 @@
         ]
       }
     },
+    "/api/me/attendance/{attendanceDayId}/excuse": {
+      "post": {
+        "description": "Submit one written excuse for your own recorded day (any result, ABSENT included). It starts PENDING and changes no attendance or points. Someone else's day, another company's day or a missing day answers 404; a second excuse for the same day answers 409 EXCUSE_EXISTS.",
+        "operationId": "MyAttendanceController_submitExcuse",
+        "parameters": [
+          {
+            "name": "attendanceDayId",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateAttendanceExcuseDto"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not my attendance day (or no employee profile)."
+          },
+          "409": {
+            "description": "EXCUSE_EXISTS: the day already has an excuse; it cannot be resubmitted."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Explain one of my attendance days (REQ-034)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/me/attendance-excuses": {
+      "get": {
+        "description": "Only my own excuses in my company, newest first, each with its status and decision (empty while PENDING). Paged.",
+        "operationId": "MyAttendanceController_listExcuses",
+        "parameters": [
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceExcuseListDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "My attendance excuses (REQ-034)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
+    "/api/me/attendance-excuses/{id}": {
+      "get": {
+        "description": "Status and decision of one of my own excuses. Another employee's or company's excuse answers 404.",
+        "operationId": "MyAttendanceController_getExcuse",
+        "parameters": [
+          {
+            "name": "id",
+            "required": true,
+            "in": "path",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Not my excuse."
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "One of my attendance excuses (REQ-034)",
+        "tags": [
+          "Me"
+        ]
+      }
+    },
     "/api/me/attendance": {
       "get": {
         "description": "Only the signed-in employee's own days, oldest first: check-in and check-out times, the result and the day's point colour. Defaults to the current company month.",
@@ -6239,6 +6484,89 @@
       "CorrectAttendanceDto": {
         "type": "object",
         "properties": {}
+      },
+      "CreateAttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "employeeReason": {
+            "type": "string",
+            "example": "The bus broke down on the ring road.",
+            "minLength": 1,
+            "maxLength": 1000,
+            "description": "Trimmed; 1–1000 characters (AC-REQ-034-01/-06)."
+          }
+        },
+        "required": [
+          "employeeReason"
+        ]
+      },
+      "AttendanceExcuseDto": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "attendanceDayId": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workDate": {
+            "type": "string",
+            "example": "2026-11-02"
+          },
+          "employeeReason": {
+            "type": "string",
+            "example": "The bus broke down on the ring road."
+          },
+          "status": {
+            "type": "string",
+            "example": "PENDING",
+            "description": "PENDING until an Admin decides (Admin review is not built yet, GAP-030)."
+          },
+          "decisionReason": {
+            "type": "object",
+            "nullable": true,
+            "description": "The Admin's reason; null while PENDING."
+          },
+          "decidedAt": {
+            "type": "object",
+            "nullable": true,
+            "description": "When the Admin decided; null while PENDING."
+          },
+          "createdAt": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "attendanceDayId",
+          "workDate",
+          "employeeReason",
+          "status",
+          "decisionReason",
+          "decidedAt",
+          "createdAt"
+        ]
+      },
+      "AttendanceExcuseListDto": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/AttendanceExcuseDto"
+            }
+          },
+          "pagination": {
+            "$ref": "#/components/schemas/PaginationDto"
+          }
+        },
+        "required": [
+          "items",
+          "pagination"
+        ]
       },
       "MyAttendanceDayDto": {
         "type": "object",
