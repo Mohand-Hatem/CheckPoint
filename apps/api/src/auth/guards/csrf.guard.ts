@@ -16,6 +16,7 @@ export class CsrfGuard implements CanActivate {
 
   canActivate(context: ExecutionContext): boolean {
     const req = context.switchToHttp().getRequest<RequestWithSource>();
+    console.log()
     if (req.authSource !== 'cookie' || SAFE_METHODS.has(req.method)) return true;
 
     const accessToken = readCookie(req, ACCESS_COOKIE) ?? '';

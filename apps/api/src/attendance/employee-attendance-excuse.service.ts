@@ -2,7 +2,8 @@ import { ConflictException, Injectable, NotFoundException } from "@nestjs/common
 import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
-import { ListAttendanceExcusesQuery } from "./dto/attendance-excuse.dto";
+import { AttendanceExcuseSearchQuery, ListAttendanceExcusesQuery } from "./dto/attendance-excuse.dto";
+import { ExcuseDecision } from "./dto/excuse-decision.dto";
 
 // What the employee sees of an excuse (05 §4.8): status and decision, never the decider's identity.
 const EXCUSE_FIELDS = {
@@ -18,9 +19,27 @@ const EXCUSE_FIELDS = {
 
 type ExcuseRow = Prisma.AttendanceExcuseGetPayload<{ select: typeof EXCUSE_FIELDS }>;
 
+const ADMIN_EXCUSE_FIELDS = {
+  ...EXCUSE_FIELDS,
+  attendanceDay: {
+    select: {
+      workDate: true,
+      employee: { select: { id: true, fullName: true, employeeNumber: true } },
+    },
+  },
+} satisfies Prisma.AttendanceExcuseSelect;
+
 const toDto = ({ attendanceDay, ...excuse }: ExcuseRow) => ({
   ...excuse,
   workDate: attendanceDay.workDate.toISOString().slice(0, 10),
+});
+
+type AdminExcuseRow = Prisma.AttendanceExcuseGetPayload<{ select: typeof ADMIN_EXCUSE_FIELDS }>;
+
+const toAdminDto = ({ attendanceDay, ...excuse }: AdminExcuseRow) => ({
+  ...excuse,
+  workDate: attendanceDay.workDate.toISOString().slice(0, 10),
+  employee: attendanceDay.employee,
 });
 
 /** REQ-034 (HAS-168): an employee's own attendance excuses. Never touches attendance or points. */
@@ -98,6 +117,46 @@ export class EmployeeAttendanceExcuseService {
     return toDto(excuse);
   }
 
+  async reviewExcuses(companyId: string, query: AttendanceExcuseSearchQuery) {
+    const { employeeId, from, to, status, page, limit } = query;
+
+    const where: Prisma.AttendanceExcuseWhereInput = {
+      companyId,
+      ...(status && { status }),
+      ...((employeeId || from || to) && {
+        attendanceDay: {
+          ...(employeeId && { employeeId }),
+          ...((from || to) && {
+            workDate: {
+              ...(from && { gte: new Date(from) }),
+              ...(to && { lte: new Date(to) }),
+            },
+          }),
+        },
+      }),
+    };
+
+    const [excuses, total] = await Promise.all([
+      this.prisma.attendanceExcuse.findMany({
+        where,
+        select: ADMIN_EXCUSE_FIELDS,
+        orderBy: [{ createdAt: "desc" }, { id: "desc" }],
+        skip: (page - 1) * limit,
+        take: limit,
+      }),
+      this.prisma.attendanceExcuse.count({ where }),
+    ]);
+
+    return {
+      items: excuses.map(toAdminDto),
+      pagination: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
+  }
   private async employeeIdFor(companyId: string, userId: string) {
     const employee = await this.prisma.employee.findFirst({
       where: { companyId, userId },

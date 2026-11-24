@@ -1,6 +1,6 @@
 import { ApiProperty, ApiPropertyOptional } from "@nestjs/swagger";
 import { Transform, Type } from "class-transformer";
-import { IsInt, IsNotEmpty, IsOptional, IsString, Max, MaxLength, Min } from "class-validator";
+import { IsEnum, IsInt, IsISO8601, IsNotEmpty, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from "class-validator";
 
 export class CreateAttendanceExcuseDto {
   @ApiProperty({ example: "The bus broke down on the ring road.", minLength: 1, maxLength: 1000, description: "Trimmed; 1–1000 characters (AC-REQ-034-01/-06)." })
@@ -52,6 +52,61 @@ export class AttendanceExcuseDto {
 
   @ApiProperty()
   createdAt!: Date;
+}
+
+export enum AttendanceExcuseStatus {
+  PENDING = "PENDING",
+  APPROVED = "APPROVED",
+  REJECTED = "REJECTED",
+}
+
+export class AttendanceExcuseSearchQuery {
+  @ApiPropertyOptional({ format: "uuid", description: "Filter by employee." })
+  @IsOptional()
+  @IsUUID()
+  employeeId?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: "date",
+    example: "2026-11-01",
+    description: "Start of the work-date range (inclusive), YYYY-MM-DD.",
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  from?: string;
+
+  @ApiPropertyOptional({
+    type: String,
+    format: "date",
+    example: "2026-11-30",
+    description: "End of the work-date range (inclusive), YYYY-MM-DD.",
+  })
+  @IsOptional()
+  @IsISO8601({ strict: true })
+  to?: string;
+
+  @ApiPropertyOptional({
+    enum: AttendanceExcuseStatus,
+    enumName: "AttendanceExcuseStatus",
+    description: "Filter by excuse status.",
+  })
+  @IsOptional()
+  @IsEnum(AttendanceExcuseStatus)
+  status?: AttendanceExcuseStatus;
+
+  @ApiPropertyOptional({ default: 1, minimum: 1 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page: number = 1;
+
+  @ApiPropertyOptional({ default: 20, minimum: 1, maximum: 100 })
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit: number = 20;
 }
 
 class PaginationDto {

@@ -209,7 +209,43 @@ export class WorkOffersService {
       return this.toResponse(offer, now);
     });
   }
+ 
+   async offDaysWork(companyId:string,employeeId:string , startDate:Date , endDate:Date) {
+    const employee = await this.prisma.employee.findFirst({
+      where : {
+        companyId , 
+        id:employeeId , 
+        isActive:true
+      }
+    })
 
+    if (!employee) {
+      throw new NotFoundException("Active employee profile not found.");
+    }
+   
+    const workOffDays = await this.prisma.workOffer.findMany({
+      where : {
+        companyId , 
+        employeeId , 
+        offerType:"OFF_DAY_WORK" , 
+        status : {in : ["ACTIVE" , "COMPLETED"]} , 
+        startsAt:{gte : startDate } , 
+        endsAt:{lt:endDate}
+      } , 
+      include : {
+        recipients : {
+          include : {
+            employee : true
+          }
+        }
+      } , 
+      orderBy : {startsAt:"desc"}
+    })
+
+   
+
+    return workOffDays
+   }
   private toResponse(
     offer: Pick<
       WorkOffer,

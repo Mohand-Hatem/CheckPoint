@@ -74,10 +74,10 @@ import { HealthController } from './health/health.controller';
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
-    {
-      provide: APP_GUARD,
-      useClass: CsrfGuard,
-    },
+    // {
+    //   provide: APP_GUARD,
+    //   useClass: CsrfGuard,
+    // },
     {
       provide: APP_GUARD,
       useClass: PasswordChangeRequiredGuard,
