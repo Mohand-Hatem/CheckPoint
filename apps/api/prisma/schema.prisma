@@ -68,6 +68,7 @@ model Company {
   payrollMonths              PayrollMonth[]
   holidays                   Holiday[]
   attendanceVerifications    AttendanceVerification[]
+  employeeSalaryRecords      EmployeeSalaryRecord[]
 
   @@map("companies")
 }
@@ -179,30 +180,31 @@ model UserRole {
 }
 
 model Employee {
-  id                   String                  @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  companyId            String                  @map("company_id") @db.Uuid
-  currentShiftId       String                  @map("current_shift_id") @db.Uuid
-  userId               String?                 @unique(map: "employees_user_id_key") @map("user_id") @db.Uuid
-  employeeNumber       String                  @map("employee_number") @db.Text
-  fullName             String                  @map("full_name") @db.Text
-  isActive             Boolean                 @default(true) @map("is_active")
-  phone                String?                 @db.Text
+  id                      String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId               String                   @map("company_id") @db.Uuid
+  currentShiftId          String                   @map("current_shift_id") @db.Uuid
+  userId                  String?                  @unique(map: "employees_user_id_key") @map("user_id") @db.Uuid
+  employeeNumber          String                   @map("employee_number") @db.Text
+  fullName                String                   @map("full_name") @db.Text
+  isActive                Boolean                  @default(true) @map("is_active")
+  phone                   String?                  @db.Text
   // First Cairo date a BLACK may be created (join/reactivation); deactivatedAt stops BLACKs (docs/08 §3.1).
-  activeFrom           DateTime                @default(now()) @map("active_from") @db.Date
-  deactivatedAt        DateTime?               @map("deactivated_at") @db.Timestamptz(6)
-  createdAt            DateTime                @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt            DateTime                @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
-  company              Company                 @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  currentShift         Shift                   @relation("EmployeeCurrentShift", fields: [companyId, currentShiftId], references: [companyId, id], onDelete: Restrict)
-  user                 User?                   @relation(fields: [userId], references: [id], onDelete: SetNull)
-  compensationVersions EmployeeSalaryVersion[]
-  shiftAssignments     ShiftAssignment[]
-  attendanceDays       AttendanceDay[]
-  workOffers           WorkOffer[]
-  workOfferRecipients  WorkOfferRecipient[]
-  locations            EmployeeLocation[]
+  activeFrom              DateTime                 @default(now()) @map("active_from") @db.Date
+  deactivatedAt           DateTime?                @map("deactivated_at") @db.Timestamptz(6)
+  createdAt               DateTime                 @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt               DateTime                 @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+  company                 Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  currentShift            Shift                    @relation("EmployeeCurrentShift", fields: [companyId, currentShiftId], references: [companyId, id], onDelete: Restrict)
+  user                    User?                    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  compensationVersions    EmployeeSalaryVersion[]
+  shiftAssignments        ShiftAssignment[]
+  attendanceDays          AttendanceDay[]
+  workOffers              WorkOffer[]
+  workOfferRecipients     WorkOfferRecipient[]
+  locations               EmployeeLocation[]
   attendanceVerifications AttendanceVerification[]
-  pointLedgerEntries   PointLedgerEntry[]
+  pointLedgerEntries      PointLedgerEntry[]
+  employeeSalaryRecords   EmployeeSalaryRecord[]
 
   @@unique([companyId, employeeNumber], map: "employees_company_employee_number_key")
   @@unique([companyId, id], map: "employees_company_id_key")
@@ -211,15 +213,15 @@ model Employee {
 }
 
 model Location {
-  id                String             @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  companyId         String             @map("company_id") @db.Uuid
-  name              String             @db.Text
-  latitude          Decimal            @db.Decimal(9, 6)
-  longitude         Decimal            @db.Decimal(9, 6)
-  radiusM           Int                @default(50) @map("radius_m")
-  qrSecret          Bytes              @map("qr_secret")
-  active            Boolean            @default(true)
-  company           Company            @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  id                String                   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId         String                   @map("company_id") @db.Uuid
+  name              String                   @db.Text
+  latitude          Decimal                  @db.Decimal(9, 6)
+  longitude         Decimal                  @db.Decimal(9, 6)
+  radiusM           Int                      @default(50) @map("radius_m")
+  qrSecret          Bytes                    @map("qr_secret")
+  active            Boolean                  @default(true)
+  company           Company                  @relation(fields: [companyId], references: [id], onDelete: Restrict)
   employeeLocations EmployeeLocation[]
   verifications     AttendanceVerification[]
 
@@ -490,19 +492,19 @@ model PointLedgerEntry {
 }
 
 model PointOffsetAllocation {
-  id             String           @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
-  companyId      String           @map("company_id") @db.Uuid
-  greenEntryId   String           @map("green_entry_id") @db.Uuid
-  penaltyEntryId String           @map("penalty_entry_id") @db.Uuid
-  quantity       Int
+  id                   String                 @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId            String                 @map("company_id") @db.Uuid
+  greenEntryId         String                 @map("green_entry_id") @db.Uuid
+  penaltyEntryId       String                 @map("penalty_entry_id") @db.Uuid
+  quantity             Int
   // Append-only: set on an UNDO row, pointing at the APPLY row it cancels (05 §5.3).
   reversesAllocationId String?                @unique(map: "point_offset_allocations_reverses_allocation_id_key") @map("reverses_allocation_id") @db.Uuid
-  createdAt      DateTime         @default(now()) @map("created_at") @db.Timestamptz(6)
-  company        Company          @relation(fields: [companyId], references: [id], onDelete: Restrict)
-  greenEntry     PointLedgerEntry @relation("GreenOffset", fields: [greenEntryId], references: [id])
-  penaltyEntry   PointLedgerEntry @relation("PenaltyOffset", fields: [penaltyEntryId], references: [id])
-  reversesAllocation PointOffsetAllocation? @relation("OffsetUndo", fields: [reversesAllocationId], references: [id], onDelete: Restrict)
-  undoneBy       PointOffsetAllocation?   @relation("OffsetUndo")
+  createdAt            DateTime               @default(now()) @map("created_at") @db.Timestamptz(6)
+  company              Company                @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  greenEntry           PointLedgerEntry       @relation("GreenOffset", fields: [greenEntryId], references: [id])
+  penaltyEntry         PointLedgerEntry       @relation("PenaltyOffset", fields: [penaltyEntryId], references: [id])
+  reversesAllocation   PointOffsetAllocation? @relation("OffsetUndo", fields: [reversesAllocationId], references: [id], onDelete: Restrict)
+  undoneBy             PointOffsetAllocation? @relation("OffsetUndo")
 
   @@index([companyId, greenEntryId])
   @@index([companyId, penaltyEntryId])
@@ -645,4 +647,25 @@ model PayrollMonth {
 
   @@id([companyId, month])
   @@map("payroll_months")
+}
+
+model EmployeeSalaryRecord {
+  id                    String   @id @default(dbgenerated("gen_random_uuid()")) @db.Uuid
+  companyId             String   @map("company_id") @db.Uuid
+  employeeId            String   @map("employee_id") @db.Uuid
+  month                 DateTime @db.Date // first day of the payroll month
+  baseSalary            Decimal  @map("base_salary") @db.Decimal(14, 2)
+  leaveDeduction        Decimal  @map("leave_deduction") @db.Decimal(14, 2)
+  appliedRedDeduction   Decimal  @map("applied_red_deduction") @db.Decimal(14, 2)
+  appliedBlackDeduction Decimal  @map("applied_black_deduction") @db.Decimal(14, 2)
+  offDayPay             Decimal  @map("off_day_pay") @db.Decimal(14, 2)
+  fundCredit            Decimal  @map("fund_credit") @db.Decimal(14, 2)
+  netSalary             Decimal  @map("net_salary") @db.Decimal(14, 2)
+  calculatedAt          DateTime @default(now()) @map("calculated_at") @db.Timestamptz(6)
+  company               Company  @relation(fields: [companyId], references: [id], onDelete: Restrict)
+  employee              Employee @relation(fields: [employeeId], references: [id], onDelete: Restrict)
+
+  @@unique([companyId, employeeId, month], map: "employee_salary_records_employee_month_key")
+  @@index([companyId, month])
+  @@map("employee_salary_records")
 }

@@ -16,6 +16,7 @@ export const isCookieMode = (req: Request) => req.headers[AUTH_MODE_HEADER] === 
 
 export function readCookie(req: Pick<Request, 'headers'>, name: string): string | undefined {
   for (const part of (req.headers.cookie ?? '').split(';')) {
+    console.log(part)
     const i = part.indexOf('=');
     if (i > -1 && part.slice(0, i).trim() === name) return part.slice(i + 1).trim();
   }

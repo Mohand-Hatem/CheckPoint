@@ -42,6 +42,7 @@ import { EmployeesModule } from "../employees/employees.module";
 import {
   AttendanceExcuseDto,
   AttendanceExcuseListDto,
+  AttendanceExcuseSearchQuery,
   CreateAttendanceExcuseDto,
   ListAttendanceExcusesQuery,
 } from "./dto/attendance-excuse.dto";
@@ -104,7 +105,9 @@ export class AttendanceController {
 @ApiTags("Admin · Attendance")
 @Controller("admin/attendance-excuses")
 export class AdminAttendanceExcusesController {
-  constructor(private readonly decisions: AdminAttendanceExcuseDecisionService) {}
+  constructor(private readonly decisions: AdminAttendanceExcuseDecisionService , 
+    private readonly excuses : EmployeeAttendanceExcuseService
+  ) {}
 
   @Post(":id/decision")
   @HttpCode(200)
@@ -127,6 +130,24 @@ export class AdminAttendanceExcusesController {
     @CurrentUser() admin: AuthenticatedUser,
   ) {
     return this.decisions.decide(admin.companyId, admin.userId, id, dto);
+  }
+  @Get()
+  @RequirePermission("attendance.read")   // authorization (PermissionsGuard)
+  @ApiProtected()                          // authentication (bearer / 401)
+  @ApiNeedsPermission("attendance.read")   // documents the required permission
+  @ApiOperation({
+    summary: "Review attendance excuses of my company (REQ-035)",
+    description:
+      "Paged list of excuses in my company, newest first, each with the employee (id, name, number), the work date, the employee's reason, and its status and decision. Filter by employee, work-date range (from/to, YYYY-MM-DD, inclusive) and status. An empty result returns an empty page, not a 404. A from later than to answers 400.",
+  })
+  @ApiOkResponse({ type: AdminAttendanceExcuseDto })
+  @ApiForbiddenResponse({ description: "Missing the attendance.read permission." })
+  @ApiValidationError()
+  reviewExcuses(
+    @Query() query: AttendanceExcuseSearchQuery,
+    @CurrentUser() admin: AuthenticatedUser,
+  ) {
+    return this.excuses.reviewExcuses(admin.companyId, query);
   }
 }
 

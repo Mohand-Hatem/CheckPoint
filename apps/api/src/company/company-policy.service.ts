@@ -54,6 +54,27 @@ export class CompanyPolicyService {
     const timezone = await this.getTimezone(companyId, now);
     return dateOnlyInTimezone(now, timezone);
   }
+
+  async getPolicyVersions(companyId: string, startDate: Date, endDate: Date) {
+  return this.prisma.companyPolicyVersion.findMany({
+    where: {
+      companyId,
+      effectiveFrom: { lte: endDate },
+      OR: [{ effectiveTo: null }, { effectiveTo: { gte: startDate } }],
+    },
+    orderBy: { effectiveFrom: 'asc' },
+  });
+}
+
+async getPreviousMonthRange(companyId: string, now = new Date()) {
+  const today = await this.getCompanyDate(companyId, now);
+  const y = today.getUTCFullYear();
+  const m = today.getUTCMonth();
+  return {
+    startDate: new Date(Date.UTC(y, m - 1, 1)),
+    endDate: new Date(Date.UTC(y, m, 0)),
+  };
+}
 }
 
 function dateOnlyInTimezone(value: Date, timezone: string): Date {
