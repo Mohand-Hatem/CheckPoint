@@ -2954,6 +2954,146 @@
         ]
       }
     },
+    "/api/admin/attendance-excuses": {
+      "get": {
+        "description": "Paged list of excuses in my company, newest first, each with the employee (id, name, number), the work date, the employee's reason, and its status and decision. Filter by employee, work-date range (from/to, YYYY-MM-DD, inclusive) and status. An empty result returns an empty page, not a 404. A from later than to answers 400.",
+        "operationId": "AdminAttendanceExcusesController_reviewExcuses",
+        "parameters": [
+          {
+            "name": "employeeId",
+            "required": false,
+            "in": "query",
+            "description": "Filter by employee.",
+            "schema": {
+              "format": "uuid",
+              "type": "string"
+            }
+          },
+          {
+            "name": "from",
+            "required": false,
+            "in": "query",
+            "description": "Start of the work-date range (inclusive), YYYY-MM-DD.",
+            "schema": {
+              "format": "date",
+              "example": "2026-11-01",
+              "type": "string"
+            }
+          },
+          {
+            "name": "to",
+            "required": false,
+            "in": "query",
+            "description": "End of the work-date range (inclusive), YYYY-MM-DD.",
+            "schema": {
+              "format": "date",
+              "example": "2026-11-30",
+              "type": "string"
+            }
+          },
+          {
+            "name": "status",
+            "required": false,
+            "in": "query",
+            "description": "Filter by excuse status.",
+            "schema": {
+              "$ref": "#/components/schemas/AttendanceExcuseStatus"
+            }
+          },
+          {
+            "name": "page",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "default": 1,
+              "type": "number"
+            }
+          },
+          {
+            "name": "limit",
+            "required": false,
+            "in": "query",
+            "schema": {
+              "minimum": 1,
+              "maximum": 100,
+              "default": 20,
+              "type": "number"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AdminAttendanceExcuseDto"
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "The body or query failed validation. Unknown properties are rejected, not ignored.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 400,
+                  "message": [
+                    "Must be a valid email address"
+                  ],
+                  "error": "Bad Request"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "No token, an invalid token, or an expired access token (15 minutes).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 401,
+                  "message": "Unauthorized"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Missing the attendance.read permission.\n\nThe caller is authenticated but lacks the `attendance.read` permission (ADMIN has it, EMPLOYEE does not).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponseDto"
+                },
+                "example": {
+                  "statusCode": 403,
+                  "message": "Access denied: requires permission(s): attendance.read",
+                  "error": "Forbidden"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "access-token": []
+          },
+          {
+            "cookie-auth": []
+          }
+        ],
+        "summary": "Review attendance excuses of my company (REQ-035)",
+        "tags": [
+          "Admin · Attendance"
+        ]
+      }
+    },
     "/api/me/attendance/{attendanceDayId}/excuse": {
       "post": {
         "description": "Submit one written excuse for your own recorded day (any result, ABSENT included). It starts PENDING and changes no attendance or points. Someone else's day, another company's day or a missing day answers 404; a second excuse for the same day answers 409 EXCUSE_EXISTS.",
@@ -6668,6 +6808,14 @@
           "decidedByUserId",
           "createdAt",
           "decidedAt"
+        ]
+      },
+      "AttendanceExcuseStatus": {
+        "type": "string",
+        "enum": [
+          "PENDING",
+          "APPROVED",
+          "REJECTED"
         ]
       },
       "CreateAttendanceExcuseDto": {
