@@ -1,8 +1,8 @@
 import { BadRequestException, Injectable } from "@nestjs/common";
 import { PointType, Prisma } from "@prisma/client";
-import { CompanyPolicyService } from "src/company/company-policy.service";
-import { PrismaService } from "src/prisma/prisma.service";
-import { WorkOffersService } from "src/work-offers/work-offers.service";
+import { CompanyPolicyService } from "../company/company-policy.service";
+import { PrismaService } from "../prisma/prisma.service";
+import { WorkOffersService } from "../work-offers/work-offers.service";
 
 type Versioned = { effectiveFrom: Date; effectiveTo: Date | null };
 type DateRange = { startDate: Date; endDate: Date };

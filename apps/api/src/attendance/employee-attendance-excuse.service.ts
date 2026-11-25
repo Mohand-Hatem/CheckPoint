@@ -3,7 +3,7 @@ import { Prisma } from "@prisma/client";
 import { AuditService } from "../audit/audit.service";
 import { PrismaService } from "../prisma/prisma.service";
 import { AttendanceExcuseSearchQuery, ListAttendanceExcusesQuery } from "./dto/attendance-excuse.dto";
-import { ExcuseDecision } from "./dto/excuse-decision.dto";
+// import { ExcuseDecision } from "./dto/excuse-decision.dto";
 
 // What the employee sees of an excuse (05 §4.8): status and decision, never the decider's identity.
 const EXCUSE_FIELDS = {

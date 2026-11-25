@@ -86,10 +86,10 @@ import { SalaryCalcuationModule } from "./salaryCalcuation/salaryCalculation.mod
       provide: APP_GUARD,
       useClass: JwtAuthGuard,
     },
-    // {
-    //   provide: APP_GUARD,
-    //   useClass: CsrfGuard,
-    // },
+    {
+      provide: APP_GUARD,
+      useClass: CsrfGuard,
+    },
     {
       provide: APP_GUARD,
       useClass: PasswordChangeRequiredGuard,

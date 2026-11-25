@@ -1,7 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
-import { PrismaService } from 'src/prisma/prisma.service';
-import { CompanyPolicyService } from 'src/company/company-policy.service';
+import { PrismaService } from '../prisma/prisma.service';
+import { CompanyPolicyService } from '../company/company-policy.service';
 import { SalaryCalculationService } from './salaryCalculation.service';
 
 const BATCH_SIZE = 5; // each employee runs 6 queries in parallel, keep this small
